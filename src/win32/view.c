@@ -13,10 +13,14 @@
  * Animation (layout.md §7): the flying card is hidden from the board (FcView hide_*), the changed
  * regions are rendered into the back buffer, and each frame composes "back buffer region + card" in a
  * small scratch DIB which is BitBlt'ed to the window — only the union of the card's old and new
- * rectangles, so the back buffer stays clean and nothing flickers.
+ * rectangles, so the back buffer stays clean and nothing flickers. Frames are paced against
+ * timeGetTime at FC_FRAME_MS each (late frames are dropped, the landing frame never is), with the
+ * system timer at 1 ms (timeBeginPeriod) while cards fly: a plain Sleep(10) lasts a whole clock tick
+ * on XP (10–15.6 ms), which made flights up to twice as slow as designed.
  */
 #include "app.h"
 
+#include <mmsystem.h>
 #include <limits.h>
 #include <math.h>
 #include <stdarg.h>
@@ -495,14 +499,39 @@ static void blit_with_card(App *a, HDC dc, FcRect r, Card c, int cx, int cy)
     BitBlt(dc, k.x, k.y, k.w, k.h, a->sdc, 0, 0, SRCCOPY);
 }
 
-static void frame_pause(void)
+#define FC_FRAME_MS 10                          /* DESIGN.md: ~10 ms per frame */
+
+/* 1-ms system timer resolution from the first flight until the replay is over (view_anim_idle). */
+static void anim_clock_begin(App *a)
+{
+    if (!a->anim_period && timeBeginPeriod(1) == TIMERR_NOERROR)
+        a->anim_period = 1;
+}
+
+void view_anim_idle(App *a)
+{
+    if (a->anim_period) {
+        timeEndPeriod(1);
+        a->anim_period = 0;
+    }
+}
+
+/* Frame i (1-based) of a flight that started at t0 is on screen until t0 + i * FC_FRAME_MS: wait for
+ * that, let Windows see us retrieving messages (a long autoplay must not look "Not Responding";
+ * PM_NOREMOVE dispatches only sent messages, posted input waits until the move is done), and return
+ * the next frame to draw — the one due now, so a slow frame does not slow the flight down. */
+static int frame_wait(DWORD t0, int i)
 {
     MSG m;
+    LONG left;
+    int next;
     GdiFlush();
-    Sleep(10);
-    /* Let Windows see us retrieving messages (a long autoplay must not look "Not Responding").
-     * PM_NOREMOVE dispatches only sent messages; posted input waits until the move is done. */
+    left = (LONG)(t0 + (DWORD)i * FC_FRAME_MS - timeGetTime());
+    if (left > 0)
+        Sleep((DWORD)left);
     PeekMessageW(&m, NULL, 0, 0, PM_NOREMOVE | PM_NOYIELD);
+    next = (int)((timeGetTime() - t0) / FC_FRAME_MS) + 1;
+    return next > i ? next : i + 1;
 }
 
 void view_animate_step(App *a, const FcStep *st, int forward)
@@ -510,10 +539,11 @@ void view_animate_step(App *a, const FcStep *st, int forward)
     const FcBoard *b = &a->s.board;
     FcBoard after;
     FcRect from, to, prev, r[MAX_DIRTY];
-    int fcol, fpos, tcol, tpos, n, i, dx, dy, frames, dist;
+    int fcol, fpos, tcol, tpos, n, i, dx, dy, frames, dist, drawn = 0;
     unsigned gen;
     HDC dc;
     double t0;
+    DWORD start;
     if (a->s.opts.quick || !a->have_layout || !a->cs || !a->bits || !a->hwnd || IsIconic(a->hwnd) ||
         !IsWindowVisible(a->hwnd))
         return;
@@ -559,18 +589,22 @@ void view_animate_step(App *a, const FcStep *st, int forward)
         if (frames < 1)
             frames = 1;
         prev = from;
+        anim_clock_begin(a);
+        start = timeGetTime();
         /* XP's AnimateCard: frames i = 1..N-1 at from + d*i/N, then the destination */
-        for (i = 1; i < frames && a->layout_gen == gen && a->bits; i++) {
+        for (i = 1; i < frames && a->layout_gen == gen && a->bits;) {
             FcRect cur = from;
             cur.x = from.x + dx * i / frames;
             cur.y = from.y + dy * i / frames;
             blit_with_card(a, dc, rect_union(prev, cur), st->card, cur.x, cur.y);
             prev = cur;
-            frame_pause();
+            drawn++;
+            i = frame_wait(start, i);
         }
         if (a->layout_gen == gen && a->bits) {
             blit_with_card(a, dc, rect_union(prev, to), st->card, to.x, to.y);
-            frame_pause();
+            drawn++;
+            frame_wait(start, frames);
         }
         ReleaseDC(a->hwnd, dc);
     }
@@ -578,7 +612,8 @@ void view_animate_step(App *a, const FcStep *st, int forward)
     a->use_anim_board = 0;
     if (a->layout_gen != gen)
         view_invalidate_all(a);                       /* resized mid-flight: start over cleanly */
-    tlog(a, "flight %d,%d -> %d,%d: %d frames, %.1f ms", fcol, fpos, tcol, tpos, frames, now_ms(a) - t0);
+    tlog(a, "flight %d,%d -> %d,%d: %d frames (%d drawn), %.1f ms", fcol, fpos, tcol, tpos, frames, drawn,
+         now_ms(a) - t0);
 }
 
 /* ---- mouse / cursor ------------------------------------------------------------------------------- */
@@ -633,7 +668,7 @@ void view_refresh_cursor(App *a)
     SetCursor(a->cursor);
 }
 
-/* ---- "Cards Left: N" in the menu bar (layout.md §8) --------------------------------------------- */
+/* ---- "Cards Left: N" in the menu bar (layout.md §8), and the extras "Moves" / "Time" ------------- */
 
 void menubar_font_update(App *a)
 {
@@ -653,16 +688,40 @@ void menubar_reset(App *a)
     a->cl_prev_left = INT_MAX;
 }
 
+/* The texts to try, most complete first: "Moves: M    Time: T    Cards Left: N" (extra option), then
+ * without Time, then Cards Left alone (XP). Returns the number of candidates. */
+static int menubar_texts(App *a, WCHAR out[3][192])
+{
+    WCHAR fmt[64], cl[96], mv[96], tm[96], t[32];
+    char tb[32];
+    int n = 0, moves = fcs_moves(&a->s);
+    load_wstr(a, IDS_CARDSLEFT, fmt, 64, L"Cards Left: %u");
+    wsprintfW(cl, fmt, (unsigned)a->cards_left);
+    if (a->s.extras.show_time_moves) {
+        load_wstr(a, IDS_MOVES, fmt, 64, L"Moves: %u");
+        wsprintfW(mv, fmt, (unsigned)(moves > 0 ? moves : 0));
+        fcs_format_time(fcs_elapsed_ms(&a->s), tb, sizeof tb);
+        to_wide(tb, t, 32);
+        load_wstr(a, IDS_TIME, fmt, 64, L"Time: %s");
+        wsprintfW(tm, fmt, t);
+        wsprintfW(out[n++], L"%s    %s    %s", mv, tm, cl);
+        wsprintfW(out[n++], L"%s    %s", mv, cl);
+    }
+    lstrcpyW(out[n++], cl);
+    return n;
+}
+
 void menubar_draw(App *a)
 {
     MENUBARINFO mbi;
     RECT wr, cr, bar, er;
-    WCHAR fmt[64], text[96];
+    WCHAR texts[3][192];
+    const WCHAR *text = NULL;
     SIZE sz;
     TEXTMETRICW tm;
     HDC dc;
     HGDIOBJ of;
-    int right, x, y, len, items, i, n;
+    int right, x = 0, y, len = 0, items, i, n, nt;
     BOOL flat = FALSE;
     HWND h = a->hwnd;
     if (!h || !a->menu || IsIconic(h) || !IsWindowVisible(h))
@@ -678,20 +737,22 @@ void menubar_draw(App *a)
     right = cr.right;                                 /* XP: x = clientWidth - textWidth, window DC */
     if (right > bar.right)
         right = bar.right;
-    load_wstr(a, IDS_CARDSLEFT, fmt, 64, L"Cards Left: %u");
-    wsprintfW(text, fmt, (unsigned)a->cards_left);
-    len = lstrlenW(text);
+    nt = menubar_texts(a, texts);
     dc = GetWindowDC(h);
     if (!dc)
         return;
     of = SelectObject(dc, a->menu_font ? (HGDIOBJ)a->menu_font : GetStockObject(DEFAULT_GUI_FONT));
-    GetTextExtentPoint32W(dc, text, len, &sz);
+    GetTextExtentPoint32W(dc, texts[nt - 1], lstrlenW(texts[nt - 1]), &sz);
     if (!GetTextMetricsW(dc, &tm))
         tm.tmHeight = sz.cy;
-    x = right - sz.cx;
-    /* XP: y = SM_CYFRAME + SM_CYCAPTION + (SM_CYMENU - tmHeight) / 2; else centred in the bar */
-    y = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) +
-        (GetSystemMetrics(SM_CYMENU) - tm.tmHeight) / 2;
+    /* XP: y = SM_CYFRAME + SM_CYCAPTION + (SM_CYMENU - tmHeight) / 2, i.e. from the top of the menu
+     * bar of a captioned window; in full screen (no frame, no caption) the same from the bar's top;
+     * else centred in the bar */
+    if (a->fullscreen)
+        y = bar.top + (GetSystemMetrics(SM_CYMENU) - tm.tmHeight) / 2;
+    else
+        y = GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CYCAPTION) +
+            (GetSystemMetrics(SM_CYMENU) - tm.tmHeight) / 2;
     if (y < bar.top - 1 || y + sz.cy > bar.bottom)
         y = bar.top + (bar.bottom - bar.top - sz.cy) / 2;
     /* never overlap the menu items ("Game", "Help") on the text's row */
@@ -705,7 +766,18 @@ void menubar_draw(App *a)
         if (ir.top < y + sz.cy && ir.bottom > y && ir.right > items)
             items = ir.right;
     }
-    if (x >= items + sz.cy) {                         /* a gap of about two characters */
+    for (i = 0; i < nt && !text; i++) {               /* the longest text that fits: drop Time, then Moves */
+        SIZE ts;
+        int l = lstrlenW(texts[i]);
+        if (!GetTextExtentPoint32W(dc, texts[i], l, &ts))
+            continue;
+        if (right - ts.cx >= items + sz.cy) {         /* a gap of about two characters */
+            text = texts[i];
+            len = l;
+            x = right - ts.cx;
+        }
+    }
+    if (text) {
         SystemParametersInfoW(SPI_GETFLATMENU, 0, &flat, 0);
         er.left = x < a->cl_prev_left ? x : a->cl_prev_left;   /* erase a longer previous text */
         if (er.left < items + 1)
@@ -721,4 +793,20 @@ void menubar_draw(App *a)
     }
     SelectObject(dc, of);
     ReleaseDC(h, dc);
+}
+
+/* "Time" ticks once a second while the clock runs and is shown: a one-shot-like WM_TIMER re-armed for
+ * just after the next whole second, so the display changes on time without a faster timer. */
+void clock_update(App *a)
+{
+    int want = a->hwnd && a->s.extras.show_time_moves && fcs_clock_running(&a->s) && !IsIconic(a->hwnd);
+    if (want) {
+        uint32_t ms = fcs_elapsed_ms(&a->s);
+        SetTimer(a->hwnd, FC_TIMER_CLOCK, 1000u - ms % 1000u + 15u, NULL);
+        a->clock_timer = 1;
+    } else if (a->clock_timer) {
+        if (a->hwnd)
+            KillTimer(a->hwnd, FC_TIMER_CLOCK);
+        a->clock_timer = 0;
+    }
 }

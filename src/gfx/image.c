@@ -504,58 +504,200 @@ void fc_stroke_round_rect(FcImage *dst, double x, double y, double w, double h, 
     }
 }
 
+/* Card shape: per pixel (ring << 8) | in, the frame ring's and the inside's coverage (0..255, ring +
+ * in <= 255), or SHAPE_INTERIOR where the pixel is plain art (composited over 'under'). */
+#define SHAPE_INTERIOR 0xffffu
+
+struct FcCardShape {
+    int       w, h;
+    double    r, t;          /* as requested (the key) */
+    uint16_t *cov;           /* w * h */
+};
+
+typedef struct ShapeGeom { double w, h, r, t, ri, band; } ShapeGeom;
+
+static void shape_geom(ShapeGeom *g, int w, int h, double r, double t)
+{
+    g->w = w;
+    g->h = h;
+    if (r > g->w / 2) r = g->w / 2;
+    if (r > g->h / 2) r = g->h / 2;
+    g->r = r;
+    g->t = t;
+    g->ri = r - t > 0 ? r - t : 0;
+    g->band = r + 1;
+}
+
+/* Pixels x0 .. x1-1 of row py. Only the edge pixels need the (floating-point) coverage. */
+static void shape_span(const ShapeGeom *g, int py, int x0, int x1, uint16_t *out)
+{
+    double w = g->w, h = g->h, t = g->t, band = g->band;
+    int ey = py < t + 1 || py + 1 > h - t - 1, cy = py < band || py + 1 > h - band, px;
+    for (px = x0; px < x1; px++) {
+        double co, ci;
+        uint32_t ring, in;
+        int edge = ey || px < t + 1 || px + 1 > w - t - 1 || (cy && (px < band || px + 1 > w - band));
+        if (!edge) {
+            *out++ = SHAPE_INTERIOR;
+            continue;
+        }
+        co = fc_round_rect_coverage(0, 0, w, h, g->r, px, py);
+        ci = fc_round_rect_coverage(t, t, w - 2 * t, h - 2 * t, g->ri, px, py);
+        ring = (uint32_t)((co - ci) * 255 + 0.5);
+        in = (uint32_t)(ci * 255 + 0.5);
+        if (ring + in > 255)
+            ring = 255 - in;
+        *out++ = (uint16_t)(ring << 8 | in);
+    }
+}
+
+/* Apply n shape values to n pixels: result = ring * frame + in * (art over under), the shape's alpha
+ * being analytic. fpm: the frame colour premultiplied, B G R A. Integer only. */
+static void finish_span(uint32_t *d, const uint16_t *m, int n, const uint32_t fpm[4], uint32_t under)
+{
+    int i;
+    for (i = 0; i < n; i++) {
+        uint32_t p = d[i], ring, in, c[4], k;
+        if (m[i] == SHAPE_INTERIOR) {
+            if (p < 0xff000000u)
+                d[i] = over(p, under);
+            continue;
+        }
+        if (p < 0xff000000u)
+            p = over(p, under);
+        ring = m[i] >> 8;
+        in = m[i] & 255;
+        for (k = 0; k < 4; k++) {
+            c[k] = mul255(fpm[k], ring) + mul255((p >> (8 * k)) & 255, in);
+            if (c[k] > 255)
+                c[k] = 255;
+        }
+        if (c[0] > c[3]) c[0] = c[3];
+        if (c[1] > c[3]) c[1] = c[3];
+        if (c[2] > c[3]) c[2] = c[3];
+        d[i] = (c[3] << 24) | (c[2] << 16) | (c[1] << 8) | c[0];
+    }
+}
+
+static void frame_premul(uint32_t frame, uint32_t fpm[4])
+{
+    uint32_t fa = frame >> 24;
+    fpm[0] = mul255(frame & 255, fa);
+    fpm[1] = mul255((frame >> 8) & 255, fa);
+    fpm[2] = mul255((frame >> 16) & 255, fa);
+    fpm[3] = fa;
+}
+
+FcCardShape *fc_card_shape_new(int w, int h, double r, double t)
+{
+    FcCardShape *s;
+    ShapeGeom g;
+    int py;
+    if (w <= 0 || h <= 0 || (size_t)w > ((size_t)-1 / 2) / (size_t)h)
+        return NULL;
+    s = (FcCardShape *)malloc(sizeof *s);
+    if (!s)
+        return NULL;
+    s->cov = (uint16_t *)malloc(sizeof(uint16_t) * (size_t)w * (size_t)h);
+    if (!s->cov) {
+        free(s);
+        return NULL;
+    }
+    s->w = w;
+    s->h = h;
+    s->r = r;
+    s->t = t;
+    shape_geom(&g, w, h, r, t);
+    for (py = 0; py < h; py++)
+        shape_span(&g, py, 0, w, s->cov + (size_t)py * w);
+    return s;
+}
+
+void fc_card_shape_free(FcCardShape *shape)
+{
+    if (shape) {
+        free(shape->cov);
+        free(shape);
+    }
+}
+
+int fc_card_shape_is(const FcCardShape *s, int w, int h, double r, double t)
+{
+    return s && s->w == w && s->h == h && s->r == r && s->t == t;
+}
+
+void fc_image_card_finish_shape(FcImage *img, const FcCardShape *shape, uint32_t frame, uint32_t under)
+{
+    uint32_t fpm[4];
+    int py;
+    if (!img || !shape || img->w != shape->w || img->h != shape->h)
+        return;
+    frame_premul(frame, fpm);
+    for (py = 0; py < img->h; py++)
+        finish_span(img->px + (size_t)py * img->stride, shape->cov + (size_t)py * shape->w, img->w, fpm,
+                    under);
+}
+
 void fc_image_card_finish(FcImage *img, double r, double t, uint32_t frame, uint32_t under)
 {
+    uint16_t m[256];
+    uint32_t fpm[4];
+    ShapeGeom g;
     int px, py;
-    double w, h, ri, band;
-    uint32_t fa, fr, fg, fb;
     if (!img)
         return;
-    w = img->w;
-    h = img->h;
-    if (r > w / 2) r = w / 2;
-    if (r > h / 2) r = h / 2;
-    ri = r - t > 0 ? r - t : 0;
-    band = r + 1;
-    fa = frame >> 24;
-    fr = (frame >> 16) & 255;
-    fg = (frame >> 8) & 255;
-    fb = frame & 255;
-    for (py = 0; py < img->h; py++) {
+    shape_geom(&g, img->w, img->h, r, t);
+    frame_premul(frame, fpm);
+    for (py = 0; py < img->h; py++)
+        for (px = 0; px < img->w; px += 256) {
+            int n = img->w - px < 256 ? img->w - px : 256;
+            shape_span(&g, py, px, px + n, m);
+            finish_span(img->px + (size_t)py * img->stride + px, m, n, fpm, under);
+        }
+}
+
+/* ---- bevel ring (empty cells and the king frame on scaled-up boards) ----------------------------- */
+
+/* 1 if the point is nearer the top or left edge than the bottom or right one (the 45-degree mitre) */
+static int tl_side(int w, int h, double sx, double sy)
+{
+    double top = sy, left = sx, bottom = h - sy, right = w - sx;
+    return (top < left ? top : left) < (bottom < right ? bottom : right);
+}
+
+FcImage *fc_bevel_ring_new(int w, int h, double t, double rad, uint32_t tl, uint32_t br)
+{
+    FcImage *img = fc_image_new(w, h);
+    int px, py, band = (int)(t + rad) + 2;
+    if (!img)
+        return NULL;
+    for (py = 0; py < h; py++) {
         uint32_t *d = img->px + (size_t)py * img->stride;
-        int ey = py < t + 1 || py + 1 > h - t - 1, cy = py < band || py + 1 > h - band;
-        for (px = 0; px < img->w; px++) {
-            double co, ci;
-            uint32_t p = d[px], ring, in, c[4], k;
-            int edge = ey || px < t + 1 || px + 1 > w - t - 1 || (cy && (px < band || px + 1 > w - band));
-            if (!edge) {
-                /* interior: art composited over 'under' */
-                if (p < 0xff000000u)
-                    d[px] = over(p, under);
+        int edge_row = py < band || py >= h - band;
+        for (px = 0; px < w; px++) {
+            double cov, f;
+            int i, j, n;
+            uint32_t a, rr, g, b;
+            if (!edge_row && px >= band && px < w - band) {
+                px = w - band - 1;   /* skip the inside of the ring */
                 continue;
             }
-            co = fc_round_rect_coverage(0, 0, w, h, r, px, py);
-            ci = fc_round_rect_coverage(t, t, w - 2 * t, h - 2 * t, ri, px, py);
-            if (p < 0xff000000u)
-                p = over(p, under);
-            ring = (uint32_t)((co - ci) * 255 + 0.5);
-            in = (uint32_t)(ci * 255 + 0.5);
-            if (ring + in > 255)
-                ring = 255 - in;
-            /* result = ring * frame + in * (art over under) — the shape's alpha is analytic */
-            for (k = 0; k < 4; k++) {
-                uint32_t sh = 8 * k, fcol = k == 3 ? fa : (k == 2 ? fr : (k == 1 ? fg : fb));
-                uint32_t fpm = k == 3 ? fa : mul255(fcol, fa);
-                c[k] = mul255(fpm, ring) + mul255((p >> sh) & 255, in);
-                if (c[k] > 255)
-                    c[k] = 255;
-            }
-            if (c[0] > c[3]) c[0] = c[3];
-            if (c[1] > c[3]) c[1] = c[3];
-            if (c[2] > c[3]) c[2] = c[3];
-            d[px] = (c[3] << 24) | (c[2] << 16) | (c[1] << 8) | c[0];
+            cov = fc_round_rect_coverage(0, 0, w, h, rad, px, py) -
+                  fc_round_rect_coverage(t, t, w - 2 * t, h - 2 * t, rad > t ? rad - t : 0, px, py);
+            if (cov <= 0.002)
+                continue;
+            for (n = 0, j = 0; j < 4; j++)
+                for (i = 0; i < 4; i++)
+                    n += tl_side(w, h, px + (i + 0.5) / 4, py + (j + 0.5) / 4);
+            f = n / 16.0;
+            a = (uint32_t)(cov * 255 + 0.5);
+            rr = (uint32_t)((f * ((tl >> 16) & 255) + (1 - f) * ((br >> 16) & 255)) * cov + 0.5);
+            g = (uint32_t)((f * ((tl >> 8) & 255) + (1 - f) * ((br >> 8) & 255)) * cov + 0.5);
+            b = (uint32_t)((f * (tl & 255) + (1 - f) * (br & 255)) * cov + 0.5);
+            d[px] = (a << 24) | (rr << 16) | (g << 8) | b;
         }
     }
+    return img;
 }
 
 /* ---- PNG writer (native tools/tests only) ----------------------------------------------------- */

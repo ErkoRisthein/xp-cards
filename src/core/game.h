@@ -47,6 +47,7 @@ typedef struct FcStep {
  * parking/unparking, autoplay). Used for animation (replay forward) and undo (replay backward). */
 typedef struct FcAction {
     FcBoard before;
+    int     counted;          /* 1 = a user move (the move counter's unit); 0 = e.g. autoplay only */
     int     nsteps;
     FcStep  steps[FC_MAX_STEPS];
 } FcAction;
@@ -55,6 +56,9 @@ typedef struct FcAction {
 void fc_board_clear(FcBoard *b);                 /* empty board, homes -1, cards_left 0 */
 void fc_deal(FcBoard *b, int game_number);       /* MS LCG deal; also the fixed -1 / -2 layouts */
 int  fc_random_game_number(uint32_t time_seed);  /* XP RandomGameNumber: srand(t); rand(); rand(); ... */
+/* Extra ("New Game picks from all 1,000,000 games"): uniform in 1..1000000 from the same generator,
+ * two 15-bit draws combined into 30 bits with rejection sampling. */
+int  fc_random_game_number_full(uint32_t time_seed);
 
 /* ---- Predicates (rules.md §2) ----------------------------------------------------------------- */
 int  fc_can_stack(Card src, Card dst);           /* dst rank = src rank + 1, opposite colours */
@@ -66,12 +70,29 @@ int  fc_max_movable(const FcBoard *b);
 int  fc_cards_to_move(const FcBoard *b, int src_col, int dst_col); /* XP CardsToMove, §2.3 */
 int  fc_safe_to_autoplay(const FcBoard *b, Card c, int cheat_win); /* §3 */
 
+/* ---- Standard supermove rule (extra option; XP's rule above stays the default) -----------------
+ * Capacity with f empty free cells and e empty columns (not counting the destination):
+ * (f+1)*2^e. Onto a non-empty column e = all empty columns; onto an empty column e = the OTHER empty
+ * columns, i.e. (f+1)*2^(E-1) with E counting the destination too. */
+int  fc_capacity_std(int free_cells, int empty_cols);
+/* Most cards one move can take onto a non-empty column (standard = 0: XP's (f+1)(e+1)). */
+int  fc_max_movable_rule(const FcBoard *b, int standard);
+/* Most cards one move can take into the empty column dst: XP "Move column" = f+1 (free cells only),
+ * standard = (f+1)*2^(e-1). */
+int  fc_max_to_empty(const FcBoard *b, int standard);
+
 /* ---- Building actions (rules.md §2.6, §3, §4.2) -------------------------------------------- */
 void fc_action_begin(FcAction *a, const FcBoard *b);
 /* Apply one single-card move to b and append it to a (XP QueueMove). */
 void fc_queue(FcBoard *b, FcAction *a, int src_col, int src_pos, int dst_col, int dst_pos);
 void fc_move_run_via_free_cells(FcBoard *b, FcAction *a, int src_col, int dst_col);
 void fc_supermove(FcBoard *b, FcAction *a, int src_col, int dst_col);
+/* Standard supermove: the bottom n cards of src_col (an ordered run) onto dst_col (empty or not),
+ * as single-card steps through the empty free cells and the empty columns other than src/dst, the
+ * standard recursive way (an intermediate empty column holds a sub-run moved with the rest of the
+ * free space). Needs n <= fc_capacity_std(f, e) with e the empty columns other than dst; returns 0
+ * (nothing moved) otherwise. */
+int  fc_move_cards_std(FcBoard *b, FcAction *a, int src_col, int dst_col, int n);
 void fc_autoplay(FcBoard *b, FcAction *a, int cheat_win);
 int  fc_home_slot_for(FcBoard *b, int suit);     /* assigns leftmost empty home slot on first use */
 

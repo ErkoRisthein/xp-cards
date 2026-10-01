@@ -670,6 +670,20 @@ static int c_rup(int argc, WCHAR **argv) { return post_mouse(L"R", argc, argv); 
 static int c_rclick(int argc, WCHAR **argv) { return post_mouse(L"rR", argc, argv); }
 static int c_move(int argc, WCHAR **argv) { return post_mouse(L"", argc, argv); }
 
+/* Posted input never activates the window, so the system's WM_MOUSEACTIVATE is sent by hand. */
+static int c_mouse_activate(int argc, WCHAR **argv)
+{
+    long hit, msg;
+    DWORD_PTR r = 0;
+    if (want_int(argv[1], &hit, argv[0]) || want_int(argv[2], &msg, argv[0]) || need_target()) return 1;
+    if (!SendMessageTimeoutW(T.hwnd, WM_MOUSEACTIVATE, (WPARAM)T.hwnd, MAKELPARAM((WORD)hit, (WORD)msg),
+                             SMTO_NORMAL, (UINT)timeout_ms, &r))
+        return err(L"WM_MOUSEACTIVATE timed out");
+    say(L"WM_MOUSEACTIVATE(hit %ld, msg 0x%lx) -> %ld", hit, msg, (long)r);
+    settle();
+    return 0;
+}
+
 static HWND key_target(void)
 {
     GUITHREADINFO gi;
@@ -1143,6 +1157,7 @@ static const struct cmd {
     {L"rclick_down", 2, 2, c_rdown, L"<x> <y>  right button down"},
     {L"rclick_up", 2, 2, c_rup, L"<x> <y>  right button up"},
     {L"move", 2, 2, c_move, L"<x> <y>  mouse move (with the buttons currently held)"},
+    {L"mouse_activate", 2, 2, c_mouse_activate, L"<hittest> <mouse msg>  send WM_MOUSEACTIVATE (e.g. 1 516 = HTCLIENT, WM_RBUTTONDOWN)"},
     {L"key", 1, 1, c_key, L"<chars>  post WM_CHAR for each character to the focus window"},
     {L"vkey", 1, 4, c_vkey, L"<code|F1..F24|ESC|ENTER|..> [shift] [ctrl] [alt]  key down + up"},
     {L"capture", 1, 1, c_capture, L"<out.bmp>  capture the client area (in-process)"},

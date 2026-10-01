@@ -23,8 +23,13 @@ resize_client 1904 996
 assert_client_size 1904 996
 assert_menubar_text "Cards Left: 52"
 assert_pixel 105 600 007F00               # left margin of the centred board
-assert_pixel 106 0 000000                 # free cell 0 bevel (2 px at this scale)
-assert_pixel 107 1 000000
+# free cell 0 (106,0 190x257): the scaled-up bevel is an anti-aliased ring of 2.68 px with rounded corners
+assert_pixel 106 0 007F00                 # the rounded corner: table green
+assert_pixel 107 100 000000               # dark left edge, 2 full pixels
+assert_pixel 109 100 007F00
+assert_pixel 200 1 000000                 # dark top edge
+assert_pixel 294 100 00FF00               # light right edge
+assert_pixel 200 255 00FF00               # light bottom edge
 capture 40_1904x996_game1.bmp
 capture_window 40_1904x996_game1_window.bmp
 

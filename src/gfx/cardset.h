@@ -32,12 +32,17 @@ FcCardSet *fc_cardset_new(FcAssetLoader loader, void *ctx);   /* decodes masters
 void       fc_cardset_free(FcCardSet *cs);
 
 /* Set the card cell size (cw x ch) and king sizes. Scaled sprites are rebuilt lazily on next use.
- * quality: 0 = fast (live resize), 1 = best. Calling again with the same sizes and quality is free. */
+ * quality: 0 = fast (live resize), 1 = best. Calling again with the same sizes and quality is free;
+ * so is asking for quality 0 at the sizes already built (the better sprites are kept). */
 void fc_cardset_set_size(FcCardSet *cs, int cw, int ch, int king_px, int big_king_px, int quality);
 
 /* Scaled card sprite (cw x ch, premultiplied, transparent rounded corners, crisp dark outline). */
 const FcImage *fc_cardset_card(FcCardSet *cs, Card c);
 /* Scaled king sprites: which = FC_KING_*; big = 0 small box king (king_px), 1 big win king. */
 const FcImage *fc_cardset_king(FcCardSet *cs, int which, int big);
+
+/* fc_bevel_ring_new(w, h, t, rad, tl, br), cached (the last few distinct rings are kept): the empty
+ * cells and the king frame are redrawn on every render, their rings are built once per size. */
+const FcImage *fc_cardset_bevel(FcCardSet *cs, int w, int h, double t, double rad, uint32_t tl, uint32_t br);
 
 #endif

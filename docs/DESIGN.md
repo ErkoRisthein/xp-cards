@@ -28,10 +28,16 @@ Reference material (reverse-engineered from the XP binaries in this repo):
 ## Build / runtime constraints
 
 * Language: C99 (GNU dialect ok). Win32 API only (user32, gdi32, kernel32, advapi32, comctl32,
-  shell32; hhctrl.ocx loaded dynamically). No C++ / no GDI+ required.
+  shell32, winmm; hhctrl.ocx loaded dynamically). No C++ / no GDI+ required.
 * Toolchain: Homebrew `i686-w64-mingw32-gcc` (GCC 16, mingw-w64 14, **UCRT by default — we MUST use
   `-mcrtdll=msvcrt-os`** so the exe imports `msvcrt.dll`, which XP has). `-march=i686` (no SSE2
   assumption). `-static` (static libgcc). `_WIN32_WINNT=0x0501`, `WINVER=0x0501`, `UNICODE`.
+* CPU: P6 class or later (Pentium Pro/II, Athlon/Duron, VIA C3 Nehemiah): the code uses CMOV and FCOMI,
+  and so does mingw-w64's prebuilt i686 runtime (gdtoa, printf), so `-march=i586` alone would not make
+  the exe run on a Pentium MMX, K6 or early C3. No SSE (`STBI_NO_SIMD`; Athlon Thunderbird/Duron work).
+* x87 is slow, so hot loops in `src/gfx` are integer: floating point (the anti-aliased card shape,
+  bevel rings, the master edge test) runs once per size or on a few pixels per row, not per pixel per
+  card.
 * Every imported function must exist on Windows XP SP2 — checked by `tools/xp_imports_check.py`.
 * Portable core: everything in `src/core` and `src/gfx` is plain C with no Windows headers, so it is
   unit-tested natively on macOS (`make test`) and renders snapshot PNGs (`make snapshots`).
@@ -94,7 +100,9 @@ All XP geometry (layout.md §2, §10) is expressed in XP pixels at scale `s = 1`
 * Bevels (empty free/home cells: black top/left, #00FF00 bottom/right; king frame the reverse) are
   drawn with line width `max(1, round(s))`.
 * Big win king: `320 s` square at `(bx + 10 s, ch + 10 s)`, shrunk to fit the client height if needed.
-* Animation step: `37 s` px per frame; ~10 ms per frame (XP had no delay; this mimics period hardware).
+* Animation step: `37 s` px per frame; 10 ms per frame (XP had no delay; this mimics period hardware),
+  paced against `timeGetTime` with `timeBeginPeriod(1)` during flights (a plain `Sleep(10)` lasts a
+  whole 10–15.6 ms clock tick on XP); late frames are dropped, the landing frame never is.
 
 ## Rendering
 
@@ -102,7 +110,9 @@ Software compositing into a 32-bit top-down DIB section (premultiplied BGRA), th
 Card masters (400x560 RGBA PNG) are decoded once, premultiplied, and resampled with a high-quality
 area-averaging filter to `cw x ch` whenever the size changes; a crisp 1-px dark rounded outline is
 drawn after scaling (the art's 1.67-px master outline vanishes when downscaled). During live
-resizing a cheaper filter may be used, with the HQ rescale after `WM_EXITSIZEMOVE`. Selection =
+resizing a cheaper filter may be used, with the HQ rescale after `WM_EXITSIZEMOVE` (a fast request at
+the card size already built keeps the HQ sprites; above ~2660x1570 the fast sprites come from
+half-size copies of the masters, so a live resize never decodes a PNG). Selection =
 XP's colour inversion (`255 - RGB`, corners untouched). Table colour RGB(0,127,0).
 
 ### Crispness decisions (2026-10-01, queued after v1.1)

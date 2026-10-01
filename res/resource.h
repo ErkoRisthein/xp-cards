@@ -20,6 +20,7 @@
 #define IDM_CHEAT           114     /* Ctrl+Shift+F10 only: "User-Friendly User Interface" */
 #define IDM_UNDO            115     /* Game > Undo (F10, initially grayed) */
 #define IDM_REDO            116     /* Game > Redo (Ctrl+Y, initially grayed); extra, not in XP */
+#define IDM_FULLSCREEN      117     /* Game > Full Screen (F11, Alt+Enter; Esc leaves); extra */
 
 /* Dialog control ids (resources.md §5) */
 #define IDC_MOVECOLUMN      201     /* MoveCol: "Move &column" (default) */
@@ -34,6 +35,13 @@
 #define IDC_STATS_SESSION   212     /* Stats: string 319 */
 #define IDC_STATS_TOTAL     213     /* Stats: string 320 */
 #define IDC_STATS_STREAKS   214     /* Stats: string 321 */
+/* Extra controls (v1.1, not in XP) */
+#define IDC_EXTRAS_GROUP    220     /* Options: "Extras" group box */
+#define IDC_SHOWTIME        221     /* Options: "Show &time and moves" */
+#define IDC_STDSUPERMOVE    222     /* Options: "&Standard multi-card moves" */
+#define IDC_FULLRANGE       223     /* Options: "&New Game picks from all 1,000,000 games" */
+#define IDC_WONBEFORE       224     /* GameNum: "You have won this game before." / empty */
+#define IDC_STATS_WONDEALS  225     /* Stats: "Different games won: %u" */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif
@@ -64,6 +72,11 @@
 #define IDS_STATS_SESSION   319     /* wsprintf(pct, won, lost) */
 #define IDS_STATS_TOTAL     320     /* wsprintf(pct, won, lost) */
 #define IDS_STATS_STREAKS   321     /* wsprintf(wins, losses, current string) */
+/* Extra strings (v1.1) */
+#define IDS_MOVES           401     /* "Moves: %u" (menu bar, left of Cards Left) */
+#define IDS_TIME            402     /* "Time: %s" */
+#define IDS_WONBEFORE       403     /* "You have won this game before." */
+#define IDS_WONDEALS        404     /* "Different games won: %u" */
 
 /* RCDATA PNGs: card c (rank*4 + suit) = IDR_CARD0 + c; kings = FC_ASSET_KING_* in cardset.h */
 #define IDR_CARD0           1000

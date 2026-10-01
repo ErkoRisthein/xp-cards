@@ -67,6 +67,19 @@ int fc_random_game_number(uint32_t time_seed)     /* RandomGameNumber, §1.6 */
     return v;
 }
 
+/* Extra: the same start (srand(t); rand(); rand();), then pairs of draws -> 30 bits, rejected above
+ * the largest multiple of 1000000 (1073 * 10^6 < 2^30) so every game is equally likely. */
+int fc_random_game_number_full(uint32_t time_seed)
+{
+    MsRand r = { time_seed };
+    ms_rand(&r);
+    ms_rand(&r);
+    for (;;) {
+        uint32_t hi = (uint32_t)ms_rand(&r), lo = (uint32_t)ms_rand(&r), v = hi << 15 | lo;
+        if (v < 1073u * (uint32_t)FC_GAME_MAX) return (int)(v % (uint32_t)FC_GAME_MAX) + 1;
+    }
+}
+
 /* ---- Predicates (§2) ------------------------------------------------------------------------- */
 
 int fc_can_stack(Card src, Card dst)
@@ -100,6 +113,25 @@ int fc_empty_columns(const FcBoard *b)
 int fc_capacity(int f, int e) { return (f + 1) * (e + 1); }   /* Capacity, §2.2 */
 
 int fc_max_movable(const FcBoard *b) { return fc_capacity(fc_free_cells_empty(b), fc_empty_columns(b)); }
+
+int fc_capacity_std(int f, int e)
+{
+    if (f < 0) f = 0;
+    if (e < 0) e = 0;
+    if (e > 20) e = 20;
+    return (f + 1) << e;
+}
+
+int fc_max_movable_rule(const FcBoard *b, int standard)
+{
+    return standard ? fc_capacity_std(fc_free_cells_empty(b), fc_empty_columns(b)) : fc_max_movable(b);
+}
+
+int fc_max_to_empty(const FcBoard *b, int standard)
+{
+    int f = fc_free_cells_empty(b);
+    return standard ? fc_capacity_std(f, fc_empty_columns(b) - 1) : f + 1;
+}
 
 int fc_cards_to_move(const FcBoard *b, int s, int d)          /* CardsToMove, §2.3 */
 {
@@ -204,6 +236,7 @@ static void push_step(FcBoard *b, FcAction *a, int sc, int sp, int dc, int dp)
 void fc_action_begin(FcAction *a, const FcBoard *b)
 {
     a->before = *b;
+    a->counted = 0;
     a->nsteps = 0;
 }
 
@@ -255,6 +288,59 @@ void fc_supermove(FcBoard *b, FcAction *a, int s, int d)                 /* Supe
     } while (n > f + 1);
     fc_move_run_via_free_cells(b, a, s, d);
     while (--j >= 0) fc_move_run_via_free_cells(b, a, ec[j], d);
+}
+
+/* ---- Standard supermove (extra) ------------------------------------------------------------- */
+
+/* The bottom n cards of s onto d through the empty free cells only (n <= free cells + 1). */
+static void move_via_free_cells_n(FcBoard *b, FcAction *a, int s, int d, int n)
+{
+    int fc[4], nf = 0;
+    for (int i = 0; i < 4; i++)
+        if (b->board[0][i] == FC_EMPTY) fc[nf++] = i;
+    if (n > nf + 1) n = nf + 1;
+    for (int i = 0; i < n - 1; i++) fc_queue(b, a, s, 0, 0, fc[i]);       /* park */
+    fc_queue(b, a, s, 0, d, 0);                                         /* base card */
+    for (int i = n - 2; i >= 0; i--) fc_queue(b, a, 0, fc[i], d, 0);   /* unpark */
+}
+
+/* Move n cards s -> d with f free cells and the empty columns ec[0..ne-1] as helpers. With one helper
+ * column t: x cards go to t (using the other helpers), the remaining n - x go to d, then t's x cards
+ * follow onto d. x is as small as possible (the cards parked on t move twice), and a helper that is
+ * not needed is not used, so the step count stays low. */
+static void move_std(FcBoard *b, FcAction *a, int s, int d, int n, const int *ec, int ne, int f)
+{
+    if (n <= f + 1 || ne <= 0) {
+        move_via_free_cells_n(b, a, s, d, n);
+        return;
+    }
+    int rest = fc_capacity_std(f, ne - 1);
+    if (n <= rest) {                                     /* the last helper is not needed */
+        move_std(b, a, s, d, n, ec, ne - 1, f);
+        return;
+    }
+    int t = ec[0], x = n - rest;
+    move_std(b, a, s, t, x, ec + 1, ne - 1, f);
+    move_std(b, a, s, d, n - x, ec + 1, ne - 1, f);
+    move_std(b, a, t, d, x, ec + 1, ne - 1, f);
+}
+
+int fc_move_cards_std(FcBoard *b, FcAction *a, int s, int d, int n)
+{
+    if (s < 1 || s > 8 || d < 1 || d > 8 || s == d || n < 1) return 0;
+    int last = fc_last_index(b, s), run = 1;
+    if (last < 0) return 0;
+    while (last - run >= 0 && fc_can_stack(b->board[s][last - run + 1], b->board[s][last - run])) run++;
+    if (n > run) return 0;                                /* not an ordered run */
+    int dl = fc_last_index(b, d);
+    if (dl >= 0 && !fc_can_stack(b->board[s][last - n + 1], b->board[d][dl])) return 0;
+    if (dl + n >= FC_COLLEN) return 0;
+    int ec[8], ne = 0, f = fc_free_cells_empty(b);
+    for (int c = 1; c <= 8; c++)
+        if (c != s && c != d && b->board[c][0] == FC_EMPTY) ec[ne++] = c;
+    if (n > fc_capacity_std(f, ne)) return 0;
+    move_std(b, a, s, d, n, ec, ne, f);
+    return 1;
 }
 
 int fc_home_slot_for(FcBoard *b, int suit)                               /* HomeSlot */

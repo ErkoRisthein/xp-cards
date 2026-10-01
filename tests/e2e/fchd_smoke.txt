@@ -56,6 +56,16 @@ click 42 262                              # click it again: deselect
 assert_pixel 11 264 FFFFFF
 assert_menu 115 grayed                    # a pure deselect is not an action
 
+# the left click after a client-area activation is swallowed, whichever button activated (rules.md 4.6)
+mouse_activate 1 516                      # HTCLIENT, WM_RBUTTONDOWN
+click 42 262
+assert_pixel 11 264 FFFFFF                # swallowed: not selected
+mouse_activate 2 513                      # HTCAPTION: nothing is armed
+click 42 262
+assert_pixel 11 264 000000                # selected
+click 42 262
+assert_pixel 11 264 FFFFFF
+
 # illegal move with messages on: 6S onto 9C
 click 42 262
 click 120 300

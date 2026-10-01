@@ -95,6 +95,7 @@ void center_dialog(HWND dlg, HWND owner)
 static int msgbox(App *a, const WCHAR *text, const WCHAR *caption, UINT type, UINT beep)
 {
     int r;
+    view_anim_idle(a);
     view_sync_now(a);
     a->in_modal++;
     if (beep != (UINT)-1)
@@ -107,6 +108,7 @@ static int msgbox(App *a, const WCHAR *text, const WCHAR *caption, UINT type, UI
 static INT_PTR run_dialog(App *a, const WCHAR *name, DLGPROC proc, LPARAM lp)
 {
     INT_PTR r;
+    view_anim_idle(a);
     view_sync_now(a);
     a->in_modal++;
     r = DialogBoxParamW(a->inst, name, a->hwnd, proc, lp);
@@ -121,6 +123,17 @@ static void set_check(HWND d, int id, int on) { CheckDlgButton(d, id, on ? BST_C
 
 typedef struct GameNumParam { int initial, value; } GameNumParam;
 
+/* Extra: "You have won this game before." under the number box while it holds a won deal. */
+static void game_num_won_line(HWND d)
+{
+    BOOL ok = FALSE;
+    WCHAR text[96] = L"";
+    int v = (int)GetDlgItemInt(d, IDC_GAMENUMBER, &ok, TRUE);
+    if (ok && fcs_won_before(&g_app.s, v))
+        load_wstr(&g_app, IDS_WONBEFORE, text, 96, L"You have won this game before.");
+    SetDlgItemTextW(d, IDC_WONBEFORE, text);
+}
+
 /* GameNum (0x10024D4): pre-filled number (all selected), signed read on OK; the session validates. */
 static INT_PTR CALLBACK game_num_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 {
@@ -131,9 +144,14 @@ static INT_PTR CALLBACK game_num_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         p = (GameNumParam *)lp;
         center_dialog(d, g_app.hwnd);
         SetDlgItemInt(d, IDC_GAMENUMBER, (UINT)p->initial, p->initial < 0);
+        game_num_won_line(d);
         return TRUE;                                  /* focus the edit; the dialog selects its text */
     case WM_COMMAND:
         switch (LOWORD(wp)) {
+        case IDC_GAMENUMBER:
+            if (HIWORD(wp) == EN_CHANGE)
+                game_num_won_line(d);
+            return TRUE;
         case IDOK: {
             BOOL ok = FALSE;
             int v = (int)GetDlgItemInt(d, IDC_GAMENUMBER, &ok, TRUE);
@@ -232,7 +250,7 @@ static void stats_fill(HWND d)
 {
     FcStatsView v;
     char buf[256];
-    WCHAR w[256];
+    WCHAR w[256], fmt[64];
     fc_stats_view(&g_app.s.stats, &v);
     fc_stats_format_session(&v, buf, sizeof buf);
     to_wide(buf, w, 256);
@@ -243,6 +261,9 @@ static void stats_fill(HWND d)
     fc_stats_format_streaks(&v, buf, sizeof buf);
     to_wide(buf, w, 256);
     SetDlgItemTextW(d, IDC_STATS_STREAKS, w);
+    load_wstr(&g_app, IDS_WONDEALS, fmt, 64, L"Different games won: %u");   /* extra */
+    wsprintfW(w, fmt, (unsigned)fcs_won_count(&g_app.s));
+    SetDlgItemTextW(d, IDC_STATS_WONDEALS, w);
 }
 
 /* Stats (0x1002671): Clear asks 309; Yes clears and closes the dialog. */
@@ -275,16 +296,21 @@ static INT_PTR CALLBACK stats_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
     return FALSE;
 }
 
-/* Options (505, 0x10029F1): OK applies to memory; saved on exit by fcs_close (XP). */
+/* Options (505, 0x10029F1): OK applies to memory; XP's three are saved on exit by fcs_close (XP), the
+ * extras (the "Extras" group) right away in our own key. */
 static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 {
     FcOptions *o = &g_app.s.opts;
+    FcExtras *x = &g_app.s.extras;
     switch (m) {
     case WM_INITDIALOG:
         center_dialog(d, g_app.hwnd);
         set_check(d, IDC_MESSAGES, o->messages);
         set_check(d, IDC_QUICKPLAY, o->quick);
         set_check(d, IDC_DBLCLICK, o->dblclick);
+        set_check(d, IDC_SHOWTIME, x->show_time_moves);
+        set_check(d, IDC_STDSUPERMOVE, x->standard_supermove);
+        set_check(d, IDC_FULLRANGE, x->full_range);
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
@@ -292,6 +318,10 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             o->messages = checked(d, IDC_MESSAGES);
             o->quick = checked(d, IDC_QUICKPLAY);
             o->dblclick = checked(d, IDC_DBLCLICK);
+            x->show_time_moves = checked(d, IDC_SHOWTIME);
+            x->standard_supermove = checked(d, IDC_STDSUPERMOVE);
+            x->full_range = checked(d, IDC_FULLRANGE);
+            fc_extras_save(x, &g_app.app_store);
             EndDialog(d, 1);
             return TRUE;
         case IDCANCEL:
@@ -313,8 +343,13 @@ void dlg_statistics(App *a)
 
 void dlg_options(App *a)
 {
-    if (dialogs_allowed(a))
-        run_dialog(a, MAKEINTRESOURCEW(IDD_OPTIONS), options_proc, 0);
+    if (dialogs_allowed(a) && run_dialog(a, MAKEINTRESOURCEW(IDD_OPTIONS), options_proc, 0) == 1) {
+        DrawMenuBar(a->hwnd);                         /* "Moves" / "Time" shown or hidden */
+        menubar_reset(a);
+        menubar_draw(a);
+        clock_update(a);
+        view_refresh_cursor(a);                       /* the supermove rule changes the cursor */
+    }
 }
 
 /* ---- session callbacks ------------------------------------------------------------------------------- */
@@ -469,6 +504,16 @@ static uint32_t cb_now_seed(void *ctx)
     return (uint32_t)t * 1000u + GetTickCount() % 1000u;
 }
 
+/* Extras: the game clock's time base, and "moves / clock changed". */
+static uint32_t cb_now_ms(void *ctx) { return GetTickCount(); }
+
+static void cb_status_changed(void *ctx)
+{
+    App *a = ctx;
+    menubar_draw(a);
+    clock_update(a);
+}
+
 void ui_make(App *a, FcSessionUI *ui)
 {
     memset(ui, 0, sizeof *ui);
@@ -489,6 +534,8 @@ void ui_make(App *a, FcSessionUI *ui)
     ui->flash = cb_flash;
     ui->post_command = cb_post_command;
     ui->now_seed = cb_now_seed;
+    ui->now_ms = cb_now_ms;
+    ui->status_changed = cb_status_changed;
 }
 
 /* The menu resource starts with Undo, Redo and Restart grayed (XP: Undo and Restart). */

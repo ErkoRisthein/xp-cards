@@ -572,6 +572,155 @@ static void test_queue(void)
     CHECK(board_eq(&b, &start));
 }
 
+/* ---- Standard supermove rule (extra) ---------------------------------------------------------- */
+
+static void test_capacity_std_table(void)
+{
+    for (int f = 0; f <= 4; f++)
+        for (int e = 0; e <= 7; e++) {
+            CHECK_EQ(fc_capacity_std(f, e), (f + 1) << e);
+            CHECK_EQ(fc_capacity(f, e), (f + 1) * (e + 1));                  /* XP's, unchanged */
+        }
+    /* spot values: the classic table */
+    CHECK_EQ(fc_capacity_std(4, 0), 5);
+    CHECK_EQ(fc_capacity_std(4, 1), 10);
+    CHECK_EQ(fc_capacity_std(1, 2), 8);
+    CHECK_EQ(fc_capacity_std(0, 7), 128);
+    CHECK_EQ(fc_capacity_std(4, 7), 640);
+    CHECK_EQ(fc_capacity_std(3, -1), 4);                                     /* clamped */
+    /* the board queries: non-empty destination counts every empty column, an empty one the others */
+    for (int f = 0; f <= 4; f++)
+        for (int e = 0; e <= 6; e++) {
+            FcBoard b;
+            capacity_board(&b, f, e);
+            CHECK_EQ(fc_max_movable_rule(&b, 0), (f + 1) * (e + 1));
+            CHECK_EQ(fc_max_movable_rule(&b, 1), (f + 1) << e);
+            if (e >= 1) {
+                CHECK_EQ(fc_max_to_empty(&b, 0), f + 1);
+                CHECK_EQ(fc_max_to_empty(&b, 1), (f + 1) << (e - 1));
+            }
+        }
+}
+
+/* Every (f, e, n) with a non-empty and with an empty destination, empty columns in random places,
+ * the run alone in its column or below other cards: every generated step is a legal single-card move,
+ * the final board is exactly the expected one (the run moved, nothing else changed: free cells and
+ * helper columns empty again), the step count stays small, undo restores, and n above the capacity
+ * is refused without a step. */
+static void test_supermove_std_exhaustive(void)
+{
+    static const char *const run12[12] = { "QH", "JS", "TH", "9S", "8H", "7S", "6H", "5S", "4H", "3S", "2H", "AS" };
+    static const char *const pool[] = { "KS", "KH", "KD", "KC", "QS", "QD", "QC", "JH", "JD", "JC", "TS", "TD" };
+    srand(2468);
+    int tested = 0, refused = 0, maxsteps = 0;
+    for (int empty_dst = 0; empty_dst <= 1; empty_dst++)
+        for (int f = 0; f <= 4; f++)
+            for (int e = 0; e <= 6; e++)          /* e = empty columns other than src/dst */
+                for (int whole = 0; whole <= 1; whole++)
+                    for (int n = 1; n <= 12; n++) {
+                        int cap = fc_capacity_std(f, e), len = whole ? n : 12;
+                        if (!empty_dst && n == 12) continue;     /* no card above a Q run's head */
+                        /* columns: a random permutation gives src, dst, the empty ones, fillers */
+                        int perm[8];
+                        for (int i = 0; i < 8; i++) perm[i] = i + 1;
+                        for (int i = 7; i > 0; i--) { int j = rand() % (i + 1), t = perm[i]; perm[i] = perm[j]; perm[j] = t; }
+                        int src = perm[0], dst = perm[1];
+                        FcBoard b;
+                        fc_board_clear(&b);
+                        int used[52] = { 0 };
+                        for (int i = 0; i < len; i++) {
+                            b.board[src][i] = C(run12[12 - len + i]);
+                            used[b.board[src][i]] = 1;
+                        }
+                        if (!empty_dst) {              /* the card the n-th run card from the bottom fits on */
+                            Card head = b.board[src][len - n];
+                            Card d = (fc_rank(head) + 1) * 4 + (fc_is_red(head) ? 0 : 1);   /* C or D */
+                            b.board[dst][0] = d;
+                            used[d] = 1;
+                        }
+                        int k = 0;
+                        for (int i = 0; i < 4 - f; i++) {
+                            while (used[C(pool[k])]) k++;
+                            b.board[0][i] = C(pool[k]); used[C(pool[k])] = 1;
+                        }
+                        for (int i = 2 + e; i < 8; i++) {     /* fillers; perm[2 .. 2+e-1] stay empty */
+                            while (used[C(pool[k])]) k++;
+                            b.board[perm[i]][0] = C(pool[k]); used[C(pool[k])] = 1;
+                        }
+                        fix_cards_left(&b);
+                        CHECK_EQ(fc_empty_columns(&b), e + empty_dst);
+                        if (!empty_dst) CHECK_EQ(fc_cards_to_move(&b, src, dst), n);
+                        FcBoard expect = b, chk = b, before = b;
+                        int dl = fc_last_index(&b, dst) + 1;
+                        for (int i = 0; i < n; i++) {
+                            expect.board[dst][dl + i] = b.board[src][len - n + i];
+                            expect.board[src][len - n + i] = FC_EMPTY;
+                        }
+                        FcAction a;
+                        fc_action_begin(&a, &b);
+                        int ok = fc_move_cards_std(&b, &a, src, dst, n);
+                        if (n > cap) {
+                            CHECK_EQ(ok, 0);
+                            CHECK_EQ(a.nsteps, 0);
+                            CHECK(board_eq(&b, &before));
+                            refused++;
+                            continue;
+                        }
+                        CHECK_EQ(ok, 1);
+                        int legal = steps_legal(&chk, &a);
+                        CHECK(legal);
+                        CHECK(board_eq(&chk, &b));
+                        CHECK(board_eq(&b, &expect));
+                        if (!legal || !board_eq(&b, &expect))
+                            printf("  std supermove f=%d e=%d n=%d len=%d empty_dst=%d src=%d dst=%d\n", f, e, n, len,
+                                   empty_dst, src, dst);
+                        CHECK(a.nsteps >= 2 * n - 1 || n == 1);
+                        CHECK(a.nsteps < FC_MAX_STEPS);
+                        if (a.nsteps > maxsteps) maxsteps = a.nsteps;
+                        if (n <= f + 1) CHECK_EQ(a.nsteps, 2 * n - 1);   /* free cells suffice */
+                        for (int j = a.nsteps - 1; j >= 0; j--) fc_step_unapply(&b, &a.steps[j]);
+                        CHECK(board_eq(&b, &before));
+                        tested++;
+                    }
+    printf("standard supermove: %d moves checked step by step (max %d steps), %d over capacity refused\n",
+           tested, maxsteps, refused);
+    CHECK(tested > 1000);
+    CHECK(refused > 100);
+
+    /* refusals: not an ordered run, a destination that does not fit, bad columns */
+    FcBoard b;
+    FcAction a;
+    fc_board_clear(&b);
+    set_col(&b, 1, "9H 8S 7S");
+    set_col(&b, 2, "TC");
+    fix_cards_left(&b);
+    fc_action_begin(&a, &b);
+    CHECK_EQ(fc_move_cards_std(&b, &a, 1, 3, 2), 0);       /* 8S 7S is not a run */
+    CHECK_EQ(fc_move_cards_std(&b, &a, 1, 2, 1), 0);       /* 7S does not fit on TC */
+    CHECK_EQ(fc_move_cards_std(&b, &a, 1, 1, 1), 0);
+    CHECK_EQ(fc_move_cards_std(&b, &a, 0, 2, 1), 0);
+    CHECK_EQ(fc_move_cards_std(&b, &a, 4, 2, 1), 0);       /* empty source */
+    CHECK_EQ(fc_move_cards_std(&b, &a, 1, 3, 0), 0);
+    CHECK_EQ(a.nsteps, 0);
+    CHECK_EQ(fc_move_cards_std(&b, &a, 1, 3, 1), 1);       /* 7S alone to an empty column */
+    CHECK_EQ(a.nsteps, 1);
+}
+
+/* The full New Game range: 1..1000000, deterministic per seed. */
+static void test_random_number_full(void)
+{
+    int big = 0, ok = 1;
+    for (uint32_t t = 1600000000u; t < 1600020000u; t++) {
+        int n = fc_random_game_number_full(t);
+        ok &= n >= 1 && n <= 1000000;
+        big += n > 32767;
+    }
+    CHECK(ok);
+    CHECK(big > 19000);
+    CHECK_EQ(fc_random_game_number_full(12345), fc_random_game_number_full(12345));
+    CHECK(fc_random_game_number_full(1) != fc_random_game_number_full(2));
+}
+
 int main(void)
 {
     test_deals();
@@ -586,6 +735,9 @@ int main(void)
     test_cheat_sweep();
     test_no_moves();
     test_queue();
+    test_capacity_std_table();
+    test_supermove_std_exhaustive();
+    test_random_number_full();
     printf("test_game: %d checks, %d failures\n", checks, fails);
     return fails != 0;
 }

@@ -157,3 +157,30 @@ void fc_options_save(const FcOptions *o, const FcStore *store)   /* 0x1002B90 */
     if (o->dblclick) store_del(store, "dblclick"); else store_set(store, "dblclick", 0);
     if (store->flush) store->flush(store->ctx);
 }
+
+/* ---- Extras ------------------------------------------------------------------------------------ */
+
+void fc_extras_default(FcExtras *x)
+{
+    memset(x, 0, sizeof *x);
+}
+
+void fc_extras_load(FcExtras *x, const FcStore *store)
+{
+    fc_extras_default(x);
+    if (!store) return;
+    x->show_time_moves = store_get(store, "ShowTimeMoves", 0) != 0;
+    x->standard_supermove = store_get(store, "StandardSupermove", 0) != 0;
+    x->full_range = store_get(store, "FullRangeDeals", 0) != 0;
+    x->full_screen = store_get(store, "FullScreen", 0) != 0;
+}
+
+void fc_extras_save(const FcExtras *x, const FcStore *store)
+{
+    if (!store) return;
+    store_set(store, "ShowTimeMoves", x->show_time_moves != 0);
+    store_set(store, "StandardSupermove", x->standard_supermove != 0);
+    store_set(store, "FullRangeDeals", x->full_range != 0);
+    store_set(store, "FullScreen", x->full_screen != 0);
+    if (store->flush) store->flush(store->ctx);
+}

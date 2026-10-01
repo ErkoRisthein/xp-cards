@@ -53,6 +53,56 @@ static void cards_left_changed(FcSession *s)
 
 static void set_timer(FcSession *s, int id, int ms) { if (UI(s, set_timer)) UI(s, set_timer)(UI(s, ctx), id, ms); }
 
+/* ---- Move counter and game clock (extras) ------------------------------------------------------- */
+
+static void status_changed(FcSession *s) { if (UI(s, status_changed)) UI(s, status_changed)(UI(s, ctx)); }
+
+static uint32_t clock_now(const FcSession *s) { return s->ui.now_ms ? s->ui.now_ms(s->ui.ctx) : 0; }
+
+static void clock_start(FcSession *s)            /* the first counted move after a deal */
+{
+    if (s->clock_running || !s->in_progress) return;
+    s->clock_start = clock_now(s) - s->clock_ms;
+    s->clock_running = 1;
+}
+
+static void clock_stop(FcSession *s)             /* win / loss: the time stays shown */
+{
+    if (!s->clock_running) return;
+    s->clock_ms = clock_now(s) - s->clock_start;
+    s->clock_running = 0;
+}
+
+static void clock_reset(FcSession *s)            /* a deal */
+{
+    s->clock_running = 0;
+    s->clock_ms = 0;
+    s->moves = 0;
+}
+
+int fcs_moves(const FcSession *s) { return s->moves; }
+int fcs_clock_running(const FcSession *s) { return s->clock_running; }
+uint32_t fcs_elapsed_ms(const FcSession *s) { return s->clock_running ? clock_now(s) - s->clock_start : s->clock_ms; }
+
+void fcs_format_time(uint32_t ms, char *buf, size_t n)
+{
+    uint32_t t = ms / 1000u;
+    if (t >= 3600u) snprintf(buf, n, "%u:%02u:%02u", (unsigned)(t / 3600u), (unsigned)(t / 60u % 60u), (unsigned)(t % 60u));
+    else snprintf(buf, n, "%u:%02u", (unsigned)(t / 60u), (unsigned)(t % 60u));
+}
+
+/* ---- Won deals (extra) ------------------------------------------------------------------------------ */
+
+int fcs_attach_won_deals(FcSession *s, const FcBlobIO *io)
+{
+    if (io) s->won_io = *io;
+    else memset(&s->won_io, 0, sizeof s->won_io);
+    return fc_won_load(&s->won, io);
+}
+
+int fcs_won_before(const FcSession *s, int game) { return fc_won_has(&s->won, game); }
+uint32_t fcs_won_count(const FcSession *s) { return fc_won_count(&s->won); }
+
 static void set_king(FcSession *s, int k)
 {
     if (s->king != k) { s->king = k; invalidate(s); }
@@ -116,13 +166,18 @@ static void post_command(FcSession *s, int cmd)
 }
 
 /* RandomGameNumber with a fix: a repeated time seed (two requests in the same second) is bumped, and
- * the number never repeats the current game. Same 1..32767 range as XP. */
+ * the number never repeats the current game. Same 1..32767 range as XP, or 1..1000000 (extra). */
+static int random_number(const FcSession *s, uint32_t t)
+{
+    return s->extras.full_range ? fc_random_game_number_full(t) : fc_random_game_number(t);
+}
+
 static int next_random(FcSession *s)
 {
     uint32_t t = UI(s, now_seed) ? UI(s, now_seed)(UI(s, ctx)) : 0;
     if (s->seeded && t <= s->last_seed) t = s->last_seed + 1;
-    int n = fc_random_game_number(t);
-    for (int i = 0; i < 16 && n == s->game_number; i++) n = fc_random_game_number(++t);
+    int n = random_number(s, t);
+    for (int i = 0; i < 16 && n == s->game_number; i++) n = random_number(s, ++t);
     s->last_seed = t;
     s->seeded = 1;
     return n;
@@ -139,6 +194,8 @@ void fcs_init(FcSession *s, const FcSessionUI *ui, const FcStore *store)
     s->sel_col = s->sel_pos = -1;
     s->peek_col = s->peek_pos = -1;
     s->king = FCS_KING_RIGHT;
+    fc_extras_default(&s->extras);
+    fc_won_init(&s->won);
     fc_stats_init(&s->stats, store);
     fc_stats_migrate(&s->stats);
     fc_options_load(&s->opts, store);
@@ -154,6 +211,7 @@ void fcs_free(FcSession *s)
     free(s->redo);
     s->redo = NULL;
     s->redo_cap = 0;
+    fc_won_free(&s->won);
 }
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
@@ -183,6 +241,9 @@ static void win(FcSession *s)                    /* CommitMoves win path, §6.3 
     s->in_progress = 0;
     s->cheat = 0;
     fc_stats_record_win(&s->stats, s->game_number);
+    if (fc_won_add(&s->won, s->game_number)) fc_won_save(&s->won, &s->won_io);
+    clock_stop(s);
+    status_changed(s);
     s->king = FCS_KING_BLANK;
     s->big_king = 1;
     invalidate(s);
@@ -212,6 +273,8 @@ static void check_no_moves(FcSession *s)         /* CheckNoMoves, §6.1 */
     redo_clear(s);
     s->in_progress = 0;                          /* YouLose WM_INITDIALOG, §6.2 */
     fc_stats_record_loss(&s->stats, s->game_number);
+    clock_stop(s);
+    status_changed(s);
     update_menu(s);
     int same = 1;
     int yes = UI(s, you_lose) ? UI(s, you_lose)(UI(s, ctx), &same) : 0;
@@ -238,6 +301,14 @@ static void replay_forward(FcSession *s, const FcAction *a)    /* ReplayMove for
 
 static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
 {
+    int counted = a->nsteps > 0 && a->counted;
+    if (counted) clock_start(s);                 /* the clock runs from the first committed move */
+    if (a->nsteps > 0 && !s->kbd_peek && s->peek_col >= 0) {
+        /* a right-button peek held through a move ends with it: XP only drew the card, and the
+         * replay repaints the column normally (the peek would otherwise cover a card that lands) */
+        s->peek_col = s->peek_pos = -1;
+        invalidate(s);
+    }
     s->busy++;
     replay_forward(s, a);
     s->board = *after;                           /* identical; keeps the replay honest */
@@ -245,6 +316,10 @@ static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
     if (a->nsteps > 0) {                         /* a new action: the undone future is gone */
         hist_push(s, a);
         redo_clear(s);
+    }
+    if (counted) {
+        s->moves++;
+        status_changed(s);
     }
     update_menu(s);
     if (s->board.cards_left == 0) win(s);
@@ -281,7 +356,10 @@ static int check_target(const FcSession *s, const FcBoard *b, int col, int pos, 
         if (b->board[col][0] != FC_EMPTY) return fc_can_stack(src, b->board[col][fc_last_index(b, col)]);
         if (sc == 0) return 1;                                     /* free cell -> empty column */
         int n = fc_cards_to_move(b, sc, col);                      /* run at the bottom, §2.5 */
-        if (fc_free_cells_empty(b) == 0 && n > 1) n = 1;
+        if (s->extras.standard_supermove) {                        /* extra: (f+1)*2^(e-1) */
+            int m = fc_max_to_empty(b, 1);
+            if (n > m) n = m;
+        } else if (fc_free_cells_empty(b) == 0 && n > 1) n = 1;
         if (n <= 1 || dry) return n >= 1;
         int r = UI(s, ask_move_column) ? UI(s, ask_move_column)(UI(s, ctx)) : FCS_MOVECOL_COLUMN;
         *movecol = r;
@@ -314,15 +392,17 @@ static void click_move(FcSession *s, int col, int pos)     /* ClickMove, §2.4 *
     FcBoard b = s->board;
     FcAction *a = &s->work;
     fc_action_begin(a, &s->board);
+    int std = s->extras.standard_supermove, msgs = s->opts.messages && !s->quiet;
     if (sc != 0 && col != 0 && b.board[col][0] != FC_EMPTY) {    /* tableau -> non-empty tableau */
-        int n = fc_cards_to_move(&b, sc, col), max = fc_max_movable(&b);
+        int n = fc_cards_to_move(&b, sc, col), max = fc_max_movable_rule(&b, std);
         if (n == 0) {
-            if (!s->opts.messages) return;                         /* silent, selection kept */
+            if (!msgs) return;                                     /* silent, selection kept */
             show_message(s, 306, 0, 0);
         } else if (n <= max) {
-            fc_supermove(&b, a, sc, col);
+            if (std) fc_move_cards_std(&b, a, sc, col, n);
+            else fc_supermove(&b, a, sc, col);
         } else {
-            if (!s->opts.messages) return;
+            if (!msgs) return;
             show_message(s, 307, n, max);
         }
     } else {
@@ -331,13 +411,20 @@ static void click_move(FcSession *s, int col, int pos)     /* ClickMove, §2.4 *
         int ok = check_target(s, &b, col, pos, &movecol, 0);
         s->busy--;
         if (ok) {
-            if (movecol == FCS_MOVECOL_COLUMN) fc_move_run_via_free_cells(&b, a, sc, col);
-            else fc_queue(&b, a, sc, sp, col, pos);
+            if (movecol == FCS_MOVECOL_COLUMN && std) {
+                int n = fc_cards_to_move(&b, sc, col), m = fc_max_to_empty(&b, 1);
+                fc_move_cards_std(&b, a, sc, col, n < m ? n : m);
+            } else if (movecol == FCS_MOVECOL_COLUMN) {
+                fc_move_run_via_free_cells(&b, a, sc, col);
+            } else {
+                fc_queue(&b, a, sc, sp, col, pos);
+            }
         } else if (movecol != FCS_MOVECOL_CANCEL) {               /* cancel: plain deselect */
-            if (!s->opts.messages) return;
+            if (!msgs) return;
             show_message(s, 306, 0, 0);
         }
     }
+    a->counted = a->nsteps > 0;                                    /* the user's part, before autoplay */
     fc_autoplay(&b, a, s->cheat == FCS_CHEAT_WIN);
     clear_selection(s);
     commit(s, a, &b);
@@ -371,6 +458,7 @@ void fcs_dblclick(FcSession *s, int col, int pos)  /* §4.4; no XP repost quirk:
             FcAction *a = &s->work;
             fc_action_begin(a, &s->board);
             fc_queue(&b, a, s->sel_col, s->sel_pos, 0, f);
+            a->counted = a->nsteps > 0;
             fc_autoplay(&b, a, s->cheat == FCS_CHEAT_WIN);
             clear_selection(s);
             commit(s, a, &b);
@@ -398,10 +486,12 @@ void fcs_char(FcSession *s, int ch)
             for (i = 0; i < 4 && b->board[0][i] == FC_EMPTY; i++) {}
             if (i < 4) do_click(s, 0, i);
         } else if (s->sel_col == 0) {                              /* step to the next free-cell card */
-            int from = s->sel_pos, msgs = s->opts.messages;
-            s->opts.messages = 0;
+            int from = s->sel_pos;
+            /* XP turns the messages option off around this click; we only silence it, because the
+             * click can open YouWin/YouLose, and a session end meanwhile saves s->opts */
+            s->quiet++;
             do_click(s, 0, from);                                  /* deselect (autoplay, commit) */
-            s->opts.messages = msgs;
+            s->quiet--;
             if (!input_ok(s)) return;
             for (i = from + 1; i < 4 && b->board[0][i] == FC_EMPTY; i++) {}
             if (i < 4) do_click(s, 0, i);
@@ -458,7 +548,8 @@ int fcs_cursor(const FcSession *s, int col, int pos, int on_card)
     if (!on_card || s->sel_col == col) return FCS_CURSOR_ARROW;
     if (s->sel_col != 0) {
         int n = fc_cards_to_move(b, s->sel_col, col);
-        return n > 0 && n <= fc_max_movable(b) ? FCS_CURSOR_DOWNARROW : FCS_CURSOR_ARROW;
+        return n > 0 && n <= fc_max_movable_rule(b, s->extras.standard_supermove) ? FCS_CURSOR_DOWNARROW
+                                                                                   : FCS_CURSOR_ARROW;
     }
     return check_target(s, b, col, 0, &mc, 1) ? FCS_CURSOR_DOWNARROW : FCS_CURSOR_ARROW;
 }
@@ -506,6 +597,8 @@ static void deal(FcSession *s, int n)
     s->big_king = 0;
     hist_clear(s);                                                 /* fixes XP's stale undo, §7.1 */
     redo_clear(s);
+    clock_reset(s);
+    status_changed(s);
     snprintf(title, sizeof title, fcs_string(303), n);
     if (UI(s, set_title)) UI(s, set_title)(UI(s, ctx), title);
     cards_left_changed(s);
@@ -559,6 +652,10 @@ static void undo(FcSession *s)                    /* §7.1, one history entry pe
     }
     fc_undo_action(&s->board, a);                  /* exact restore (no autoplay after undo) */
     s->busy--;
+    if (a->counted) {
+        s->moves--;
+        status_changed(s);
+    }
     stack_push(&s->redo, &s->nredo, &s->redo_cap, a);   /* now owned by the redo stack */
     invalidate(s);
     update_menu(s);
@@ -577,10 +674,16 @@ static void redo(FcSession *s)                    /* extra: re-apply the last un
         update_menu(s);
         return;
     }
+    int counted = a->counted;
+    if (counted) clock_start(s);
     s->busy++;
     replay_forward(s, a);                          /* same steps, same animation as the original */
     s->busy--;
     stack_push(&s->hist, &s->nhist, &s->hist_cap, a);   /* back onto the undo history */
+    if (counted) {
+        s->moves++;
+        status_changed(s);
+    }
     invalidate(s);
     update_menu(s);
     if (s->board.cards_left == 0) win(s);          /* as after the original commit */

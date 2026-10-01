@@ -4,7 +4,8 @@
  * The window procedure is a thin adapter from Win32 messages to the session (src/core/session.h):
  * after every session call it syncs the view (renders what changed) and refreshes the cursor.
  * Differences from XP's window (layout.md §1): freely resizable and maximizable (no 640-px limit,
- * minimum size from the layout), the board scales, the placement is remembered.
+ * minimum size from the layout), the board scales, the placement is remembered, and (v1.1) a
+ * borderless full-screen mode (Game > Full Screen, F11 / Alt+Enter, Esc leaves) that keeps the menu bar.
  */
 #include "app.h"
 
@@ -131,12 +132,112 @@ static int fix_placement(WINDOWPLACEMENT *wp, int show, RECT *screen)
     return 1;
 }
 
+/* ---- full screen (extra) ------------------------------------------------------------------------- */
+
+static int monitor_rect(HWND h, RECT *r)
+{
+    MONITORINFO mi;
+    HMONITOR m = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+    memset(&mi, 0, sizeof mi);
+    mi.cbSize = sizeof mi;
+    if (!m || !GetMonitorInfoW(m, &mi))
+        return 0;
+    *r = mi.rcMonitor;
+    return 1;
+}
+
+/* Cover the whole monitor the window is on (the taskbar included). */
+static void fullscreen_fit(App *a)
+{
+    RECT r;
+    if (a->fullscreen && monitor_rect(a->hwnd, &r))
+        SetWindowPos(a->hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
+static void fullscreen_done(App *a)
+{
+    a->s.extras.full_screen = a->fullscreen;
+    if (a->menu)
+        CheckMenuItem(a->menu, IDM_FULLSCREEN, MF_BYCOMMAND | (a->fullscreen ? MF_CHECKED : MF_UNCHECKED));
+    menubar_reset(a);
+    DrawMenuBar(a->hwnd);
+    menubar_draw(a);
+    view_refresh_cursor(a);
+}
+
+/* Enter: remember the placement (prev, or the current one) and the style, drop the caption and the
+ * sizing frame (the menu bar stays, so "Cards Left" and the extras stay visible) and cover the
+ * monitor. Leave: the old style and exactly the old placement (normal or maximized). */
+static void fullscreen_enter(App *a, const WINDOWPLACEMENT *prev)
+{
+    WINDOWPLACEMENT wp;
+    RECT r;
+    HWND h = a->hwnd;
+    if (!h || a->fullscreen || IsIconic(h))
+        return;
+    memset(&wp, 0, sizeof wp);
+    wp.length = sizeof wp;
+    if (prev)
+        wp = *prev;
+    else if (!GetWindowPlacement(h, &wp))
+        return;
+    if (wp.showCmd != SW_SHOWMAXIMIZED)
+        wp.showCmd = SW_SHOWNORMAL;
+    wp.flags = 0;
+    if (!monitor_rect(h, &r))
+        return;
+    a->fs_prev = wp;
+    a->fs_style = GetWindowLongW(h, GWL_STYLE);
+    a->fullscreen = 1;
+    SetWindowLongW(h, GWL_STYLE, a->fs_style & ~(WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MAXIMIZE));
+    fullscreen_fit(a);
+    tlog(a, "full screen on: monitor (%ld,%ld)-(%ld,%ld)", r.left, r.top, r.right, r.bottom);
+    fullscreen_done(a);
+}
+
+static void fullscreen_leave(App *a)
+{
+    HWND h = a->hwnd;
+    LONG vis;
+    if (!h || !a->fullscreen)
+        return;
+    a->fullscreen = 0;
+    vis = GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE;
+    SetWindowLongW(h, GWL_STYLE, (a->fs_style & ~(WS_VISIBLE | WS_MAXIMIZE | WS_MINIMIZE)) | vis);
+    SetWindowPlacement(h, &a->fs_prev);
+    SetWindowPos(h, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER |
+                 SWP_FRAMECHANGED);
+    tlog(a, "full screen off");
+    fullscreen_done(a);
+}
+
+void fullscreen_set(App *a, int on)
+{
+    if (on)
+        fullscreen_enter(a, NULL);
+    else
+        fullscreen_leave(a);
+}
+
+/* WM_CLOSE / WM_ENDSESSION: the placement (in full screen: the one to come back to) and the extras. */
+static void save_window_state(App *a)
+{
+    if (a->fullscreen)
+        placement_save_wp(&a->fs_prev);
+    else
+        placement_save(a->hwnd);
+    a->s.extras.full_screen = a->fullscreen;
+    fc_extras_save(&a->s.extras, &a->app_store);
+}
+
 /* ---- input ---------------------------------------------------------------------------------------- */
 
 static int input_blocked(App *a) { return a->in_modal > 0 || !a->have_layout || !a->cs; }
 
 static void after_input(App *a)
 {
+    view_anim_idle(a);                                /* the session call is over: no flight follows */
     view_sync(a);
     view_refresh_cursor(a);
 }
@@ -174,6 +275,10 @@ static void on_command(App *a, int id)
         break;
     case IDM_STATISTICS: dlg_statistics(a); break;
     case IDM_OPTIONS: dlg_options(a); break;
+    case IDM_FULLSCREEN:
+        if (!a->in_modal && !a->s.busy)
+            fullscreen_set(a, !a->fullscreen);
+        break;
     case IDM_EXIT: SendMessageW(a->hwnd, WM_CLOSE, 0, 0); break;
     case IDM_HELPCONTENTS: help_contents(a); break;
     case IDM_HELPSEARCH: help_search(a); break;
@@ -191,11 +296,19 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_CREATE: {
         FcSessionUI ui;
         FcStore st = storage_store();
+        FcBlobIO won = storage_won_io();
         a->hwnd = h;
         a->menu = GetMenu(h);
         ui_menu_init(a);
         ui_make(a, &ui);
         fcs_init(&a->s, &ui, &st);                    /* loads options, runs the entpack.ini migration */
+        a->app_store = storage_app_store();
+        fc_extras_load(&a->s.extras, &a->app_store);  /* the v1.1 extras, from our own key */
+        if (fcs_attach_won_deals(&a->s, &won) < 0) {
+            tlog(a, "won-deals.bin is damaged: set aside as won-deals.bad, starting empty");
+            storage_won_set_aside();
+        }
+        tlog(a, "won deals: %u", (unsigned)fcs_won_count(&a->s));
         return 0;
     }
     case WM_ERASEBKGND:
@@ -232,11 +345,13 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             view_resize(a, LOWORD(lp), HIWORD(lp));   /* 0 x 0 / minimized: keep the old buffer */
         menubar_reset(a);
         menubar_draw(a);
+        clock_update(a);                              /* no "Time" ticks while minimized */
         return 0;
     case WM_MOVE:
         menubar_draw(a);
         return 0;
     case WM_DISPLAYCHANGE:
+        fullscreen_fit(a);                            /* full screen follows the new resolution */
         view_invalidate_all(a);
         menubar_reset(a);
         menubar_draw(a);
@@ -262,8 +377,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     }
 
     case WM_MOUSEACTIVATE:
-        /* XP swallows the click that activates the window (rules.md §4.6) */
-        if (LOWORD(lp) == HTCLIENT && HIWORD(lp) == WM_LBUTTONDOWN && !a->in_modal) {
+        /* XP swallows the left click after any client-area activation (rules.md §4.6; 0x1001C3C
+         * tests HTCLIENT only: a right- or middle-button activation arms it too) */
+        if (LOWORD(lp) == HTCLIENT && !a->in_modal) {
             fcs_mouse_activate(&a->s);
             tlog(a, "WM_MOUSEACTIVATE: the next click is swallowed");
         }
@@ -316,6 +432,12 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             return TRUE;
         }
         break;
+    case WM_KEYDOWN:
+        if (wp == VK_ESCAPE && a->fullscreen && !a->in_modal && !a->s.busy) {
+            fullscreen_set(a, 0);                     /* Esc leaves full screen */
+            return 0;
+        }
+        break;
     case WM_CHAR:
         if (!input_blocked(a)) {
             fcs_char(&a->s, (int)wp);
@@ -323,6 +445,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_TIMER:
+        if (wp == FC_TIMER_CLOCK) {                   /* "Time: m:ss" ticks */
+            menubar_draw(a);
+            clock_update(a);
+            return 0;
+        }
         if (wp == FCS_TIMER_PEEK && a->in_modal)
             return 0;                                 /* the column peek waits for the dialog */
         fcs_timer(&a->s, (int)wp);
@@ -336,7 +463,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         if (a->in_modal || a->s.busy)
             return 0;
         if (fcs_close(&a->s)) {                       /* resign prompt, loss, options saved */
-            placement_save(h);
+            save_window_state(a);
             DestroyWindow(h);
         } else {
             after_input(a);
@@ -346,13 +473,16 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         return TRUE;
     case WM_ENDSESSION:
         if (wp) {
-            placement_save(h);
+            save_window_state(a);
             fc_options_save(&a->s.opts, &a->s.store);
         }
         return 0;
     case WM_DESTROY:
+        view_anim_idle(a);
         KillTimer(h, FCS_TIMER_FLASH);
         KillTimer(h, FCS_TIMER_PEEK);
+        KillTimer(h, FC_TIMER_CLOCK);
+        a->clock_timer = 0;
         help_shutdown(a);
         PostQuitMessage(0);
         return 0;
@@ -418,10 +548,29 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
         view_free(a);
         return 1;
     }
-    if (have_wp)
+    if (a->s.extras.full_screen && show != SW_SHOWMINIMIZED && show != SW_MINIMIZE &&
+        show != SW_SHOWMINNOACTIVE) {
+        /* left in full screen last time: go straight there; leaving it restores the saved placement */
+        WINDOWPLACEMENT prev;
+        memset(&prev, 0, sizeof prev);
+        prev.length = sizeof prev;
+        if (have_wp) {
+            WINDOWPLACEMENT hidden = wp;
+            prev = wp;
+            hidden.showCmd = SW_HIDE;
+            SetWindowPlacement(a->hwnd, &hidden);     /* on the right monitor, still hidden */
+        } else {
+            GetWindowPlacement(a->hwnd, &prev);
+        }
+        a->s.extras.full_screen = 0;
+        fullscreen_enter(a, &prev);                   /* shows it */
+    } else if (have_wp) {
+        a->s.extras.full_screen = 0;
         SetWindowPlacement(a->hwnd, &wp);             /* shows it (maximized if it was) */
-    else
+    } else {
+        a->s.extras.full_screen = 0;
         ShowWindow(a->hwnd, show);
+    }
     UpdateWindow(a->hwnd);                            /* the empty table appears right away */
 
     /* Decode the 52 card faces and the kings (the slow part of the start-up) with the window on

@@ -5,7 +5,8 @@
  *   view.c     back buffer, incremental rendering, painting, card animation, cursors, "Cards Left"
  *   ui.c       the session's UI callbacks and every dialog (GameNum, MoveCol, YouWin, YouLose,
  *              Stats, Options)
- *   storage.c  registry: statistics/options store (XP's key and format) and the window placement
+ *   storage.c  registry: statistics/options store (XP's key and format), the extras and the window
+ *              placement (our own key), the won-deals file (%APPDATA%)
  *   help.c     Help > Contents / Search / How to Use Help (HtmlHelp, built-in fallback) and About
  *
  * One window, one thread: everything lives in the global g_app.
@@ -25,6 +26,7 @@
 
 #define FC_CLASS_NAME   L"FreeCellHD"
 #define WM_APP_SYNC     (WM_APP + 1)     /* deferred "session state changed": render the difference */
+#define FC_TIMER_CLOCK  10               /* extra: once-a-second refresh of "Time: m:ss" in the menu bar */
 
 typedef struct App {
     HINSTANCE  inst;
@@ -74,6 +76,14 @@ typedef struct App {
     int        menu_undo, menu_redo, menu_restart;   /* -1 = unknown */
 
     int        in_modal;        /* > 0 while one of our modal dialogs / message boxes is up */
+    int        anim_period;     /* timeBeginPeriod(1) is in effect (cards are flying) */
+
+    /* v1.1 extras */
+    FcStore    app_store;       /* HKCU\Software\xp-cards\FreeCell HD: the extras (REG_DWORD) */
+    int        clock_timer;     /* FC_TIMER_CLOCK is set */
+    int        fullscreen;      /* borderless, covering the monitor (the menu bar stays) */
+    WINDOWPLACEMENT fs_prev;    /* placement before full screen: restored on leaving, saved on exit */
+    LONG       fs_style;        /* window style before full screen */
 
     /* help */
     HMODULE    hh;
@@ -98,12 +108,14 @@ void   view_sync(App *a);                            /* render what changed, inv
 void   view_sync_now(App *a);                        /* view_sync + UpdateWindow */
 void   view_paint(App *a);                           /* WM_PAINT */
 void   view_animate_step(App *a, const FcStep *st, int forward);
+void   view_anim_idle(App *a);                      /* no more flights for now: timer back to normal */
 void   view_mouse_move(App *a, int x, int y);
 void   view_refresh_cursor(App *a);
 int    view_hit(App *a, int x, int y, int mode, int *col, int *pos);
 void   menubar_font_update(App *a);
 void   menubar_draw(App *a);
 void   menubar_reset(App *a);                        /* the menu bar was repainted from scratch */
+void   clock_update(App *a);                         /* start / re-arm / stop FC_TIMER_CLOCK */
 double now_ms(App *a);
 void   tlog(App *a, const char *fmt, ...);
 
@@ -119,8 +131,15 @@ int    load_wstr(App *a, UINT id, WCHAR *out, int n, const WCHAR *fallback);
 
 /* storage.c */
 FcStore storage_store(void);
+FcStore storage_app_store(void);                     /* our key, REG_DWORD values (the extras) */
+FcBlobIO storage_won_io(void);                       /* %APPDATA%\xp-cards\FreeCell HD\won-deals.bin */
+void   storage_won_set_aside(void);                  /* a damaged file -> won-deals.bad */
 int    placement_load(WINDOWPLACEMENT *wp);
 void   placement_save(HWND hwnd);
+void   placement_save_wp(const WINDOWPLACEMENT *wp);
+
+/* main.c */
+void   fullscreen_set(App *a, int on);
 
 /* help.c */
 void   help_contents(App *a);

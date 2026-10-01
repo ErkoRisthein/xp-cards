@@ -22,12 +22,13 @@ static const WCHAR how_to_play[] =
     L"go. Only the bottom card of a column or a card in a free cell can be moved. Click it again to "
     L"cancel. With the Double-click option on, double-clicking a card moves it to a free cell.\n\n"
     L"An ordered sequence moves as a whole when there is room: up to (empty free cells + 1) x "
-    L"(empty columns + 1) cards. When moving to an empty column you can choose to move the column "
-    L"or a single card.\n\n"
+    L"(empty columns + 1) cards, or (empty free cells + 1) x 2^(empty columns) with the option "
+    L"\"Standard multi-card moves\". When moving to an empty column you can choose to move the "
+    L"column or a single card.\n\n"
     L"Cards no longer needed on the table go home automatically. Hold the right mouse button on a "
     L"covered card to see it.\n\n"
     L"Keyboard: 1-8 select or move to a column, 0 a free cell, 9 home. F2 New Game, F3 Select "
-    L"Game, F10 Undo, Ctrl+Y Redo.";
+    L"Game, F10 Undo, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it).";
 
 static HtmlHelpW_fn get_html_help(App *a)
 {

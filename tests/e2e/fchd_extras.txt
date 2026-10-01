@@ -1,0 +1,179 @@
+# FreeCell HD v1.1 extras end to end: the Options dialog's "Extras" group and its values in our own key
+# (never in XP's), "Moves" / "Time" in the menu bar (counting, undo/redo, ticking; with the default
+# 8-pt menu font they still fit at the minimum width), full screen on/off (F11, Alt+Enter, Esc, the
+# menu; from normal and from maximized) and remembered across runs, and a
+# won deal (Ctrl+Shift+F10 cheat) shown in Select Game and Statistics.  Run by tests/e2e/run_fchd_e2e.sh.
+# The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card
+# y = 212, step 37, cards 142 x 192; free cells x = 0 142 284 426, y 0..191).
+# Game #1, column 6 = 7H QC AS AC 2C 3D.
+# Full screen = the monitor minus the menu bar: 3600 x 2319 in the Retina-mode prefix of
+# run_fchd_e2e.sh (a 3600 x 2338 screen, 19-px menu bar); elsewhere set FCHD_FS_W / FCHD_FS_H.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+info
+menubar_text
+assert_menu 117 unchecked
+
+# ---- Options: XP's three check boxes as they were, the Extras group below, all off -------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[209] Button \"Display &messages on illegal moves\" [x]"
+assert_dialog_text "[210] Button \"&Quick play (no animation)\" [ ]"
+assert_dialog_text "[211] Button \"&Double click moves card to free cell\" [x]"
+assert_dialog_text "[220] Button \"Extras\""
+assert_dialog_text "[221] Button \"Show &time and moves\" [ ]"
+assert_dialog_text "[222] Button \"&Standard multi-card moves\" [ ]"
+assert_dialog_text "[223] Button \"&New Game picks from all 1,000,000 games\" [ ]"
+capture_dialog 50_options_default.bmp
+dialog_check 221 1
+dialog_check 222 1
+capture_dialog 50_options_checked.bmp
+dialog_click OK
+assert_no_dialog
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" ShowTimeMoves 1
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" StandardSupermove 1
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" FullRangeDeals 0
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell ShowTimeMoves absent
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell StandardSupermove absent
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 0"
+
+# ---- game #1: moves and time ---------------------------------------------------------------------------
+command 103
+wait_dialog "Game Number"
+dialog_text
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 52"
+click 860 500                             # select 3D (column 6)
+click 860 500                             # deselect: not a move, the clock does not start
+wait 1500
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 52"
+click 860 500                             # 3D -> free cell 0
+click 70 96
+assert_menubar_text "Moves: 1    Time: 0:0"
+click 860 450                             # 2C -> free cell 1; autoplay AC 2C AS home (not counted)
+click 213 96
+assert_menubar_text "Cards Left: 49"
+assert_menubar_text "Moves: 2    Time: 0:"
+menubar_text
+wait 2200
+menubar_text                              # ticking
+capture_window 51_time_moves_window.bmp
+vkey F10                                  # undo: one move back
+assert_menubar_text "Moves: 1    Time: 0:"
+assert_menubar_text "Cards Left: 52"
+vkey Y ctrl                               # redo
+assert_menubar_text "Moves: 2    Time: 0:"
+assert_menubar_text "Cards Left: 49"
+
+# ---- full HD and the minimum size (with the default 8-pt menu font everything still fits there; a
+# bar too narrow drops Time, then Moves, and never overlaps Game / Help) -------------------------------
+move_window 0 120
+resize_client 1904 996
+assert_menubar_text "Moves: 2    Time: 0:"
+capture_window 51_1904x996_time_moves_window.bmp
+resize_client 316 186
+menubar_text
+capture_window 52_min_316x186_window.bmp
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+assert_menubar_text "Moves: 2    Time: 0:"
+
+# ---- full screen: F11, Esc, Alt+Enter, the menu item ---------------------------------------------------
+vkey F11
+info
+assert_client_size ${FCHD_FS_W:-3600} ${FCHD_FS_H:-2319}
+assert_menu 117 checked
+assert_menubar_text "Cards Left: 49"
+capture 53_fullscreen.bmp
+capture_window 53_fullscreen_window.bmp
+vkey ESC
+info
+assert_menu 117 unchecked
+assert_client_size 1264 854
+vkey ENTER alt
+assert_client_size ${FCHD_FS_W:-3600} ${FCHD_FS_H:-2319}
+assert_menu 117 checked
+vkey ENTER alt
+assert_menu 117 unchecked
+assert_client_size 1264 854
+maximize                                  # maximized -> full screen -> maximized again
+info
+vkey F11
+assert_menu 117 checked
+vkey F11
+info                                      # "maximized", the same client size as above
+restore
+assert_client_size 1264 854
+command 117
+assert_menu 117 checked
+close Yes                                 # resign #1; full screen and the placement are remembered
+wait_exit 5000
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" FullScreen 1
+
+launch ${REPO}/build/FreeCellHD.exe
+info
+assert_client_size ${FCHD_FS_W:-3600} ${FCHD_FS_H:-2319}   # straight back into full screen
+assert_menu 117 checked
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 0"
+vkey F11
+info
+assert_client_size 1264 854
+assert_menu 117 unchecked
+
+# ---- a won deal: Select Game and Statistics show it ----------------------------------------------------
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 11982
+dialog_click OK
+assert_title "FreeCell Game #11982"
+vkey F10 ctrl shift
+wait_dialog "User-Friendly User Interface"
+dialog_click Abort
+assert_no_dialog
+click 84 400                              # select column 1
+click 84 400                              # deselect commits: every card flies home
+wait_dialog "Game Over" 60000
+assert_dialog_text "Congratulations, you win!"
+dialog_click No
+assert_no_dialog
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 0"   # the cheat sweep is not a move
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 11982
+dialog_text
+assert_dialog_text "[224] Static \"You have won this game before.\""
+capture_dialog 54_gamenum_won.bmp
+dialog_set_text 203 999998
+assert_dialog_text "[224] Static \"\""
+capture_dialog 54_gamenum_not_won.bmp
+dialog_click 2                            # Cancel (Esc)
+assert_no_dialog
+command 105
+wait_dialog "FreeCell Statistics"
+dialog_text
+assert_dialog_text "Different games won: "
+capture_dialog 55_stats.bmp
+dialog_click OK
+
+# ---- New Game from all 1,000,000 ---------------------------------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 223 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" FullRangeDeals 1
+vkey F2                                   # no game in progress: no prompt
+title
+close Yes
+wait_exit 5000
+regdel HKCU\Software\xp-cards             # leave the extras off for the scenarios that follow

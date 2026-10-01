@@ -324,6 +324,52 @@ static void test_shapes(void)
     fc_image_free(img);
 }
 
+/* The precomputed card shape gives exactly fc_image_card_finish (which the card set used per card in
+ * v1): random art, sizes from tiny to 4K-like, fractional frames, radii above w/2. */
+static void test_card_shape(void)
+{
+    static const int dims[][2] = { { 1, 1 }, { 3, 7 }, { 8, 8 }, { 71, 96 }, { 133, 180 }, { 191, 258 },
+                                   { 300, 406 }, { 431, 583 } };
+    static const double rt[][2] = { { 3.6, 1 }, { 0, 1 }, { 9.6, 1.353 }, { 500, 2 }, { 7.25, 0.5 } };
+    size_t di, ri;
+    int bad = 0, n = 0;
+    for (di = 0; di < sizeof dims / sizeof dims[0]; di++)
+        for (ri = 0; ri < sizeof rt / sizeof rt[0]; ri++) {
+            int w = dims[di][0], h = dims[di][1], i;
+            double r = rt[ri][0] * h / 96.0, t = rt[ri][1];
+            FcImage *a = fc_image_new(w, h), *b = fc_image_new(w, h);
+            FcCardShape *shape = fc_card_shape_new(w, h, r, t);
+            uint32_t frame = ri == 2 ? FC_ARGB(200, 30, 60, 90) : FC_RGB(0, 0, 0);
+            for (i = 0; i < w * h; i++)
+                a->px[i] = b->px[i] = rnd() % 3 ? random_premul() : FC_RGB(rnd() & 255, rnd() & 255, rnd() & 255);
+            fc_image_card_finish(a, r, t, frame, FC_RGB(255, 255, 255));
+            fc_image_card_finish_shape(b, shape, frame, FC_RGB(255, 255, 255));
+            bad += memcmp(a->px, b->px, sizeof(uint32_t) * (size_t)w * h) != 0;
+            n++;
+            CHECK(fc_card_shape_is(shape, w, h, r, t) && !fc_card_shape_is(shape, w, h, r, t + 0.25) &&
+                  !fc_card_shape_is(shape, w + 1, h, r, t) && !fc_card_shape_is(NULL, w, h, r, t), "shape key");
+            fc_card_shape_free(shape);
+            fc_image_free(a);
+            fc_image_free(b);
+        }
+    CHECK(bad == 0, "%d of %d shapes differ from fc_image_card_finish", bad, n);
+}
+
+/* Bevel ring: AA ring, light/dark split at the 45-degree mitre, nothing inside. */
+static void test_bevel_ring(void)
+{
+    FcImage *r = fc_bevel_ring_new(191, 258, 2.6875, 9.6, FC_RGB(0, 0, 0), FC_RGB(0, 255, 0));
+    CHECK(r && r->w == 191 && r->h == 258, "ring size");
+    if (!r)
+        return;
+    CHECK(r->px[100 * 191 + 0] == FC_RGB(0, 0, 0) && r->px[0 * 191 + 95] == FC_RGB(0, 0, 0), "top/left dark");
+    CHECK(r->px[100 * 191 + 190] == FC_RGB(0, 255, 0) && r->px[257 * 191 + 95] == FC_RGB(0, 255, 0),
+          "bottom/right light");
+    CHECK(r->px[100 * 191 + 95] == 0 && r->px[0] == 0 && r->px[100 * 191 + 4] == 0, "inside/corner empty");
+    CHECK(A(r->px[100 * 191 + 2]) > 0 && A(r->px[100 * 191 + 2]) < 255, "fractional edge %08x", r->px[100 * 191 + 2]);
+    fc_image_free(r);
+}
+
 static void test_png(void)
 {
 #ifdef FC_WITH_PNG_WRITER
@@ -374,6 +420,8 @@ int main(void)
     test_premul_invariant();
     test_compositing();
     test_shapes();
+    test_card_shape();
+    test_bevel_ring();
     test_png();
     printf("test_image: %d checks, %d failures\n", checks, failures);
     return failures != 0;

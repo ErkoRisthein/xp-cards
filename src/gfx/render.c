@@ -57,9 +57,10 @@ static void bevel(Ctx *c, FcRect r, int b, uint32_t tl, uint32_t br)
 }
 
 /* The same bevel for scaled-up boards: an anti-aliased ring of thickness t with rounded corners
- * (outer radius rad), tl colour on the top/left edges and br on the bottom/right, mitred at 45°
- * through the top-right and bottom-left corners like XP's 1-px version. Pixels are computed in board
- * coordinates, so clipped renders stay identical to full ones. */
+ * (outer radius rad), tl colour on the top/left edges and br on the bottom/right, mitred at 45° through
+ * the top-right and bottom-left corners like XP's 1-px version (fc_bevel_ring_new). The ring is built
+ * once per size in cell coordinates and cached in the card set, so clipped renders stay identical to
+ * full ones. */
 static uint32_t blend(uint32_t s, uint32_t d)
 {
     uint32_t ia = 255 - (s >> 24), out = 0;
@@ -69,16 +70,17 @@ static uint32_t blend(uint32_t s, uint32_t d)
     return out;
 }
 
-static double tl_side(FcRect r, double sx, double sy)
-{
-    double top = sy - r.y, left = sx - r.x, bottom = r.y + r.h - sy, right = r.x + r.w - sx;
-    return (top < left ? top : left) < (bottom < right ? bottom : right);
-}
-
-static void bevel_hd(Ctx *c, FcRect r, double t, double rad, uint32_t tl, uint32_t br)
+static void bevel_hd(Ctx *c, FcCardSet *cs, FcRect r, double t, double rad, uint32_t tl, uint32_t br)
 {
     int x0, y0, x1, y1, px, py, band = (int)(t + rad) + 2;
+    const FcImage *ring;
+    FcImage *tmp = NULL;
     if (!overlaps(&c->clip, r.x, r.y, r.w, r.h))
+        return;
+    ring = fc_cardset_bevel(cs, r.w, r.h, t, rad, tl, br);
+    if (!ring)
+        ring = tmp = fc_bevel_ring_new(r.w, r.h, t, rad, tl, br);   /* no card set (yet) */
+    if (!ring)
         return;
     x0 = r.x > c->clip.x ? r.x : c->clip.x;
     y0 = r.y > c->clip.y ? r.y : c->clip.y;
@@ -86,42 +88,31 @@ static void bevel_hd(Ctx *c, FcRect r, double t, double rad, uint32_t tl, uint32
     y1 = r.y + r.h < c->clip.y + c->clip.h ? r.y + r.h : c->clip.y + c->clip.h;
     for (py = y0; py < y1; py++) {
         uint32_t *d = c->img.px + (size_t)(py - c->oy) * c->img.stride - c->ox;
+        const uint32_t *s = ring->px + (size_t)(py - r.y) * ring->stride;
         int edge_row = py < r.y + band || py >= r.y + r.h - band;
         for (px = x0; px < x1; px++) {
-            double cov, f;
-            int i, j, n;
-            uint32_t a, s, rr, g, b;
+            uint32_t p;
             if (!edge_row && px >= r.x + band && px < r.x + r.w - band) {
                 px = r.x + r.w - band - 1;   /* skip the inside of the ring */
                 continue;
             }
-            cov = fc_round_rect_coverage(r.x, r.y, r.w, r.h, rad, px, py) -
-                  fc_round_rect_coverage(r.x + t, r.y + t, r.w - 2 * t, r.h - 2 * t,
-                                         rad > t ? rad - t : 0, px, py);
-            if (cov <= 0.002)
-                continue;
-            for (n = 0, j = 0; j < 4; j++)
-                for (i = 0; i < 4; i++)
-                    n += tl_side(r, px + (i + 0.5) / 4, py + (j + 0.5) / 4) > 0;
-            f = n / 16.0;
-            a = (uint32_t)(cov * 255 + 0.5);
-            rr = (uint32_t)((f * ((tl >> 16) & 255) + (1 - f) * ((br >> 16) & 255)) * cov + 0.5);
-            g = (uint32_t)((f * ((tl >> 8) & 255) + (1 - f) * ((br >> 8) & 255)) * cov + 0.5);
-            b = (uint32_t)((f * (tl & 255) + (1 - f) * (br & 255)) * cov + 0.5);
-            s = (a << 24) | (rr << 16) | (g << 8) | b;
-            d[px] = a >= 255 ? s : blend(s, d[px]);
+            p = s[px - r.x];
+            if (p)
+                d[px] = p >= 0xff000000u ? p : blend(p, d[px]);
         }
     }
+    fc_image_free(tmp);
 }
 
 /* Empty-cell / king-frame bevel: XP's exact 1-px lines up to s < 1.5 (pixel-identical to XP at
  * s = 1), the smooth rounded version above for larger boards. */
-static void cell_bevel(Ctx *c, const FcLayout *l, FcRect r, double rad, uint32_t tl, uint32_t br)
+static void cell_bevel(Ctx *c, FcCardSet *cs, const FcLayout *l, FcRect r, double rad, uint32_t tl,
+                       uint32_t br)
 {
     if (l->bevel <= 1)
         bevel(c, r, l->bevel, tl, br);
     else
-        bevel_hd(c, r, l->s, rad, tl, br);
+        bevel_hd(c, cs, r, l->s, rad, tl, br);
 }
 
 static void sprite(Ctx *c, const FcImage *s, int x, int y, int inverted)
@@ -155,7 +146,7 @@ static void draw(Ctx *c, const FcLayout *l, const FcBoard *b, const FcView *v, F
     fill(c, c->clip.x, c->clip.y, c->clip.w, c->clip.h, FC_TABLE_GREEN);
 
     /* king box: raised frame (green top/left, black bottom/right), sprite unless blank */
-    cell_bevel(c, l, l->king_frame, 0.0223 * l->ch, FC_BEVEL_LIGHT, FC_BEVEL_DARK);
+    cell_bevel(c, cs, l, l->king_frame, 0.0223 * l->ch, FC_BEVEL_LIGHT, FC_BEVEL_DARK);
     if (v->king == FC_KINGVIEW_RIGHT || v->king == FC_KINGVIEW_LEFT) {
         const FcImage *k = fc_cardset_king(cs, v->king == FC_KINGVIEW_LEFT ? FC_KING_LEFT : FC_KING_RIGHT, 0);
         if (k)
@@ -173,7 +164,7 @@ static void draw(Ctx *c, const FcLayout *l, const FcBoard *b, const FcView *v, F
             k = (i >= 4 && fc_rank(k) > 0) ? k - 4 : FC_EMPTY;
         }
         if (k == FC_EMPTY)
-            cell_bevel(c, l, r, 0.0372 * l->ch, FC_BEVEL_DARK, FC_BEVEL_LIGHT);   /* card corner radius */
+            cell_bevel(c, cs, l, r, 0.0372 * l->ch, FC_BEVEL_DARK, FC_BEVEL_LIGHT);   /* card corner radius */
         else
             card(c, cs, k, r.x, r.y, v->sel_col == 0 && v->sel_pos == i);
     }

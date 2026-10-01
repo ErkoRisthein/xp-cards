@@ -50,6 +50,22 @@ double fc_round_rect_coverage(double x, double y, double w, double h, double r, 
  * sprite is transparent, so corners stay clean (no dark fringes) at every size. */
 void fc_image_card_finish(FcImage *img, double r, double t, uint32_t frame, uint32_t under);
 
+/* The same finish with the shape precomputed: the per-pixel coverage (floating point, slow on x87)
+ * depends only on (w, h, r, t), so a card set computes it once per card size and applies it to every
+ * card with integer math. The result is identical to fc_image_card_finish. */
+typedef struct FcCardShape FcCardShape;
+FcCardShape *fc_card_shape_new(int w, int h, double r, double t);   /* NULL if out of memory */
+void         fc_card_shape_free(FcCardShape *shape);
+int          fc_card_shape_is(const FcCardShape *shape, int w, int h, double r, double t);
+void         fc_image_card_finish_shape(FcImage *img, const FcCardShape *shape, uint32_t frame,
+                                        uint32_t under);   /* img must be shape's size */
+
+/* An empty-cell / king-frame bevel for scaled-up boards as a w x h premultiplied image: an
+ * anti-aliased ring of thickness t with rounded corners (outer radius rad), colour tl on the top/left
+ * edges and br on the bottom/right, mitred at 45 degrees through the top-right and bottom-left
+ * corners. Pixels outside the ring are 0 (untouched when drawn). NULL if out of memory. */
+FcImage *fc_bevel_ring_new(int w, int h, double t, double rad, uint32_t tl, uint32_t br);
+
 /* Write a PNG (un-premultiplied) — available in native builds/tests only (FC_WITH_PNG_WRITER).
  * Without FC_WITH_PNG_WRITER it is a stub returning 0. */
 int fc_image_write_png(const FcImage *img, const char *path);

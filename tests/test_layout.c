@@ -411,6 +411,260 @@ static void test_cardset(FcCardSet *cs)
     CHECK(a && a->w == 71, "card after master reload");
 }
 
+/* ---- v1 reference pipeline (verbatim copies of v1's clean_master and fc_image_card_finish): the
+ * card set's faster code (edge runs, cached shape) must give the same sprites bit for bit. -------- */
+
+static uint32_t ref_mul255(uint32_t x, uint32_t a)
+{
+    uint32_t t = x * a + 128;
+    return (t + (t >> 8)) >> 8;
+}
+
+static uint32_t ref_over(uint32_t s, uint32_t d)
+{
+    uint32_t inv = 255 - (s >> 24), rb, ag;
+    rb = (d & 0x00ff00ffu) * inv + 0x00800080u;
+    rb = ((rb + ((rb >> 8) & 0x00ff00ffu)) >> 8) & 0x00ff00ffu;
+    ag = ((d >> 8) & 0x00ff00ffu) * inv + 0x00800080u;
+    ag = (ag + ((ag >> 8) & 0x00ff00ffu)) & 0xff00ff00u;
+    return s + (rb | ag);
+}
+
+static void ref_clean_master(FcImage *m)
+{
+    const double band = 3.5 * m->h / 560.0;
+    const double r = 0.0372 * m->h;
+    const double ri = r - band;
+    int x, y;
+    for (y = 0; y < m->h; y++) {
+        uint32_t *p = m->px + (size_t)y * m->stride;
+        double cy = y + 0.5, dy = cy < r ? r - cy : (cy > m->h - r ? cy - (m->h - r) : 0);
+        for (x = 0; x < m->w; x++) {
+            double cx = x + 0.5, dx = cx < r ? r - cx : (cx > m->w - r ? cx - (m->w - r) : 0);
+            int edge = cx < band || cy < band || cx > m->w - band || cy > m->h - band ||
+                       (dx > 0 && dy > 0 && dx * dx + dy * dy > ri * ri);
+            if (edge)
+                p[x] = FC_RGB(255, 255, 255);
+            else if (p[x] < 0xff000000u) {
+                uint32_t a = p[x] >> 24, k = 255 - a;
+                p[x] += (k << 24) | (k << 16) | (k << 8) | k;
+            }
+        }
+    }
+}
+
+static void ref_card_finish(FcImage *img, double r, double t, uint32_t frame, uint32_t under)
+{
+    int px, py;
+    double w, h, ri, band;
+    uint32_t fa, fr, fg, fb;
+    w = img->w;
+    h = img->h;
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    ri = r - t > 0 ? r - t : 0;
+    band = r + 1;
+    fa = frame >> 24;
+    fr = (frame >> 16) & 255;
+    fg = (frame >> 8) & 255;
+    fb = frame & 255;
+    for (py = 0; py < img->h; py++) {
+        uint32_t *d = img->px + (size_t)py * img->stride;
+        int ey = py < t + 1 || py + 1 > h - t - 1, cy = py < band || py + 1 > h - band;
+        for (px = 0; px < img->w; px++) {
+            double co, ci;
+            uint32_t p = d[px], ring, in, c[4], k;
+            int edge = ey || px < t + 1 || px + 1 > w - t - 1 || (cy && (px < band || px + 1 > w - band));
+            if (!edge) {
+                if (p < 0xff000000u)
+                    d[px] = ref_over(p, under);
+                continue;
+            }
+            co = fc_round_rect_coverage(0, 0, w, h, r, px, py);
+            ci = fc_round_rect_coverage(t, t, w - 2 * t, h - 2 * t, ri, px, py);
+            if (p < 0xff000000u)
+                p = ref_over(p, under);
+            ring = (uint32_t)((co - ci) * 255 + 0.5);
+            in = (uint32_t)(ci * 255 + 0.5);
+            if (ring + in > 255)
+                ring = 255 - in;
+            for (k = 0; k < 4; k++) {
+                uint32_t sh = 8 * k, fcol = k == 3 ? fa : (k == 2 ? fr : (k == 1 ? fg : fb));
+                uint32_t fpm = k == 3 ? fa : ref_mul255(fcol, fa);
+                c[k] = ref_mul255(fpm, ring) + ref_mul255((p >> sh) & 255, in);
+                if (c[k] > 255)
+                    c[k] = 255;
+            }
+            if (c[0] > c[3]) c[0] = c[3];
+            if (c[1] > c[3]) c[1] = c[3];
+            if (c[2] > c[3]) c[2] = c[3];
+            d[px] = (c[3] << 24) | (c[2] << 16) | (c[1] << 8) | c[0];
+        }
+    }
+}
+
+static FcImage *ref_sprite(FcNativeAssets *na, Card c, int cw, int ch, int q)
+{
+    size_t len;
+    const void *d = fc_native_asset_loader(FC_ASSET_CARD0 + c, &len, na);
+    FcImage *m = d ? fc_image_decode_png(d, len) : NULL, *s;
+    if (!m)
+        return NULL;
+    ref_clean_master(m);
+    s = fc_image_resample(m, cw, ch, q);
+    fc_image_free(m);
+    if (s)
+        ref_card_finish(s, 0.0372 * ch, ch <= 300 ? 1.0 : ch / 300.0, FC_RGB(0, 0, 0), FC_RGB(255, 255, 255));
+    return s;
+}
+
+static int same_image(const FcImage *a, const FcImage *b)
+{
+    int y;
+    if (!a || !b || a->w != b->w || a->h != b->h)
+        return 0;
+    for (y = 0; y < a->h; y++)
+        if (memcmp(a->px + (size_t)y * a->stride, b->px + (size_t)y * b->stride, sizeof(uint32_t) * (size_t)a->w))
+            return 0;
+    return 1;
+}
+
+typedef struct CountingAssets { FcNativeAssets na; int cards; } CountingAssets;
+
+static const void *counting_loader(int id, size_t *len, void *ctx)
+{
+    CountingAssets *c = (CountingAssets *)ctx;
+    if (id >= FC_ASSET_CARD0 && id < FC_ASSET_CARD0 + 52)
+        c->cards++;
+    return fc_native_asset_loader(id, len, &c->na);
+}
+
+/* Sprites equal the v1 pipeline at every size class; quality and size rules (a fast request at the
+ * built size keeps the sprites); the big-size path never decodes a PNG for fast sprites; the bevel
+ * ring cache. */
+static void test_cardset_rules(const char *res)
+{
+    static const int sizes[][3] = { { 71, 96, 1 }, { 191, 258, 1 }, { 213, 288, 0 }, { 300, 406, 1 }, { 430, 581, 1 } };
+    static const Card cards[] = { 0, 13, 26, 39, 44, 47, 50, 51 };
+    CountingAssets ca;
+    FcCardSet *cs;
+    size_t si, ci;
+    const FcImage *a, *b;
+    int bad = 0, n = 0, before;
+    memset(&ca, 0, sizeof ca);
+    fc_native_assets_init(&ca.na, res);
+    cs = fc_cardset_new(counting_loader, &ca);
+    if (!cs) {
+        printf("SKIP cardset rules: no assets\n");
+        return;
+    }
+    CHECK(ca.cards == 52, "52 decodes at start-up (%d)", ca.cards);
+    for (si = 0; si < sizeof sizes / sizeof sizes[0]; si++) {
+        fc_cardset_set_size(cs, sizes[si][0], sizes[si][1], 32, 320, sizes[si][2]);
+        for (ci = 0; ci < sizeof cards / sizeof cards[0]; ci++) {
+            FcImage *r = ref_sprite(&ca.na, cards[ci], sizes[si][0], sizes[si][1], sizes[si][2]);
+            bad += !same_image(fc_cardset_card(cs, cards[ci]), r);
+            n++;
+            fc_image_free(r);
+        }
+    }
+    CHECK(bad == 0, "%d of %d sprites differ from the v1 pipeline", bad, n);
+
+    /* quality: fast at the same size keeps the best sprites, best again keeps them too */
+    fc_cardset_set_size(cs, 191, 258, 32, 320, 1);
+    a = fc_cardset_card(cs, 5);
+    b = fc_cardset_king(cs, FC_KING_RIGHT, 0);
+    fc_cardset_set_size(cs, 191, 258, 32, 320, 0);
+    CHECK(fc_cardset_card(cs, 5) == a && fc_cardset_king(cs, FC_KING_RIGHT, 0) == b, "fast request keeps HQ sprites");
+    {
+        FcImage *r = ref_sprite(&ca.na, 6, 191, 258, 1);   /* built after the fast request: still HQ */
+        CHECK(same_image(fc_cardset_card(cs, 6), r), "missing sprite built at the kept quality");
+        fc_image_free(r);
+    }
+    fc_cardset_set_size(cs, 191, 258, 32, 320, 1);
+    CHECK(fc_cardset_card(cs, 5) == a, "back to best: nothing rebuilt");
+    fc_cardset_set_size(cs, 190, 257, 32, 320, 0);         /* a new size: fast sprites */
+    a = fc_cardset_card(cs, 5);
+    {
+        FcImage *r = ref_sprite(&ca.na, 5, 190, 257, 0);
+        CHECK(same_image(a, r), "fast sprite at a new size");
+        fc_image_free(r);
+    }
+    fc_cardset_set_size(cs, 190, 257, 32, 320, 1);         /* best at that size: rebuilt */
+    {
+        FcImage *r = ref_sprite(&ca.na, 5, 190, 257, 1);
+        CHECK(same_image(fc_cardset_card(cs, 5), r), "HQ rebuild after fast");
+        fc_image_free(r);
+    }
+
+    /* big sprites: masters dropped; a live resize (fast) decodes nothing, also back at a small size */
+    fc_cardset_set_size(cs, 430, 581, 193, 1935, 1);
+    for (ci = 0; ci < 52; ci++)
+        fc_cardset_card(cs, (Card)ci);
+    before = ca.cards;
+    fc_cardset_set_size(cs, 428, 578, 193, 1935, 0);
+    for (ci = 0; ci < 52; ci++)
+        fc_cardset_card(cs, (Card)ci);
+    fc_cardset_set_size(cs, 200, 270, 90, 900, 0);
+    for (ci = 0; ci < 52; ci++)
+        fc_cardset_card(cs, (Card)ci);
+    a = fc_cardset_card(cs, 51);
+    CHECK(ca.cards == before, "fast sprites from the half-size copies: %d decodes", ca.cards - before);
+    CHECK(a && a->w == 200 && a->h == 270, "fast sprite size");
+    fc_cardset_set_size(cs, 200, 270, 90, 900, 1);         /* best: the masters come back (decoded once) */
+    {
+        FcImage *r = ref_sprite(&ca.na, 51, 200, 270, 1);
+        CHECK(same_image(fc_cardset_card(cs, 51), r), "HQ after the big size");
+        fc_image_free(r);
+    }
+    before = ca.cards;
+    fc_cardset_set_size(cs, 201, 271, 90, 900, 1);
+    fc_cardset_card(cs, 51);
+    CHECK(ca.cards == before, "master kept again: %d decodes", ca.cards - before);
+
+    /* bevel rings: cached per key, equal to a fresh one */
+    a = fc_cardset_bevel(cs, 191, 258, 2.6875, 9.6, FC_RGB(0, 0, 0), FC_RGB(0, 255, 0));
+    b = fc_cardset_bevel(cs, 102, 102, 2.6875, 5.7, FC_RGB(0, 255, 0), FC_RGB(0, 0, 0));
+    CHECK(a && b && a != b, "two rings");
+    CHECK(fc_cardset_bevel(cs, 191, 258, 2.6875, 9.6, FC_RGB(0, 0, 0), FC_RGB(0, 255, 0)) == a &&
+          fc_cardset_bevel(cs, 102, 102, 2.6875, 5.7, FC_RGB(0, 255, 0), FC_RGB(0, 0, 0)) == b, "rings cached");
+    {
+        FcImage *r = fc_bevel_ring_new(191, 258, 2.6875, 9.6, FC_RGB(0, 0, 0), FC_RGB(0, 255, 0));
+        CHECK(same_image(a, r), "cached ring == fresh ring");
+        fc_image_free(r);
+    }
+    CHECK(fc_cardset_bevel(cs, 191, 258, 2.6875, 9.5, FC_RGB(0, 0, 0), FC_RGB(0, 255, 0)) != a, "new key, new ring");
+    CHECK(fc_cardset_bevel(NULL, 10, 10, 2, 2, 0, 0) == NULL, "no card set: no cache");
+    fc_cardset_free(cs);
+    fc_native_assets_free(&ca.na);
+}
+
+/* Board renders with the cached bevel rings equal renders without a card set (rings built on the
+ * fly), at scaled-up sizes where the HD bevel is used. */
+static void test_bevel_cache_render(FcCardSet *cs)
+{
+    static const int sizes[][2] = { { 948, 640 }, { 1920, 1000 }, { 1264, 854 } };
+    size_t si;
+    for (si = 0; si < sizeof sizes / sizeof sizes[0]; si++) {
+        int W = sizes[si][0], H = sizes[si][1];
+        FcImage *a = fc_image_new(W, H), *b = fc_image_new(W, H);
+        FcLayout l;
+        FcView v;
+        fc_layout_compute(&l, W, H);
+        fc_render_prepare(cs, &l, 1);
+        fc_view_init(&v);
+        v.no_game = 1;
+        v.king = FC_KINGVIEW_BLANK;                   /* (no king sprite without a card set) */
+        fc_render_board(a, &l, NULL, &v, cs);
+        fc_render_board(a, &l, NULL, &v, cs);         /* the second time from the cache */
+        fc_render_board(b, &l, NULL, &v, NULL);
+        CHECK(l.bevel > 1 && memcmp(a->px, b->px, sizeof(uint32_t) * (size_t)W * H) == 0,
+              "%dx%d: cached bevels differ", W, H);
+        fc_image_free(a);
+        fc_image_free(b);
+    }
+}
+
 static const void *null_loader(int id, size_t *len, void *ctx)
 {
     (void)id;
@@ -434,6 +688,8 @@ int main(void)
     if (cs) {
         test_cardset(cs);
         test_render_rect(cs);
+        test_bevel_cache_render(cs);
+        test_cardset_rules(res ? res : "res");
         fc_cardset_free(cs);
     } else {
         printf("SKIP render tests: card assets not found in %s\n", assets.dir);

@@ -26,12 +26,19 @@
  * cancel now leaves the current game completely untouched and records no loss, no y < 9 miss quirk —
  * a miss is FCS_MISS, no DBLCLK repost, cheat win keeps the home piles consistent); the two texts with
  * missing spaces are fixed; two New Games in the same second give different numbers.
+ *
+ * v1.1 extras (s->extras, all off by default = XP): a move counter and game clock for the menu bar
+ * (moves = committed user actions: a supermove is 1, autoplay is not counted, Undo -1, Redo +1; the
+ * clock starts at the first counted move after a deal and stops on win, loss or a new deal), the
+ * standard supermove rule (f+1)*2^e, New Game from all 1..1000000 games, and the set of won deals
+ * (always on; wondeals.h).
  */
 #ifndef FC_SESSION_H
 #define FC_SESSION_H
 
 #include "game.h"
 #include "stats.h"
+#include "wondeals.h"
 
 /* ---- Constants -------------------------------------------------------------------------------- */
 #define FCS_MISS (-1)                    /* "col" of a click/move that hit nothing */
@@ -94,6 +101,11 @@ typedef struct FcSessionUI {
      * call fcs_command(s, cmd). If NULL the session runs the command directly before returning. */
     void (*post_command)(void *ctx, int cmd);
     uint32_t (*now_seed)(void *ctx);                    /* time(NULL), seeds RandomGameNumber */
+    /* Extras. Monotonic millisecond clock for the game timer (GetTickCount; wraps). NULL = 0. */
+    uint32_t (*now_ms)(void *ctx);
+    /* The move counter or the game clock changed (moved, reset, started, stopped): redraw "Moves" /
+     * "Time" and start (fcs_clock_running) or stop the UI's once-a-second display refresh. */
+    void (*status_changed)(void *ctx);
 } FcSessionUI;
 
 /* ---- Session state (read-only for the UI except opts, which the Options dialog edits) ---------- */
@@ -112,6 +124,7 @@ typedef struct FcSession {
     int       flash_left;
     int       swallow_click;
     int       busy;          /* inside a replay: input ignored */
+    int       quiet;         /* > 0: illegal-move messages suppressed (key '0'), opts left alone */
     uint32_t  last_seed;
     int       seeded;
     FcAction **hist;         /* undo history, oldest first */
@@ -120,6 +133,12 @@ typedef struct FcSession {
     int       nredo, redo_cap;
     FcStats   stats;
     FcOptions opts;
+    FcExtras  extras;        /* v1.1 extras; loaded and saved by the UI (its own store) */
+    int       moves;         /* move counter (extra) */
+    int       clock_running; /* game clock (extra): running since clock_start, else stopped at clock_ms */
+    uint32_t  clock_start, clock_ms;
+    FcWonDeals won;          /* won deals (extra), persisted through won_io */
+    FcBlobIO  won_io;
     FcStore   store;
     FcSessionUI ui;
     FcAction  work;          /* scratch action being built */
@@ -166,5 +185,17 @@ void fcs_view_state(const FcSession *s, FcsViewState *v);
 /* Fixed texts: string-table ids 301..313 (307 with the missing space fixed), FCS_STR_* (YouLose text
  * with "lose. There" fixed). Returns "" for unknown ids. */
 const char *fcs_string(int id);
+
+/* ---- Extras ------------------------------------------------------------------------------------- */
+int      fcs_moves(const FcSession *s);
+uint32_t fcs_elapsed_ms(const FcSession *s);    /* game clock */
+int      fcs_clock_running(const FcSession *s);
+/* "m:ss" below an hour, "h:mm:ss" from an hour on (whole seconds, rounded down). */
+void     fcs_format_time(uint32_t ms, char *buf, size_t n);
+/* Load the won-deals set through io (kept for saving after each new won deal). Returns
+ * fc_won_load's result: 1 loaded, 0 no file, -1 damaged (then the set starts empty). */
+int      fcs_attach_won_deals(FcSession *s, const FcBlobIO *io);
+int      fcs_won_before(const FcSession *s, int game);
+uint32_t fcs_won_count(const FcSession *s);
 
 #endif
