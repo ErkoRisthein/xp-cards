@@ -93,7 +93,7 @@ AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers
     radius ≈ 0.0357·h, or ≈ 0.052·w as a share of width.
   - Examples: h=96 → 3.6 px; 150 → 5.6; 200 → 7.4; 260 → 9.7; 300 → 11.2.
   - Use the same radius for the empty free-cell and foundation outlines.
-- **Index** (master px):
+- **Index** (master px; measured with the generator's stroke 80 — we now render the rank stroke at 115, see tools/make_assets.sh):
   - Rank glyph bbox, e.g. 7♦: x 20–69, y 20–102 (83 px tall, about 50 px wide; stroke 6.7 px).
   - Suit glyph below it: about 46×56 px at y 118–174.
   - The bottom-right index is the same, rotated 180°.

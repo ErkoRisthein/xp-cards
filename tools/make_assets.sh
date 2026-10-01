@@ -8,7 +8,9 @@
 #   icon    res/king/src/king_left.svg -> res/icon/icon_card.svg -> res/freecell.ico
 #   cursor  res/icon/make_cursor.py -> res/downarrow.cur
 #   cards   res/cards-svg/<R><S>.svg -> res/cards/<R><S>.png (400x560 RGBA; docs/card-art.md §2, slow:
-#           zopfli). The SVGs themselves come from the RevK generator URL in res/cards-src/.
+#           zopfli). The SVGs themselves come from the RevK generator URL in res/cards-src/ and are
+#           kept unmodified; the rank-index stroke is thickened here from the generator's 80 to
+#           $INDEX_STROKE (default 115, closer to XP's bold index and readable at small sizes).
 #   check   structure checks of the .ico/.cur and PNG sizes/formats
 #
 # Needs: rsvg-convert (librsvg), Python 3 with Pillow ($PYTHON, default python3) and, for PNG
@@ -18,6 +20,7 @@ set -eu
 cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
 OXIPNG_PYTHON=${OXIPNG_PYTHON:-$PYTHON}
+INDEX_STROKE=${INDEX_STROKE:-115}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fcassets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
@@ -51,7 +54,8 @@ cursor() { "$PYTHON" res/icon/make_cursor.py res/downarrow.cur >/dev/null; echo 
 cards() {
     for f in res/cards-svg/??.svg; do
         n=$(basename "$f" .svg)
-        rsvg-convert -h 560 "$f" -o "$TMP/$n.png"
+        sed "s/stroke-width=\"80\"/stroke-width=\"$INDEX_STROKE\"/g" "$f" > "$TMP/$n.svg"
+        rsvg-convert -h 560 "$TMP/$n.svg" -o "$TMP/$n.png"
         optimise "$TMP/$n.png" "res/cards/$n.png" 15
         printf '%s ' "$n"
     done
