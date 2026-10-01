@@ -105,6 +105,15 @@ drawn after scaling (the art's 1.67-px master outline vanishes when downscaled).
 resizing a cheaper filter may be used, with the HQ rescale after `WM_EXITSIZEMOVE`. Selection =
 XP's colour inversion (`255 - RGB`, corners untouched). Table colour RGB(0,127,0).
 
+### Crispness decisions (2026-10-01, queued after v1.1)
+* Art: rank index stroke 80 → 115 (done). Court-card linework (`stroke="#44F"`, widths 3/6/36 in the
+  1300x2000 court art) → 1.6x thicker and dark navy `#223` at every size: the original sub-pixel
+  light-blue lines wash the courts out to pastel even at 1080p. Blue *fills* stay. Applied in
+  `tools/make_assets.sh`; the source SVGs stay untouched.
+* Resampling: Lanczos-3 (premultiplied, fixed point) instead of the box filter, plus a light unsharp
+  mask whose strength ramps in only for strong downscales (≈ none at ≤1.5x, full at ≥3x, i.e. small
+  windows), so 1080p is essentially unchanged.
+
 ## Persistence
 
 * Statistics and options: **the same registry key and format as XP**
