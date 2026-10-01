@@ -41,7 +41,17 @@ void fc_copy_rect(FcImage *dst, int dx, int dy, const FcImage *src, int sx, int 
  * rect (x,y,w,h) with outer corner radius r, src-over with colour argb (straight, will be premultiplied). */
 void fc_stroke_round_rect(FcImage *dst, double x, double y, double w, double h, double r, double t, uint32_t argb);
 
-/* Write a PNG (un-premultiplied) — available in native builds/tests only (FC_WITH_PNG_WRITER). */
+/* Area of pixel (px,py)'s unit square inside the rounded rect (x,y,w,h, corner radius r), 0..1. */
+double fc_round_rect_coverage(double x, double y, double w, double h, double r, int px, int py);
+
+/* Finish a scaled card sprite in place: the art is composited over 'under' (straight ARGB) inside an
+ * analytic rounded-rect shape of the image's full size (outer radius r), and a frame ring of
+ * thickness t in colour 'frame' (straight ARGB) is drawn along its edge. Outside the shape the
+ * sprite is transparent, so corners stay clean (no dark fringes) at every size. */
+void fc_image_card_finish(FcImage *img, double r, double t, uint32_t frame, uint32_t under);
+
+/* Write a PNG (un-premultiplied) — available in native builds/tests only (FC_WITH_PNG_WRITER).
+ * Without FC_WITH_PNG_WRITER it is a stub returning 0. */
 int fc_image_write_png(const FcImage *img, const char *path);
 
 #endif

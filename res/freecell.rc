@@ -1,0 +1,201 @@
+/*
+ * FreeCell HD — Win32 resources. Menus, accelerators, dialogs, strings and ids replicate XP
+ * FreeCell (docs/xp-reference/resources.md) except: no context help ("?" / DS_CONTEXTHELP, we
+ * cannot ship freecell.hlp), the missing spaces in "lose. There" and "cards. You" are fixed, and the
+ * stray '%' in the statistics strings 319-321 is removed (same on-screen text as XP's wsprintf).
+ * Build: windres -I res -I src -O coff -o res.o res/freecell.rc  (files are relative to res/)
+ */
+#include <windows.h>
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "freecell.manifest"
+
+IDI_FREECELL ICON "freecell.ico"
+DOWNARROW CURSOR "downarrow.cur"
+
+FREEMENU MENU
+BEGIN
+    POPUP "&Game"
+    BEGIN
+        MENUITEM "&New Game\tF2",           IDM_NEWGAME
+        MENUITEM "&Select Game\tF3",        IDM_SELECTGAME
+        MENUITEM "&Restart Game",           IDM_RESTART, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "S&tatistics...\tF4",      IDM_STATISTICS
+        MENUITEM "&Options...\tF5",         IDM_OPTIONS
+        MENUITEM SEPARATOR
+        MENUITEM "&Undo\tF10",              IDM_UNDO, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                   IDM_EXIT
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Contents\t F1",          IDM_HELPCONTENTS    /* sic: space after the tab */
+        MENUITEM "&Search for Help on...",  IDM_HELPSEARCH
+        MENUITEM "&How to Use Help",        IDM_HELPHOWTO
+        MENUITEM SEPARATOR
+        MENUITEM "&About FreeCell...",      IDM_ABOUT
+    END
+END
+
+FREEMENU ACCELERATORS
+BEGIN
+    VK_F1,  IDM_HELPCONTENTS, VIRTKEY
+    VK_F1,  IDM_HELPCONTENTS, VIRTKEY, SHIFT
+    VK_F2,  IDM_NEWGAME,      VIRTKEY
+    VK_F3,  IDM_SELECTGAME,   VIRTKEY
+    VK_F4,  IDM_STATISTICS,   VIRTKEY
+    VK_F5,  IDM_OPTIONS,      VIRTKEY
+    VK_F10, IDM_UNDO,         VIRTKEY
+    VK_F10, IDM_CHEAT,        VIRTKEY, SHIFT, CONTROL
+END
+
+/* Dialogs: plain DIALOG templates, "MS Shell Dlg" 8. The code centres them over the main window,
+ * so x/y are XP's values but irrelevant. Control styles are XP's exactly. */
+GAMENUM DIALOG 40, 40, 120, 75
+STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
+CAPTION "Game Number"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "Select a game number", IDC_STATIC, "Static", SS_CENTER, 0, 7, 121, 8
+    CONTROL "from 1 to 1000000", IDC_STATIC, "Static", SS_CENTER, 0, 17, 121, 8
+    CONTROL "", IDC_GAMENUMBER, "Edit", ES_LEFT | WS_BORDER | WS_TABSTOP, 45, 32, 40, 12
+    CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 40, 54, 40, 14
+END
+
+MOVECOL DIALOG 40, 40, 150, 80
+STYLE DS_MODALFRAME | WS_CAPTION
+CAPTION "Move to Empty Column..."
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "Move &column", IDC_MOVECOLUMN, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 30, 15, 90, 14
+    CONTROL "Move &single card", IDC_MOVESINGLE, "Button", BS_PUSHBUTTON | WS_TABSTOP, 30, 35, 90, 14
+    CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_TABSTOP, 55, 57, 40, 14
+END
+
+STATS DIALOG 84, 47, 150, 135
+STYLE DS_MODALFRAME | WS_CAPTION | WS_SYSMENU
+CAPTION "FreeCell Statistics"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "", IDC_STATS_SESSION, "Static", SS_LEFT, 11, 10, 130, 30
+    CONTROL "", IDC_STATS_TOTAL, "Static", SS_LEFT, 11, 42, 130, 30
+    CONTROL "", IDC_STATS_STREAKS, "Static", SS_LEFT, 11, 74, 130, 40
+    CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 20, 115, 40, 14
+    CONTROL "&Clear", IDC_CLEARSTATS, "Button", BS_PUSHBUTTON | WS_TABSTOP, 90, 115, 40, 14
+END
+
+YOULOSE DIALOG 60, 60, 135, 90
+STYLE DS_MODALFRAME | WS_CAPTION
+CAPTION "Game Over"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "Sorry, you lose. There are no more legal moves.\nDo you want to play again?",
+            IDC_STATIC, "Static", SS_LEFT, 15, 6, 120, 40
+    CONTROL "&Yes", IDYES, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 15, 70, 40, 14
+    CONTROL "&No", IDNO, "Button", BS_PUSHBUTTON | WS_TABSTOP, 80, 70, 40, 14
+    CONTROL "&Same game", IDC_SAMEGAME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 15, 55, 62, 12
+END
+
+YOUWIN DIALOG 172, 85, 135, 80
+STYLE WS_POPUP | DS_MODALFRAME | WS_CAPTION
+CAPTION "Game Over"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "Congratulations, you win!\n \nDo you want to play again?",
+            IDC_STATIC, "Static", SS_CENTER, 15, 8, 105, 31
+    CONTROL "&Yes", IDYES, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 15, 58, 40, 14
+    CONTROL "&No", IDNO, "Button", BS_PUSHBUTTON | WS_TABSTOP, 80, 58, 40, 14
+    CONTROL "&Select game", IDC_SELECTGAME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 15, 43, 63, 12
+END
+
+IDD_OPTIONS DIALOG 58, 68, 203, 63
+STYLE DS_MODALFRAME | DS_3DLOOK | WS_CAPTION | WS_SYSMENU
+CAPTION "FreeCell Options"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_TABSTOP, 148, 9, 50, 14
+    CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_TABSTOP, 148, 26, 50, 14
+    CONTROL "Display &messages on illegal moves", IDC_MESSAGES, "Button",
+            BS_AUTOCHECKBOX | WS_TABSTOP, 6, 9, 136, 10
+    CONTROL "&Quick play (no animation)", IDC_QUICKPLAY, "Button",
+            BS_AUTOCHECKBOX | WS_TABSTOP, 6, 26, 136, 10
+    CONTROL "&Double click moves card to free cell", IDC_DBLCLICK, "Button",
+            BS_AUTOCHECKBOX | WS_TABSTOP, 6, 43, 136, 10
+END
+
+STRINGTABLE
+BEGIN
+    IDS_APPNAME         "FreeCell"
+    IDS_BYLINE          "by Jim Horne"
+    IDS_TITLE_GAME      "FreeCell Game #%d"
+    IDS_OUTOFMEMORY     "Out of memory.  Close other applications and try again."
+    IDS_RESIGN          "Do you want to resign this game?"
+    IDS_ILLEGAL         "That move is not allowed."
+    IDS_NOTENOUGH       "That move requires moving %u cards. You only have enough free space to move %u."
+    IDS_CARDSLEFT       "Cards Left: %u"
+    IDS_CLEARSTATS      "Are you sure you want to delete all statistics?"
+    IDS_1WIN            "1 win"
+    IDS_1LOSS           "1 loss"
+    IDS_NWINS           "%u wins"
+    IDS_NLOSSES         "%u losses"
+    IDS_HOWTOPLAY       "How to Play"
+    IDS_COMMANDS        "Commands"
+    IDS_STREAK          "streak"
+    IDS_STYPE           "stype"
+    IDS_ABOUTNAME       "FreeCell"
+    IDS_STATS_SESSION   "This session\t\t\t%u%%\n\twon:\t\t%u \n\tlost:\t\t%u\n\n"
+    IDS_STATS_TOTAL     "Total\t\t\t\t%u%%\n\twon:\t\t%u \n\tlost:\t\t%u\n\n"
+    IDS_STATS_STREAKS   "Streaks\n\twins:\t\t%u \n\tlosses:\t\t%u \n\tcurrent:\t\t%s"
+END
+
+/* Card faces (400x560 RGBA PNG): id 1000 + rank*4 + suit, rank A..K = 0..12, suit C D H S = 0..3 */
+1000 RCDATA "cards/AC.png"  1001 RCDATA "cards/AD.png"  1002 RCDATA "cards/AH.png"  1003 RCDATA "cards/AS.png"
+1004 RCDATA "cards/2C.png"  1005 RCDATA "cards/2D.png"  1006 RCDATA "cards/2H.png"  1007 RCDATA "cards/2S.png"
+1008 RCDATA "cards/3C.png"  1009 RCDATA "cards/3D.png"  1010 RCDATA "cards/3H.png"  1011 RCDATA "cards/3S.png"
+1012 RCDATA "cards/4C.png"  1013 RCDATA "cards/4D.png"  1014 RCDATA "cards/4H.png"  1015 RCDATA "cards/4S.png"
+1016 RCDATA "cards/5C.png"  1017 RCDATA "cards/5D.png"  1018 RCDATA "cards/5H.png"  1019 RCDATA "cards/5S.png"
+1020 RCDATA "cards/6C.png"  1021 RCDATA "cards/6D.png"  1022 RCDATA "cards/6H.png"  1023 RCDATA "cards/6S.png"
+1024 RCDATA "cards/7C.png"  1025 RCDATA "cards/7D.png"  1026 RCDATA "cards/7H.png"  1027 RCDATA "cards/7S.png"
+1028 RCDATA "cards/8C.png"  1029 RCDATA "cards/8D.png"  1030 RCDATA "cards/8H.png"  1031 RCDATA "cards/8S.png"
+1032 RCDATA "cards/9C.png"  1033 RCDATA "cards/9D.png"  1034 RCDATA "cards/9H.png"  1035 RCDATA "cards/9S.png"
+1036 RCDATA "cards/TC.png"  1037 RCDATA "cards/TD.png"  1038 RCDATA "cards/TH.png"  1039 RCDATA "cards/TS.png"
+1040 RCDATA "cards/JC.png"  1041 RCDATA "cards/JD.png"  1042 RCDATA "cards/JH.png"  1043 RCDATA "cards/JS.png"
+1044 RCDATA "cards/QC.png"  1045 RCDATA "cards/QD.png"  1046 RCDATA "cards/QH.png"  1047 RCDATA "cards/QS.png"
+1048 RCDATA "cards/KC.png"  1049 RCDATA "cards/KD.png"  1050 RCDATA "cards/KH.png"  1051 RCDATA "cards/KS.png"
+
+/* King busts (1024x1024 RGBA PNG), ids = FC_ASSET_KING_* in src/gfx/cardset.h */
+IDR_KING_RIGHT RCDATA "king/king_right.png"
+IDR_KING_LEFT  RCDATA "king/king_left.png"
+IDR_KING_SMILE RCDATA "king/king_smile.png"
+
+1 VERSIONINFO
+FILEVERSION     1, 0, 0, 0
+PRODUCTVERSION  1, 0, 0, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "xp-cards"
+            VALUE "FileDescription",  "FreeCell HD"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "FreeCellHD"
+            VALUE "OriginalFilename", "FreeCellHD.exe"
+            VALUE "ProductName",      "FreeCell HD"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "Comments",         "A re-implementation of FreeCell for Windows XP, whose design (by Jim Horne, Microsoft) it follows; not affiliated with or endorsed by Microsoft. Card faces: SVG playing cards by Adrian Kennard - https://cards.revk.uk (CC0)."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

@@ -1,0 +1,26 @@
+# Curated corrections applied by build_exports.py on top of the XP SP3 export tables (NirSoft).
+# Goal: the exports present on BOTH XP SP2 and XP SP3 (x86). Every line carries its reference.
+#   remove <dll> <name>          # reason
+#   add    <dll> <name> [flags]  # reason   (flag v6: comctl32 v6 only, i.e. needs a CC 6.0 manifest)
+#
+# GC  = Geoff Chappell, function tables with per-version applicability:
+#       https://www.geoffchappell.com/studies/windows/win32/kernel32/api/index.htm (and advapi32, shell/*)
+# MS  = Microsoft Learn / github.com/MicrosoftDocs/sdk-api "Minimum supported client"
+#
+# --- added in XP SP3 (not on SP2) -------------------------------------------------------------------
+remove kernel32 GetLogicalProcessorInformation  # GC "5.1 from Windows XP SP3, and higher"; MS "Windows Vista, Windows XP Professional x64 Edition, Windows XP with SP3"
+remove kernel32 GetProcessDEPPolicy            # GC "begins in 5.1 from Windows XP SP3"; MS "Windows XP with SP3"
+remove kernel32 GetSystemDEPPolicy             # GC "begins in 5.1 from Windows XP SP3"; MS "Windows XP with SP3"
+remove kernel32 SetProcessDEPPolicy            # GC "begins in 5.1 from Windows XP SP3"; MS "Windows XP with SP3"
+remove advapi32 RegDisablePredefinedCacheEx    # GC "5.1 from Windows XP SP3, and 6.0 and higher"; MS "Windows Vista"
+#
+# --- sources disagree: treat as unavailable ---------------------------------------------------------
+remove shlwapi DelayLoadFailureHook            # GC "6.0 from Windows Vista, and higher" although the XP SP3 table lists it
+#
+# --- comctl32 v6 (WinSxS, selected by a Common-Controls 6.0 manifest) -------------------------------
+# The NirSoft table is the system32 comctl32.dll 5.82. Named exports that exist only in the XP v6 DLL:
+add comctl32 DrawShadowText v6                 # GC "6.00 and higher" (MS claims Vista: wrong, XP's v6 has it)
+add comctl32 HIMAGELIST_QueryInterface v6      # GC "6.00 and higher"
+add comctl32 ImageList_ReadEx v6               # GC "6.0 and higher"
+add comctl32 ImageList_WriteEx v6              # GC "6.0 and higher"
+# RegisterClassNameW is not in the 5.82 named list; GC: XP SP2 only ("except ... from Windows XP SP3") -> not added.

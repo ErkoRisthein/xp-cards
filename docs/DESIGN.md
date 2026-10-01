@@ -65,9 +65,10 @@ tableau columns (index 0 = furthest from the player). See `src/core/game.h`.
 
 All XP geometry (layout.md §2, §10) is expressed in XP pixels at scale `s = 1` (card 71x96) and scaled:
 
-* `s = min(Wc / 632, Hc / 318)` where `Wc x Hc` is the client size. 632 is XP's client width; 318 is
-  the height needed for the top row + a 7-card column with the normal step + a small margin
-  (106 + 6*18 + 96 + 8). At 1920x1080 maximized this is width-limited: s ≈ 3.0, card ≈ 213x288.
+* `s = min(Wc / 632, Hc / 372)` where `Wc x Hc` is the client size. 632 is XP's client width; 372 is
+  the height needed for the top row + a 10-card column with the normal step + a small margin
+  (106 + 9*18 + 96 + 8). At 1920x1080 maximized this is height-limited: s ≈ 2.68, card ≈ 190x257
+  — a balance between card size and long columns (10 cards at XP's step, 13 still at ~0.14 ch).
   Clamp `s >= 0.5`; the window enforces a minimum track size accordingly.
 * Board width `Wb = round(632 s)` when height-limited, else `Wb = Wc`; board is centred horizontally:
   `bx = (Wc - Wb) / 2`. All XP formulas then use `Wb` in place of XP's `Wc` and are offset by `bx`.
@@ -78,9 +79,9 @@ All XP geometry (layout.md §2, §10) is expressed in XP pixels at scale `s = 1`
   `g = floor((Wb - 8cw)/9)`, `x_k = bx + g + floor((k-1)(Wb-g)/8)`; `y0 = ch + round(10 s)`;
   normal step `floor(9 ch / 46)` (= 18 at s = 1, so s = 1 reproduces XP pixel-exactly).
 * **Column compression (extra, XP never needed it):** if a column's bottom card would end below
-  `Hc - round(4 s)`, that column's step shrinks to fit, but never below `step_min` (enough to show the
-  card's rank glyph: ≈ 0.16 ch with this art — see card-art.md §3, rank glyph spans y 20–102 of 560);
-  below that it is allowed to run off the bottom (as XP).
+  `Hc - round(4 s)`, that column's step shrinks to fit, but never below `step_min = 0.10 ch` (the top of the rank
+  glyph stays visible; the art's rank glyph spans y 20–102 of 560); below that it runs off the
+  bottom (as XP).
 * Bevels (empty free/home cells: black top/left, #00FF00 bottom/right; king frame the reverse) are
   drawn with line width `max(1, round(s))`.
 * Big win king: `320 s` square at `(bx + 10 s, ch + 10 s)`, shrunk to fit the client height if needed.

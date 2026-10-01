@@ -1,0 +1,83 @@
+# Wider self-test of tools/wine/fcdrive.exe against the ORIGINAL XP FreeCell (accelerators with
+# modifiers, keyboard, right-button peek, window sizing, check boxes, registry, text log, captures).
+#   FCWORK=<dir with freecell.exe + cards.dll> tools/wine/run.sh -o <out> tests/e2e/xp_original_driver_selftest.txt
+# (tests/e2e/run_xp_original_smoke.sh prepares FCWORK for the smoke test; reuse that directory.)
+
+timeout 10000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell won bin32 3   # XP format: 4-byte REG_BINARY
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+
+launch ${FCWORK}/freecell.exe
+move_window 40 60
+
+# F3 accelerator -> Game Number dialog; ENTER is handled by the dialog's IsDialogMessage
+vkey F3
+wait_dialog "Game Number"
+dialog_set_text 203 2
+vkey ENTER
+assert_no_dialog
+assert_title "FreeCell Game #2"
+
+# keyboard: digit 1 selects column 1 (synthetic click on its bottom card)
+key 1
+assert_pixel 11 264 000000
+click 42 262                     # click the selected card again: deselect
+assert_pixel 11 264 FFFFFF
+
+# right-button peek at a covered card of column 2 (x 85.., second card at y 124)
+rclick_down 120 130
+capture 10_peek.bmp
+rclick_up 120 130
+
+# Ctrl+Shift+F10: hidden cheat message box (accelerator needs the modifier key state)
+vkey F10 ctrl shift
+wait_dialog "User-Friendly User Interface"
+dialog_text
+dialog_click Ignore
+assert_no_dialog
+
+# F5 Options: toggle "quick play" (210) on and OK. XP keeps it in memory and writes it to the registry
+# only on WM_CLOSE (rules.md section 9), so reopen the dialog to check it.
+vkey F5
+wait_dialog "FreeCell Options"
+dialog_text
+dialog_check 210 1
+capture_dialog 11_options.bmp
+dialog_click OK
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell quick absent
+command 109
+assert_dialog_text "[210] Button \"&Quick play (no animation)\" [x]"
+dialog_click Cancel
+
+# Statistics read the seeded registry value
+command 105
+assert_dialog_text "won:\t\t3"
+dialog_click OK
+
+# window sizing (XP FreeCell is resizable up to 640 px wide; the board does not scale)
+resize_client 560 360
+assert_client_size 560 360
+capture 12_560x360.bmp
+maximize
+capture 13_maximized.bmp
+info
+restore
+resize_client 632 427
+drawn_text                       # every string the app drew (TextOut/ExtTextOut/DrawText) so far
+menubar_text
+capture_method print            # PrintWindow: XP FreeCell does not handle WM_PRINTCLIENT -> table colour only
+capture 14_printwindow.bmp
+capture_method dc
+
+# Exit, refusing the resign prompt first (No keeps the game running)
+close No
+assert_running
+assert_title "FreeCell Game #2"
+close Yes
+wait_exit 5000
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell won 3
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell quick 1
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell quick
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell quick absent

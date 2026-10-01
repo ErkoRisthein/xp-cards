@@ -2,8 +2,8 @@
  * FreeCell HD — card and king sprites at the current display size.
  *
  * Masters are 400x560 RGBA PNG card faces (res/cards/<R><S>.png, CC0 art) and square RGBA king
- * PNGs (res/king/*.png). Assets are fetched through a loader callback so the same code reads Win32
- * RCDATA resources in the exe and plain files in native tests.
+ * PNGs (res/king/king_{right,left,smile}.png). Assets are fetched through a loader callback so the
+ * same code reads Win32 RCDATA resources in the exe and plain files in native tests.
  */
 #ifndef FC_CARDSET_H
 #define FC_CARDSET_H

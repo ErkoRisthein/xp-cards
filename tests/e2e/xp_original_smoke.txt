@@ -1,0 +1,51 @@
+# Smoke test of the ORIGINAL Windows XP FreeCell under Wine. It validates tools/wine/fcdrive.exe.
+# Run it with tests/e2e/run_xp_original_smoke.sh, which copies freecell.exe + cards.dll into a work dir
+# and sets FCWORK. Without the wrapper:  FCWORK=<dir> tools/wine/run.sh -o <out> tests/e2e/xp_original_smoke.txt
+# FreeCell ids are from docs/xp-reference/resources.md: 103 Select Game (edit 203), 105 Statistics
+# (statics 212/213/214, Clear 207), 107 Restart Game, 115 Undo. WM_CLOSE during a game asks
+# "Do you want to resign this game?" (string 305).
+
+timeout 10000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell   # start from zero statistics
+
+launch ${FCWORK}/freecell.exe
+assert_title FreeCell
+assert_client_size 632 427
+assert_menu 107 grayed                 # Restart Game is grayed before the first deal
+menubar_text                           # "Cards Left: 0", drawn into the menu bar with TextOutW
+
+# Game > Select Game, then type 1 and press OK
+command 103
+wait_dialog "Game Number"
+dialog_text
+dialog_set_text 203 1
+dialog_click OK
+assert_no_dialog
+assert_title "FreeCell Game #1"
+assert_menubar_text "Cards Left: 52"
+assert_menu 107 enabled
+assert_menu 115 grayed
+assert_pixel 11 264 FFFFFF             # white margin of the bottom card in column 1
+capture 01_game1.bmp
+capture_window 01_game1_window.bmp
+
+# Select the bottom card of column 1 (x 7..77, y 214..309 in the default 632x427 client).
+# XP shows the selection by inverting the card's colours (layout.md section 5).
+click 42 262
+assert_pixel 11 264 000000
+capture 02_selected.bmp
+
+# Game > Statistics, read it, close it
+command 105
+wait_dialog "FreeCell Statistics"
+dialog_text
+assert_dialog_text "This session\t\t\t0%"
+dialog_click OK
+assert_no_dialog
+
+# Exit: WM_CLOSE asks to resign. Answering Yes records a loss.
+close Yes
+wait_exit 5000
+regdump HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell stype 0

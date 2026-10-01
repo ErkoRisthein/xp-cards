@@ -51,7 +51,12 @@ FcRect fc_layout_card_rect(const FcLayout *l, const FcBoard *b, int col, int pos
  *            strip, the exposed card over its full height); pos = -1 for an empty column.
  * Returns 0 on a miss. For FC_HIT_DEST, a point anywhere in a tableau column's x band (from its left
  * edge to the next column's left edge, at y >= col_y0) hits that column even below its last card or
- * over an empty column (pos is then the last index, or -1 if empty) — XP's wider destination zones. */
+ * over an empty column (pos is then the last index, or -1 if empty) — XP's wider destination zones.
+ * Details: FC_HIT_SOURCE over an empty column hits (pos = -1) anywhere in the card's x range at
+ * y >= col_y0; column 8's band is as wide as the others (XP: x = 631 at s = 1 is a miss); the king
+ * gap, the band between the rows and the margins are misses in both modes; on a miss *col / *pos are
+ * still set to the column under the point (or -1) and -1. Card rects are half-open (XP's HitTest
+ * also accepted the pixel just right of / below a card). Compressed columns use their own step. */
 enum { FC_HIT_SOURCE = 0, FC_HIT_DEST = 1 };
 int fc_layout_hit(const FcLayout *l, const FcBoard *b, int x, int y, int mode, int *col, int *pos);
 

@@ -29,6 +29,11 @@ typedef struct FcView {
 
 void fc_view_init(FcView *v);  /* nothing selected/peeked/hidden, king right, no big king */
 
+/* Size the card set's sprites for layout l (call after fc_layout_compute, before rendering):
+ * fc_cardset_set_size(cs, l->cw, l->ch, l->king.w, l->big_king.w, quality). quality 0 while the
+ * window is being live-resized, 1 otherwise. */
+void fc_render_prepare(FcCardSet *cs, const FcLayout *l, int quality);
+
 /* Draw the whole board (background, top-row cells/cards, king + frame, columns, peek, big king). */
 void fc_render_board(FcImage *fb, const FcLayout *l, const FcBoard *b, const FcView *v, FcCardSet *cs);
 

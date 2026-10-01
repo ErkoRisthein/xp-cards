@@ -1,14 +1,17 @@
-# Card artwork licence
+# Artwork licences
 
-## Card faces in `res/cards-svg/` and `res/cards/`, 
+## Card faces: `res/cards-svg/` (SVG) and `res/cards/` (400x560 PNG masters)
 
 **Source:** "SVG playing cards" by Adrian Kennard (RevK), generated with the author's online generator.
 - Project page (primary source): https://www.me.uk/cards/
 - Exact generator request used (zip of SVGs):
   `https://www.me.uk/cards/makeadeck.cgi?size=poker&ace=Fancy&ace1=&ace2=&qr=&back=Diamond&value=0&super=1&pip=1&wider=on&zip=Download`
-  (copy in `res/cards-src/GENERATOR_URL.txt`; the downloaded zip is kept as `res/cards-src/revk_generator_output.zip`,
-  sha256 `f74072710820e6f554f04ae6fc123050097285ec537691f53b5bf1caa3d9e716`, fetched 2026-10-01)
+  (copy in `res/cards-src/GENERATOR_URL.txt`). The zip it returned on 2026-10-01 (sha256
+  `f74072710820e6f554f04ae6fc123050097285ec537691f53b5bf1caa3d9e716`) is not shipped; its 52 face SVGs
+  are `res/cards-svg/<R><S>.svg`.
 - Snapshot of the project page as fetched 2026-10-01: `res/cards-src/me.uk_cards_page_2026-10-01.html`
+- `res/cards/<R><S>.png` are rasterised from those SVGs (`rsvg-convert -h 560`, then lossless oxipng;
+  `tools/make_assets.sh cards`, see `docs/card-art.md`).
 - Independent archived copy: http://web.archive.org/web/20260829054033/https://www.me.uk/cards/
 - Generator source code: https://codeberg.org/RevK/SVG-playing-cards
 
@@ -37,14 +40,43 @@ and copyright holder explicitly dedicates those to the public domain under CC0. 
 are based on 19th-century Goodall & Son designs, which are themselves public domain because of their
 age.
 
-**Attribution (optional, as a courtesy):** "Card faces: SVG playing cards by Adrian Kennard
-(https://www.me.uk/cards/), CC0 1.0."
+**Attribution (optional, as a courtesy; wording from `docs/DESIGN.md`):** "Card faces: SVG playing
+cards by Adrian Kennard — https://cards.revk.uk (CC0)". The exe's version info carries it in `Comments`.
+
+## King art: `res/king/` (our derivative, CC0 1.0)
+
+`res/king/king_right.png`, `king_left.png` and `king_smile.png` (1024x1024 RGBA, the busts shown in
+the king box and after a win) are rendered from `res/king/src/king_{right,left,smile}.svg`, which
+`res/king/src/derive_kings.py` derives from the **King of Spades court figure of the RevK card set
+above** (`res/cards-svg/KS.svg`, CC0 1.0, after the public-domain Goodall & Son pattern):
+
+- the upper figure cropped to a square bust; the card's dividing line removed; outlines darkened and
+  thickened; an explicit white backing added; the crown's open top outlined;
+- our own additions: the blue mantle with gold hem at the bottom left, and for `king_smile` new brows,
+  lower lids and a smiling mouth; `king_left` is the mirror image of `king_right`.
+
+No part of Microsoft's FreeCell bitmaps ("KingBitmap", "KingLeft", "KingSmile") was used; they were
+only looked at for composition (a king's bust looking right, left, and smiling). We dedicate our
+changes to the public domain under **CC0 1.0** as well, so the king art is CC0 as a whole.
+
+## Program icon `res/freecell.ico` and cursor `res/downarrow.cur` (our own work, CC0 1.0)
+
+- The icon (48, 32, 24 and 16 px; 32-bpp, 8-bpp and 4-bpp) is our own composition, made by
+  `res/icon/make_icon.py`: our king bust above (CC0) in front of a card drawn with RevK's diamond
+  pip shape (CC0); its SVG source is `res/icon/icon_card.svg`. The 16x16 image is an original pixel
+  drawing kept as text in `make_icon.py`. It only follows the idea of XP FreeCell's icon (a king's
+  head in front of a card) and contains no Microsoft pixels.
+- The "DownArrow" cursor is generated from simple geometry by `res/icon/make_cursor.py` (a 4-px shaft,
+  a broad head, a 2-px outline, hotspot at the tip); it is not a copy of XP's bitmap.
+- Both are dedicated to the public domain under **CC0 1.0** (legal code: `res/cards-src/CC0-1.0-legalcode.txt`).
+
+`tools/make_assets.sh` regenerates all of the above from these sources.
 
 ## Candidates evaluated and not used (licence evidence)
 
 | Set | Licence as verified | Evidence |
 |---|---|---|
 | Wikimedia Commons "Playing card heart A.svg" etc. (the "SVG playing cards 2" set) | **GFDL + CC BY-SA 3.0. Rejected.** The author is en:User:Cburnett, **not** Dmitry Fomin, and the set is not public domain. | https://commons.wikimedia.org/wiki/File:Playing_card_heart_A.svg, wikitext `{{Self|GFDL|Cc-by-sa-3.0-migrated}}` |
-| Dmitry Fomin, "English pattern <rank> of <suit>.svg" (52 files) and "English pattern playing cards deck.svg" | CC0. Usable, but not chosen for visual reasons (see ART.md). | e.g. https://commons.wikimedia.org/wiki/File:English_pattern_king_of_hearts.svg, wikitext `{{self|cc-zero}}`, author `[[User:Dmitry Fomin|Дмитрий Фомин (Dmitry Fomin)]]`, date 2017-02-24. The full deck file is also `{{self|Cc-zero}}`. |
+| Dmitry Fomin, "English pattern <rank> of <suit>.svg" (52 files) and "English pattern playing cards deck.svg" | CC0. Usable, but not chosen for visual reasons (see `docs/card-art.md`). | e.g. https://commons.wikimedia.org/wiki/File:English_pattern_king_of_hearts.svg, wikitext `{{self|cc-zero}}`, author `[[User:Dmitry Fomin|Дмитрий Фомин (Dmitry Fomin)]]`, date 2017-02-24. The full deck file is also `{{self|Cc-zero}}`. |
 | Byron Knoll, "vector-playing-cards" 1.3 | Public domain. Usable; this is the runner-up. | Google Code archive project.json (https://storage.googleapis.com/google-code-archive/v2/code.google.com/vector-playing-cards/project.json): "These images are released into the public domain - attribution is appreciated but not required." The GitHub mirror notpeter/Vector-Playing-Cards README says "released into the public domain or optionally licensed under the WTFPL". |
 | David Bellot SVG-cards, Chris Aguilar Vector Playing Cards | LGPL. Rejected per the brief and not downloaded. | Licence as stated in the brief (UNVERIFIED here). |

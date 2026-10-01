@@ -75,6 +75,14 @@ void fc_supermove(FcBoard *b, FcAction *a, int src_col, int dst_col);
 void fc_autoplay(FcBoard *b, FcAction *a, int cheat_win);
 int  fc_home_slot_for(FcBoard *b, int suit);     /* assigns leftmost empty home slot on first use */
 
+/* Apply / revert one logged step on a board (cards_left, home_rank, suit_home_slot included; a
+ * tableau src/dst position in the middle of a column shifts the cards below it — only the cheat sweep
+ * produces such steps). fc_step_unapply over an action's steps in reverse order restores a->before. */
+void fc_step_apply(FcBoard *b, const FcStep *st);
+void fc_step_unapply(FcBoard *b, const FcStep *st);
+/* Cheat "win" autoplay: every remaining card goes home in rank order (fixes XP's garbled homes). */
+void fc_cheat_sweep(FcBoard *b, FcAction *a);
+
 /* Undo one action: restores a->before (b must be the board right after the action). */
 void fc_undo_action(FcBoard *b, const FcAction *a);
 
