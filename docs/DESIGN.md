@@ -55,6 +55,15 @@ tests/                   native unit tests + snapshot renderer
 tools/                   XP import checker, Wine end-to-end driver
 ```
 
+## Input model
+
+Click to select, click the destination (plus XP's double-click to a free cell, digit keys and
+right-button peek) — exactly as XP. FreeCell descends from Paul Alfille's 1978 PLATO game, played on
+touch-screen terminals (touch the card, then the target), and Jim Horne's Windows version kept that
+model. It also fits the rules: you only say *where* a card goes and the game computes how many cards
+a supermove takes (rules.md §2.3), while dragging would require grabbing exactly the right card of
+a run. Drag-and-drop is planned as an optional mode once Solitaire builds the drag code (ROADMAP §1b).
+
 ## Card encoding and board model
 
 Identical to XP (rules.md §0): `card = rank*4 + suit`, rank 0=A..12=K, suit 0=♣ 1=♦ 2=♥ 3=♠,
