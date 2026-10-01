@@ -22,16 +22,21 @@
  *                      dragging drops on sol_key_drop_target (XP: MouseUp, the highlighted target);
  *                      zip the cards back first when it is -1
  *   WM_KILLFOCUS, Esc  sol_cancel_drag(s)
- *   WM_TIMER           sol_timer(s, id)  (ui.set_timer starts/stops SOL_TIMER_CLOCK, 250 ms)
+ *   WM_TIMER           sol_timer(s, id)  (ui.set_timer starts/stops SOL_TIMER_CLOCK, 250 ms, and the
+ *                      hint's SOL_TIMER_HINT)
  *   WM_SIZE            sol_set_minimized(s, wParam == SIZE_MINIMIZED)  (the clock pauses)
- *   WM_INITMENU        Undo: sol_undo_enabled; Redo: sol_redo_enabled; Deal, Deck, About: sol_idle
- *   WM_COMMAND         sol_command(s, SOL_CMD_DEAL / UNDO / REDO / FORCEWIN); the Options dialog:
- *                      sol_apply_options(s, &edited); the Deck dialog: sol_set_back(s, index)
+ *   WM_INITMENU        Undo: sol_undo_enabled; Redo: sol_redo_enabled; Deal, Deck, About: sol_idle;
+ *                      Hint: sol_hint_enabled; Finish: sol_finish_enabled (extras)
+ *   WM_COMMAND         sol_command(s, SOL_CMD_DEAL / UNDO / REDO / FORCEWIN / HINT / FINISH); the Options
+ *                      dialog: sol_apply_options(s, &edited) and sol_set_extras(s, &extras); the Deck
+ *                      dialog: sol_set_back(s, index)
+ *   WM_CHAR 'h' / 'H'  sol_command(s, SOL_CMD_HINT) (extra)
  *   WM_PAINT           draw s->board when sol_board_visible(s): the waste fan from s->waste_fan,
  *                      the empty stock from sol_stock_symbol, the dragged cards s->drag_* (normal
  *                      dragging: drawn at the pointer, not in their pile; outline dragging: in their
- *                      pile, plus the inverted s->target), the back s->back; status bar:
- *                      sol_score_text / sol_seconds, s->opts.status_bar / timed / scoring
+ *                      pile, plus the inverted s->target), the back s->back, the hint's flash
+ *                      (sol_hint_view, drawn inverted); status bar: sol_score_text / sol_seconds,
+ *                      s->opts.status_bar / timed / scoring
  *
  * Deviations from XP (docs/DESIGN.md):
  *   - Unlimited undo + redo (extras). Every committed action is one history entry: a drop, a
@@ -51,19 +56,54 @@
  *   - Two deals in the same second (time(NULL) & 0x7FFF) would be identical in XP: the next seed is
  *     taken instead. A missing Back value picks a uniform random back (XP: 54 twice as likely, 65
  *     never). sCurrency is never read ("$"; XP crashed on short values).
+ *
+ * Extras (v1.1, docs/DESIGN.md "Solitaire HD extras"). Commands that act only when invoked are always
+ * there; everything that changes what input does or makes the game act on its own is in SolExtras,
+ * all off by default, and with all of it off the session behaves exactly as without the extras
+ * (tests/solitaire/sol_xp_compare.c replays random input against the v1.0 session):
+ *   - Hint (SOL_CMD_HINT, Game > Hint, H): the fair hint of assist.h, flashed: its source cards
+ *     inverted twice, then its destination twice (SOL_HINT_STEP_MS per step, timer driven; any input
+ *     ends it). Nothing to suggest: message SOL_MSG_NO_HINT.
+ *   - Finish (SOL_CMD_FINISH, Game > Finish, F6; sol_finish_enabled when assist.h's sol_finish_ready):
+ *     every card home, lowest first, as one undoable action (ui.animate_move flies each card), then the
+ *     win. extras.auto_finish runs it after any committed action or Redo that leaves it possible.
+ *   - extras.auto_turn: after an action, every face-down card it left on top of a column is turned
+ *     over as part of that action (one undo step), scored as XP's click would be (Standard +5).
+ *   - extras.click_move: the UI asks sol_click_target for a press released without moving (a click)
+ *     and drops there (assist.h's ranking); drag and double-click are unchanged.
+ *   - Statistics (stats.h; the UI attaches them with sol_attach_stats and persists them on
+ *     ui.stats_changed): a game counts as played at its first committed action, as won at the win,
+ *     as lost when a new deal replaces it or sol_abandon (Exit) ends it.
+ *   - extras.save_game: the UI saves the game at exit and restores it at start-up (savegame.h).
+ *   - extras.winnable_only: sol_new_deal takes the first seed from time(NULL) & 0x7FFF on that the
+ *     precomputed table (winnable_seeds.h) proves winnable for the draw and the pass limit.
+ *   - extras.warn_unwinnable: every position after a deal, action, Undo or Redo is solved in the
+ *     background (ui.solve_start / sol_solve_done, the full-information solver.h); when an action or
+ *     Redo leads to a position proven unwinnable: SOL_MSG_UNWINNABLE once (SOL_MSG_UNWINNABLE_DEAL if
+ *     the deal itself was), re-armed when a position is found winnable again or by a new deal.
  */
 #ifndef SOL_SESSION_H
 #define SOL_SESSION_H
 
 #include "engine/store.h"
+#include "assist.h"
 #include "game.h"
+#include "stats.h"
 
 #define SOL_MISS (-1)                    /* "pile" of a press that hit no pile */
 
 /* WM_COMMAND ids (XP's: resources.md §2.1), handled by sol_command. */
 enum { SOL_CMD_DEAL = 1000, SOL_CMD_UNDO = 1001, SOL_CMD_FORCEWIN = 1010 /* Alt+Shift+2 */,
-       SOL_CMD_REDO = 1101 /* extra (Ctrl+Y), not in XP */ };
+       SOL_CMD_REDO = 1101 /* extra (Ctrl+Y), not in XP */,
+       SOL_CMD_HINT = 1102 /* extra (H) */, SOL_CMD_FINISH = 1103 /* extra (F6) */ };
 #define SOL_TIMER_CLOCK 666              /* XP's timer id */
+#define SOL_TIMER_HINT  667              /* extra: one step of the hint's flash */
+#define SOL_HINT_STEP_MS 200             /* 8 steps: source on, off, on, off, destination on, off, on, off */
+/* Messages (ui.message): ids of the UI's string table, the session's English text as the fallback. */
+enum { SOL_MSG_NO_HINT = 1110,           /* "No hint is available." */
+       SOL_MSG_UNWINNABLE = 1111,        /* "This game can no longer be won. Use Undo to go back." */
+       SOL_MSG_UNWINNABLE_DEAL = 1112 }; /* "This game cannot be won." */
+const char *sol_message_text(int id);
 #define SOL_TICK_MS     250              /* XP's tick; the clock counts ticks, shows ticks >> 2 seconds */
 #define SOL_TICKS_MAX   0x7FFE
 
@@ -88,10 +128,12 @@ enum { SOL_ACT_MOVE = 1,                 /* n cards src -> dst (drop, double-cli
        SOL_ACT_DRAW = 2,                 /* n cards stock -> waste */
        SOL_ACT_RECYCLE = 3,              /* the waste turned back into the stock */
        SOL_ACT_TURN = 4,                 /* the top card of tableau column src turned over */
-       SOL_ACT_AUTOPLAY = 5 };           /* nsteps single cards steps[i][0] -> steps[i][1] */
+       SOL_ACT_AUTOPLAY = 5,             /* nsteps single cards steps[i][0] -> steps[i][1] */
+       SOL_ACT_FINISH = 6 };             /* extra: Finish, as AUTOPLAY */
 typedef struct SolAction {
     uint8_t type, src, dst, n;
     uint8_t nsteps;
+    uint8_t autoturn;                    /* extra: bit k = column SOL_TAB0 + k turned over after it */
     uint8_t steps[52][2];
     /* the state before the action (Undo restores it) */
     uint8_t board[SOL_PACKED_SIZE];
@@ -128,7 +170,33 @@ typedef struct SolSessionUI {
      * dragging over a non-empty pile lower by the pile's dyUp: a face-up step on the tableau, 1 XP px
      * on a foundation; the drag then follows the pointer). */
     void (*kbd_cursor)(void *ctx, int pile, int card, int dragging);
+    /* ---- extras (any may be NULL) ---- */
+    /* An information box (MB_OK | MB_ICONINFORMATION, caption "Solitaire"): id SOL_MSG_*, text the
+     * English fallback. */
+    void (*message)(void *ctx, int id, const char *text);
+    /* Finish is about to move the top card of src to foundation dst (s->board still shows it on src):
+     * fly it there. */
+    void (*animate_move)(void *ctx, int src, int dst);
+    /* s->stats changed (attached statistics): write them. */
+    void (*stats_changed)(void *ctx);
+    /* Solve board b (a copy, valid for the call only) in the background with the solver (solver.h:
+     * draw, recycles_left); later sol_solve_done(s, id, status). A newer request replaces an older one.
+     * NULL: no solver (the warning stays silent). */
+    void (*solve_start)(void *ctx, uint32_t id, const SolBoard *b, int draw, int recycles_left);
+    void (*solve_cancel)(void *ctx);
 } SolSessionUI;
+
+/* ---- Extras (not in XP): HKCU\Software\xp-cards\Solitaire HD, REG_DWORD 0 / 1, all off by default ---- */
+typedef struct SolExtras {
+    int auto_turn;           /* "AutoTurn": turn face-down cards over automatically */
+    int click_move;          /* "ClickToMove": a click moves a card to its best place */
+    int auto_finish;         /* "AutoFinish": Finish automatically */
+    int winnable_only;       /* "WinnableOnly": deal only games known to be winnable */
+    int save_game;           /* "SaveGame": save the game on exit, resume it at start-up */
+    int warn_unwinnable;     /* "WarnUnwinnable": warn when the game can't be won */
+} SolExtras;
+void sol_extras_load(SolExtras *x, const CeStore *store);        /* missing values: off */
+void sol_extras_save(const SolExtras *x, const CeStore *store);  /* every value, then flush */
 
 /* ---- Session state (read-only for the UI) ------------------------------------------------------ */
 typedef struct SolSession {
@@ -168,6 +236,22 @@ typedef struct SolSession {
     CeStore  store;
     SolSessionUI ui;
     SolAction work;          /* the action being built */
+
+    /* ---- extras ---- */
+    SolExtras extras;
+    int      game_scoring;   /* the scoring this game was dealt with (s->draw: its draw count) */
+    int      carry;          /* Vegas Cumulative: the score carried into this game (its result = score - carry) */
+    int      hint;           /* the hint is flashing */
+    int      hint_step;      /* 0..7: 0, 2 source on; 4, 6 destination on */
+    SolHintMove hint_move;
+    int      hint_src_pile, hint_src_card, hint_dst_pile, hint_dst_card;
+    SolStats stats;          /* attached by the UI (stats_on) */
+    int      stats_on;
+    int      counted;        /* this game counts as played (an action was made) and has no result yet */
+    uint32_t req_id;         /* the warning's background search */
+    int      req_pending, req_cause;
+    int      warned;         /* the unwinnable warning was shown (re-armed by a winnable position) */
+    int      deal_lost;      /* the deal itself was proven unwinnable */
 } SolSession;
 
 /* Initialise: no game yet (green table, "Score: 0"), options, back and iCurrency loaded from store
@@ -181,6 +265,9 @@ void sol_free(SolSession *s);
 void sol_deal(SolSession *s, unsigned seed, int from_options);
 /* A new deal with a fresh seed: time(NULL) & 0x7FFF, the next one if that repeats the last deal. */
 void sol_new_deal(SolSession *s, int from_options);
+/* savegame.c replaced the game state with a saved game: bring the rest up to date (drag, hint, the
+ * keyboard cursor, the clock waiting for the first press, the UI, the warning's check). */
+void sol_restored(SolSession *s);
 
 /* ---- Input. pile = 0..12 (SOL_STOCK, SOL_WASTE, SOL_FOUND0.., SOL_TAB0..) or SOL_MISS; index = the card
  * hit (the topmost card whose rectangle holds the point), -1 for an empty pile. For the stock any hit
@@ -209,9 +296,37 @@ int  sol_redo(SolSession *s);
 int  sol_apply_options(SolSession *s, const SolOptions *o);
 void sol_set_back(SolSession *s, int back);                /* Deck dialog OK: writes "Back" */
 
+/* ---- Extras -------------------------------------------------------------------------------------- */
+/* Options dialog OK: the extras (the UI writes them with sol_extras_save). Turning the warning on
+ * checks the current position (silently); off drops its search. */
+void sol_set_extras(SolSession *s, const SolExtras *x);
+void sol_hint(SolSession *s);                              /* = sol_command(s, SOL_CMD_HINT) */
+int  sol_finish(SolSession *s);                            /* = SOL_CMD_FINISH; returns the cards moved */
+/* extras.click_move: where the cards being dragged go when the press is released without moving (a
+ * click), assist.h sol_click_dest; -1: nowhere, or the option is off (the drop is refused as usual). */
+int  sol_click_target(const SolSession *s);
+/* Statistics: the UI's loaded statistics (copied); from now on games are counted and stats_changed is
+ * called after every change. */
+void sol_attach_stats(SolSession *s, const SolStats *st);
+/* The Statistics dialog's Reset: every mode cleared (stats_changed is called). A game in progress that
+ * already counted starts over too: it counts again from its next action, so its result never lands in
+ * statistics that do not have it as played. */
+void sol_reset_stats(SolSession *s);
+/* Exit without saving the game: a game that counts as played and has no result is lost. */
+void sol_abandon(SolSession *s);
+/* The background search for the warning answered (status SOL_SOLVE_*). Returns 0 if the session is
+ * busy or cards are being dragged (call again later, e.g. after the drop), else 1 (an answer for an
+ * older request is ignored). */
+int  sol_solve_done(SolSession *s, uint32_t id, int status);
+
 /* ---- Queries ------------------------------------------------------------------------------------ */
 static inline int sol_dragging(const SolSession *s) { return s->drag_pile >= 0; }
 int  sol_idle(const SolSession *s);                  /* Deal / Deck / About enabled: not dragging */
+int  sol_hint_enabled(const SolSession *s);          /* Hint: a game is on, not dragging */
+int  sol_finish_enabled(const SolSession *s);        /* Finish: ... and sol_finish_ready */
+/* The hint's flash as the board shows it: cards card..top of pile inverted (an empty pile: its slot),
+ * pile -1 = nothing now. */
+void sol_hint_view(const SolSession *s, int *pile, int *card);
 int  sol_undo_enabled(const SolSession *s);
 int  sol_redo_enabled(const SolSession *s);
 int  sol_board_visible(const SolSession *s);

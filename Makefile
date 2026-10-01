@@ -9,6 +9,13 @@
 #                   test-freecell, test-solitaire)
 #   make solver-bench  FreeCell: solve deals 1..32000 natively (-O2, no sanitizers), replay every solution
 #                   through the session, print counts/percentiles (BENCH_ARGS, e.g. "1 1000 -std -n 50000 -v")
+#   make seed-tables  Solitaire: regenerate src/solitaire/winnable_seeds.c (the "winnable deals only" table):
+#                   every XP seed solved natively for the 4 rule cases, each solution replayed through the
+#                   session (tests/sol_seed_tables.c; -O2, threads; SEED_ARGS, e.g. "-r 0 999 -c 0" to
+#                   re-solve a sample, "-j 4" threads)
+#   make sol-xp-compare  Solitaire: random play through v1.0's session (git XP_REF, default 5dc1896) and
+#                   today's with every extra off; the logs of callbacks, registry and state must be
+#                   identical (tests/solitaire/sol_xp_compare.c; XP_GAMES games, default 400)
 #   make snapshots  render board snapshots (native): FreeCell to build/snapshots/*.png, Solitaire to
 #                   build/snapshots/solitaire/*.png (SOL_XP_SHOTS=<dir of XP sol.exe captures> adds
 #                   side-by-side comparisons); snapshots-freecell / snapshots-solitaire: one of them
@@ -87,7 +94,7 @@ TEST_HEADERS := $(HEADERS) $(wildcard tests/*.h tests/*/*.h)
 
 .PHONY: all freecell solitaire release release-freecell release-solitaire test test-engine test-freecell \
         test-solitaire \
-        solver-bench snapshots snapshots-freecell snapshots-solitaire xpcheck xpcheck-freecell xpcheck-solitaire e2e e2e-freecell e2e-solitaire \
+        solver-bench seed-tables sol-xp-compare snapshots snapshots-freecell snapshots-solitaire xpcheck xpcheck-freecell xpcheck-solitaire e2e e2e-freecell e2e-solitaire \
         deploy clean
 
 all: $(EXES)
@@ -165,6 +172,36 @@ $(BUILD)/bench/solver_bench: tests/freecell/solver_bench.c tests/freecell/solver
 
 solver-bench: $(BUILD)/bench/solver_bench
 	$(BUILD)/bench/solver_bench $(BENCH_ARGS)
+
+# The winnable-seed table: tests/sol_seed_tables.c links the current table, so seeds or cases left out
+# of SEED_ARGS keep their status.
+SEED_ARGS ?=
+
+$(BUILD)/bench/sol_seed_tables: tests/sol_seed_tables.c $(ENGINE_SRC) $(SOL_SRC) $(HEADERS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(BENCHCFLAGS) -DSOL_SOLVER_TUNING -pthread -o $@ tests/sol_seed_tables.c $(ENGINE_SRC) $(SOL_SRC) -lm
+
+seed-tables: $(BUILD)/bench/sol_seed_tables
+	$(BUILD)/bench/sol_seed_tables -o src/solitaire/winnable_seeds.c $(SEED_ARGS)
+
+# The extras-off proof: v1.0's game.c / session.c (git show XP_REF) and today's, the same random input.
+XP_REF   ?= 5dc1896
+XP_GAMES ?= 400
+SOL_XP_DIR := $(BUILD)/xpcompare
+
+sol-xp-compare: tests/solitaire/sol_xp_compare.c $(ENGINE_SRC) $(SOL_SRC) $(HEADERS)
+	@rm -rf $(SOL_XP_DIR)/old && mkdir -p $(SOL_XP_DIR)/old/solitaire
+	@for f in game.h game.c session.h session.c; do \
+	    git show $(XP_REF):src/solitaire/$$f > $(SOL_XP_DIR)/old/solitaire/$$f || exit 1; done
+	$(HOSTCC) -I$(SOL_XP_DIR)/old $(BENCHCFLAGS) -o $(SOL_XP_DIR)/old_run tests/solitaire/sol_xp_compare.c \
+	    $(SOL_XP_DIR)/old/solitaire/game.c $(SOL_XP_DIR)/old/solitaire/session.c src/engine/store.c
+	$(HOSTCC) $(BENCHCFLAGS) -DSOL_NEW_API -o $(SOL_XP_DIR)/new_run tests/solitaire/sol_xp_compare.c \
+	    $(ENGINE_SRC) $(SOL_SRC) -lm
+	$(SOL_XP_DIR)/old_run $(XP_GAMES) > $(SOL_XP_DIR)/old.log
+	$(SOL_XP_DIR)/new_run $(XP_GAMES) > $(SOL_XP_DIR)/new.log
+	@cmp $(SOL_XP_DIR)/old.log $(SOL_XP_DIR)/new.log && \
+	    echo "sol-xp-compare: identical, $$(wc -l < $(SOL_XP_DIR)/new.log | tr -d ' ') log lines \
+	    ($$(grep -c '^st ' $(SOL_XP_DIR)/new.log) inputs, $$(grep -c 'cascade' $(SOL_XP_DIR)/new.log) wins)"
 
 snapshots: snapshots-freecell snapshots-solitaire
 

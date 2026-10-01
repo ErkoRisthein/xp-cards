@@ -18,6 +18,12 @@
  * The win cascade (layout.md §8, winanim.h) draws one card per 5-ms frame into the back buffer, never
  * erased, and presents its rect; frames that fall behind are drawn together (the trail is never
  * thinned). XP's abort set (a key, a mouse button, the menu) stops it and stays in the queue.
+ *
+ * Extras (v1.1): the hint's flash is the view's keyboard-selection overlay (SolView sel_*: the cards
+ * inverted, an empty pile's slot inverted), from sol_hint_view; Finish flies each card home
+ * (view_animate_move: the board without the card in the back buffer, the face sprite in a straight
+ * flight, ce_anim_fly, about 60 XP px per 10-ms frame). XP has no move animation at all; only Finish,
+ * which XP does not have either, animates.
  */
 #include "app.h"
 
@@ -213,6 +219,7 @@ static void view_state(App *a, SolView *v)
     v->waste_fan = sol_waste_fan(s);
     v->back = s->back;
     v->stock_x = sol_stock_symbol(s) == SOL_STOCK_X;
+    sol_hint_view(s, &v->sel_pile, &v->sel_card);    /* extra: the hint's flash */
     if (a->drag_on) {
         v->drag_pile = a->drag_pile;
         v->drag_card = a->drag_card;
@@ -269,6 +276,12 @@ static int view_diff(App *a, const SolBoard *b, const SolView *v, CeRect *out)
         if (v->target >= 0)
             piles |= 1u << v->target;
     }
+    if (v->sel_pile != ov->sel_pile || v->sel_card != ov->sel_card) {
+        if (ov->sel_pile >= 0 && ov->sel_pile < SOL_NPILES)
+            piles |= 1u << ov->sel_pile;
+        if (v->sel_pile >= 0 && v->sel_pile < SOL_NPILES)
+            piles |= 1u << v->sel_pile;
+    }
     if ((outline_on(v) || outline_on(ov)) &&
         (outline_on(v) != outline_on(ov) || v->drag_pile != ov->drag_pile || v->drag_card != ov->drag_card ||
          v->drag_x != ov->drag_x || v->drag_y != ov->drag_y || (piles & (1u << v->drag_pile)))) {
@@ -283,8 +296,9 @@ static int view_diff(App *a, const SolBoard *b, const SolView *v, CeRect *out)
     return n;
 }
 
-/* Render what changed since the last sync into the back buffer; returns the regions. */
-static int sync_render(App *a, CeRect *out)
+/* Render board b (the session's, or Finish's board without its flying card) where it differs from
+ * what the back buffer shows; returns the regions. */
+static int sync_render_board(App *a, const SolBoard *b, CeRect *out)
 {
     SolView v;
     int n, i;
@@ -292,22 +306,28 @@ static int sync_render(App *a, CeRect *out)
         return 0;
     drag_track(a);
     view_state(a, &v);
-    n = view_diff(a, &a->s.board, &v, out);
+    n = view_diff(a, b, &v, out);
     if (n > 0) {
         double t0 = ce_now_ms();
         GdiFlush();
         for (i = 0; i < n; i++)
             if (ce_rect_clip(&out[i], a->bb.fb.w, a->bb.fb.h))
-                sol_render_board_rect(&a->bb.fb, &a->L, &a->s.board, &v, a->gfx, out[i]);
+                sol_render_board_rect(&a->bb.fb, &a->L, b, &v, a->gfx, out[i]);
         if (n == 1 && out[0].w == a->bb.fb.w && out[0].h == a->bb.fb.h)
             ce_log("full render %dx%d q%d: %.2f ms", a->bb.fb.w, a->bb.fb.h, a->quality, ce_now_ms() - t0);
         else
             ce_log("partial render, %d region(s): %.2f ms", n, ce_now_ms() - t0);
     }
-    a->drawn_board = a->s.board;
+    a->drawn_board = *b;
     a->drawn_view = v;
     a->drawn_valid = 1;
     return n;
+}
+
+/* Render what changed since the last sync into the back buffer; returns the regions. */
+static int sync_render(App *a, CeRect *out)
+{
+    return sync_render_board(a, &a->s.board, out);
 }
 
 void view_sync(App *a)
@@ -472,6 +492,57 @@ void view_kbd_cursor(App *a, int pile, int card, int dragging)
         ClientToScreen(a->hwnd, &p);
         SetCursorPos(p.x, p.y);
     }
+}
+
+/* ---- Finish's flights (extra) ---------------------------------------------------------------------- */
+
+/* The session is about to move the top card of src to foundation dst: the back buffer gets the board
+ * without it (the screen still shows it, now as the sprite over the back buffer), then it flies. */
+void view_animate_move(App *a, int src, int dst)
+{
+    const SolBoard *b = &a->s.board;
+    SolBoard lifted, after;
+    CeRect r[MAX_DIRTY], u, from, to;
+    int n, fan, fx, fy, tx, ty, k, i, frames = 0, drawn = 0, px;
+    const CeImage *sprite;
+    HDC dc;
+    ZipCtx z;
+    double t0;
+    if (!ready(a) || !a->hwnd || IsIconic(a->hwnd) || !IsWindowVisible(a->hwnd) || src < 0 || src >= SOL_NPILES ||
+        dst < 0 || dst >= SOL_NPILES || b->p[src].n == 0)
+        return;
+    t0 = ce_now_ms();
+    n = b->p[src].n;
+    fan = sol_waste_fan(&a->s);
+    sprite = ce_cardset_card(sol_gfx_cards(a->gfx), sol_card_id(b->p[src].c[n - 1]));
+    sol_layout_card_pos(&a->L, b, fan, src, n - 1, &fx, &fy);
+    after = *b;
+    after.p[dst].c[after.p[dst].n++] = after.p[src].c[--after.p[src].n];
+    sol_layout_card_pos(&a->L, &after, fan, dst, after.p[dst].n - 1, &tx, &ty);
+    lifted = *b;
+    lifted.p[src].n--;
+    k = sync_render_board(a, &lifted, r);
+    dc = GetDC(a->hwnd);
+    if (!dc)
+        return;
+    if (k > 0) {
+        /* what changed (the pile without the card, the card that landed before) appears with the card
+         * still drawn at its place on top: no flicker */
+        u = r[0];
+        for (i = 1; i < k; i++)
+            u = ce_rect_union(u, r[i]);
+        if (ce_rect_clip(&u, a->bb.fb.w, a->bb.fb.h))
+            ce_backbuf_present(&a->bb, dc, u, sprite, fx, fy, a->L.cw, a->L.ch);
+    }
+    from = ce_rect(fx, fy, a->L.cw, a->L.ch);
+    to = ce_rect(tx, ty, a->L.cw, a->L.ch);
+    px = (int)(60 * a->L.s + 0.5);
+    z.a = a;
+    z.gen = a->layout_gen;
+    drawn = ce_anim_fly(&a->anim, &a->bb, dc, from, to, px > 0 ? px : 1, SOL_ZIP_FRAME_MS, sprite, zip_abort, &z,
+                        &frames);
+    ReleaseDC(a->hwnd, dc);
+    ce_log("finish flight pile %d -> %d: %d frames (%d drawn), %.1f ms", src, dst, frames, drawn, ce_now_ms() - t0);
 }
 
 /* ---- the win cascade -------------------------------------------------------------------------------- */

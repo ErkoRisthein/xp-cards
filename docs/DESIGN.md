@@ -264,6 +264,104 @@ tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thr
   the cache). At the solver section's 20x the Athlon XP needs about 2 s for that proof, in the
   background; the e2e line of #31364 needed a single search (the moves follow its cached solution).
 
+## Solitaire HD extras (v1.1)
+
+Solitaire HD v1.0 is XP's sol.exe (`docs/xp-reference/solitaire/`); v1.1 adds extras under the extras
+policy above. **Commands** that act only when invoked are always there: Game > Hint (H), Game > Finish
+(F6), Game > Statistics... (F4). **Everything that changes what input does or makes the game act on its
+own** is a checkbox in the Options dialog's new "Extras" group (to the right of XP's controls, which keep
+their positions; `HKCU\Software\xp-cards\Solitaire HD`, REG_DWORD 0/1, all off by default): `AutoTurn`,
+`ClickToMove`, `AutoFinish`, `WinnableOnly`, `SaveGame`, `WarnUnwinnable`. The state machines are in the
+platform-independent session (`src/solitaire/session.c`, the `SolExtras` it is given) and pure helpers:
+
+```
+src/solitaire/assist.{h,c}          fair Hint ranking, click-to-move destination, Finish (pure functions)
+src/solitaire/stats.{h,c}           statistics per mode + file format
+src/solitaire/savegame.{h,c}        the saved game's file format, exact restore
+src/solitaire/solver.{h,c}          full-information solver (winnable table, the warning)
+src/solitaire/winnable_seeds.{h,c}  the winnable-deal table (generated: make seed-tables)
+src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker)
+```
+
+* **With every extra off nothing changes.** `make sol-xp-compare` builds the v1.0 session (git 5dc1896)
+  and today's, feeds both the same random input (mouse and keyboard play, the stock and its cheat, Deal,
+  Undo, Redo, the forced win, the dialogs' results, clock ticks, "Deal Again?" both ways) and compares
+  logs of every UI callback, registry access and the whole observable state byte for byte: 400 games,
+  264693 inputs, 1100048 identical lines (today's build with the statistics attached, as the front end
+  runs; any call of a new callback would be a difference).
+* **Hint** (Game > Hint, H as WM_CHAR, like FreeCell's): **fair**: `sol_hint_find` reads only what the
+  player sees (face-up cards, the number of face-down cards, the foundations, the waste's top card,
+  whether the stock is empty), never a face-down card or the stock order; the test shuffles the hidden
+  cards of 42000 positions and requires the same answer. The full-information solver is never used. A
+  ranking of 12 classes picks the move (assist.h has the list): turning a face-down card over, aces and
+  twos home, safe foundation moves, moves that uncover a face-down card (more face-down cards under
+  them first), the waste's card home, a run moved to free a card for home (never onto another card bound
+  for home: no back and forth), the waste's card to the tableau, emptying a column for a visible king,
+  other foundation moves, then draw, then recycle (when the pass limit allows). Never suggested: a
+  foundation card back down, a sideways move that frees nothing, a king heading its column moved to
+  another empty column. Nothing left: "No hint is available.". The flash is FreeCell's: the source cards
+  inverted twice, then the destination (an empty pile's slot inverted) twice, 200 ms per step,
+  timer-driven (`SOL_TIMER_HINT`), drawn through the view's keyboard-selection overlay; any input ends
+  it. Followed blindly with a pass limit (Vegas) the hint always ends, in a win or in "no hint" (400
+  test games; with unlimited passes it keeps suggesting draws and recycles, as a fair hint must).
+* **Finish** (Game > Finish, F6, enabled only when it applies; mnemonic "i", "F" is Full Screen): with
+  the stock and the waste empty and every tableau card face up the game is a sure win (each column is a
+  descending run, so the lowest card left is always on top). Finish plays the lowest card home again and
+  again as **one action** (one undo step, `SOL_ACT_FINISH`; Redo replays it), each card flown home by the
+  view (`view_animate_move`: about 60 XP px per 10-ms frame, the board under it already updated), then the
+  normal win (bonus, cascade, "Deal Again?"). **Finish automatically** runs it after any committed action
+  or Redo that leaves it possible (not after Undo).
+* **Turn cards over automatically**: after an action every face-down card left on top of a column is
+  turned over as part of that action (bits in `SolAction.autoturn`, so Undo restores it face down in one
+  step and Redo turns it again), scored as XP's click (Standard +5).
+* **Single click moves a card**: a press that picks cards up and is released within the system's drag
+  threshold (SM_CXDRAG / SM_CYDRAG) is a click: `sol_click_target` (assist.h `sol_click_dest`) names the
+  destination and the drop goes there as an ordinary drop (scored, one undo step); none: nothing moves.
+  Ranking: a single card to the leftmost foundation that takes it (as XP's double-click); else the
+  leftmost column that takes the cards whose top card could not go home itself; else the leftmost column
+  that takes them; a king (or its run) to the leftmost empty column unless it already heads its column.
+  Drag and double-click are unchanged; the double-click that follows a click which already moved the
+  card is ignored (the click did what the double-click would). The keyboard interface is unchanged.
+* **Statistics** (Game > Statistics..., F4; "Solitaire Statistics": a mode list, the current game's mode
+  first, eight lines, OK, Reset with a confirmation): per mode (Draw One / Three x Standard / Vegas /
+  None; Vegas with or without Cumulative is one mode, Timed is not part of it): games played and won, win
+  % (rounded, 100% only when every game was won), the current streak (wins or losses), the longest
+  winning and losing streaks, the best time (timed games), the best score (Standard with the time bonus;
+  Vegas the game's own result without the Cumulative carry-over; none with None). A game counts as
+  played at its first committed action, as won at the win (the Alt+Shift+2 cheat too, as XP FreeCell's
+  cheat counts), as lost when a new deal or an Options change replaces it or at Exit, unless "Save game
+  on exit" keeps it. Always kept (a passive record); `%APPDATA%\xp-cards\Solitaire HD\statistics.bin`
+  ("SOLS", version, 6 x 8 integers, CRC-32), written atomically after every change; a damaged file is set
+  aside as `statistics.bad` and the statistics start empty.
+* **Save game on exit, resume at start**: at WM_CLOSE / WM_ENDSESSION the game in progress is written to
+  `game.bin` (same folder, atomically): the board, waste fan, score, clock, recycles, seed and rand state
+  (the cascade continues from it), the mode, whether it already counts in the statistics, and the whole
+  undo and redo history ("SOLG", version, length, payload, CRC-32; at most 4 MiB, the oldest history
+  dropped first). At start-up it replaces the first deal and is restored exactly; the clock waits for the
+  first press, as after a deal; the file is emptied once read, so a crash never resumes it twice. A file
+  that fails any check (magic, version, lengths, CRC, a board that is not a Klondike position, values out
+  of range) is set aside as `game.bad`; one saved under other Draw / Scoring / Timed options (sol.exe
+  shares them) is ignored. With the option off, Exit counts the game as lost and empties an old file.
+* **Deal only winnable games**: deals stay XP's (seed = time(NULL) & 0x7FFF, XP's shuffle); the session
+  takes the first seed from there on (wrapping) that the precomputed table proves winnable for the
+  current draw and pass limit (Standard / None: unlimited passes; Vegas: draw one 1 pass, draw three 3).
+  The table (`winnable_seeds.c`, 2 bits per seed, 32 KiB) was made by `make seed-tables`: every seed
+  solved by the full-information solver for the four cases, every solution replayed through the session
+  to a win; a deal the search could not settle within its budget counts as not winnable (the table's
+  "unsolvable" entries predate the solver's proof check, below, and include a few winnable deals: never
+  offered, which is harmless; `make seed-tables` refreshes them). Winnable: draw one 29079 (88.7%), draw
+  three 25325 (77.3%), draw one Vegas 5752 (17.6%), draw three Vegas 16464 (50.2%).
+* **Warn when the game can't be won**: the deal and every position after an action, Undo or Redo are
+  solved in the background by the full-information solver (`solver.h`: weighted best-first over session
+  actions with macro talon moves, safe foundation moves, 32-byte canonical states, a fixed node pool:
+  150k nodes, about 10 MiB, integer only, cancellable; a search narrowed by its move filters that finds
+  no win is checked by one over every legal move, as the filters can miss a line where one follow-up
+  needs two preparing moves). When an action or Redo leads to a position proven unwinnable: "This game can no longer be won. Use Undo to go back." once ("This game cannot be won." if
+  the deal itself was), re-armed by a winnable position or a new deal; a search that gives up says
+  nothing. Win32 as FreeCell's: one below-normal worker thread (`src/solitaire/win32/solve.c`), a newer
+  request cancels the running one, answers delivered only when no dialog is up and the session is idle
+  (not dragging cards either: the message waits for the drop).
+
 ## Persistence
 
 * Statistics and options: **the same registry key and format as XP**
@@ -278,6 +376,10 @@ tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thr
   `src/freecell/win32/storage.c` names them.
 * The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
   `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2).
+* Solitaire HD: Options and Back in XP sol.exe's own key and format (`HKCU\Software\Microsoft\Solitaire`,
+  shared with sol.exe); window placement, full screen and the v1.1 extras' options in
+  `HKCU\Software\xp-cards\Solitaire HD`; the statistics and the saved game in
+  `%APPDATA%\xp-cards\Solitaire HD\statistics.bin` and `game.bin` (see "Solitaire HD extras").
 
 ## Help
 
@@ -326,4 +428,17 @@ Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
 * `tools/wine/` — end-to-end driver run under Wine (launch, click, capture the client area).
 * `make e2e` runs `tests/e2e/fchd_*.txt` (`make e2e-freecell`) and Solitaire HD's `tests/e2e/solhd_*.txt`
   (`make e2e-solitaire`: mouse and keyboard play, the stock and Vegas, the dialogs and the registry, the
-  window, the win cascade).
+  window, the win cascade; `solhd_extras.txt`: the v1.1 extras' Options group off by default and its
+  registry values across restarts, the hint's flash captured mid-flash, single-click moves and the
+  ignored double-click, auto-turn scoring with Undo / Redo, the Statistics dialog's text (reset, a loss,
+  wins), saving at Exit and resuming, Finish by hand and automatically on deal 64's solver line, the
+  unwinnable warning on deal 66 (Draw One, Vegas) and the winnable deal that replaces it).
+* Solitaire HD's extras (`make test`): `tests/solitaire/test_sol_extras.c` (auto-turn scoring, one undo
+  step and Redo; the click-to-move ranking and flow; Finish order, flights, one action and the win;
+  the hint's ranking, its fairness under shuffled hidden cards, its flash, input ending it, following it
+  to the end; statistics bookkeeping per mode with streaks, best time and score, the file and damaged
+  files; save / resume round trips with the history, Undo / Redo after them, damaged, truncated and
+  foreign files; the winnable-seed choice per case; the warning's requests, once, re-arming, stale
+  answers; the registry values), `test_sol_playout.c` (random play with every extra on, against a shadow
+  history), `test_sol_solver.c` (the solver, every solution replayed through the session, the table
+  cross-checked); `make sol-xp-compare` (above).

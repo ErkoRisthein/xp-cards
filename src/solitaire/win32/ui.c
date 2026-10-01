@@ -4,7 +4,9 @@
  *
  * Settings: Options and Back in XP's own key and format, HKCU\Software\Microsoft\Solitaire (REG_DWORD,
  * rules.md §10), so the original and the HD game share them; the extras (window placement, full
- * screen) in HKCU\Software\xp-cards\Solitaire HD.
+ * screen, the Options dialog's Extras group: AutoTurn ClickToMove AutoFinish WinnableOnly SaveGame
+ * WarnUnwinnable) in HKCU\Software\xp-cards\Solitaire HD; the statistics and the saved game in
+ * %APPDATA%\xp-cards\Solitaire HD\statistics.bin and game.bin (written atomically).
  *
  * Every modal prompt first brings the window up to date and counts itself in a->in_modal, so input and
  * commands that arrive through the modal loop are ignored meanwhile. XP's dialogs are not centred:
@@ -13,6 +15,7 @@
  */
 #include "app.h"
 
+#include <stddef.h>
 #include <string.h>
 
 const WCHAR SOL_APP_KEY[] = CE_APP_KEY_ROOT L"Solitaire HD";
@@ -20,8 +23,15 @@ const WCHAR SOL_APP_KEY[] = CE_APP_KEY_ROOT L"Solitaire HD";
 static const CeRegStore xp_key = { L"Software\\Microsoft\\Solitaire", 0, NULL, NULL };
 static const CeRegStore app_key = { SOL_APP_KEY, 0, NULL, NULL };
 
+static const CeAppFile stats_file = { L"Solitaire HD", L"statistics" };
+static const CeAppFile game_file = { L"Solitaire HD", L"game" };
+
 CeStore storage_xp_store(void) { return ce_reg_store(&xp_key); }
 CeStore storage_app_store(void) { return ce_reg_store(&app_key); }
+CeBlobIO storage_stats_io(void) { return ce_app_file_io(&stats_file); }
+void storage_stats_set_aside(void) { ce_app_file_set_aside(&stats_file); }
+CeBlobIO storage_game_io(void) { return ce_app_file_io(&game_file); }
+void storage_game_set_aside(void) { ce_app_file_set_aside(&game_file); }
 
 /* ---- small helpers -------------------------------------------------------------------------------- */
 
@@ -33,7 +43,13 @@ int load_wstr(App *a, UINT id, WCHAR *out, int n, const WCHAR *fallback)
 static void app_name(App *a, WCHAR *out, int n) { load_wstr(a, IDS_APPNAME, out, n, L"Solitaire"); }
 
 void modal_begin(App *a) { a->in_modal++; }
-void modal_end(App *a) { a->in_modal--; }
+
+/* A solver answer that arrived while the dialog was up is retried from the main message loop. */
+void modal_end(App *a)
+{
+    if (--a->in_modal == 0 && a->solve_ready && a->hwnd)
+        PostMessageW(a->hwnd, WM_APP_SOLVED, 0, 0);
+}
 
 uint32_t app_time(App *a)
 {
@@ -97,6 +113,8 @@ void menu_update(App *a)
         return;
     set_item(a, IDM_UNDO, sol_undo_enabled(&a->s), &a->menu_undo);
     set_item(a, IDM_REDO, sol_redo_enabled(&a->s), &a->menu_redo);
+    set_item(a, IDM_HINT, sol_hint_enabled(&a->s), &a->menu_hint);         /* extras */
+    set_item(a, IDM_FINISH, sol_finish_enabled(&a->s), &a->menu_finish);
     if (a->menu_idle != idle) {
         a->menu_idle = idle;
         EnableMenuItem(a->menu, IDM_DEAL, MF_BYCOMMAND | (idle ? MF_ENABLED : MF_GRAYED));
@@ -113,14 +131,35 @@ static void options_enable_cumulative(HWND d, int vegas)
     EnableWindow(GetDlgItem(d, IDC_CUMSCORE), vegas);
 }
 
+typedef struct OptionsParam {
+    SolOptions o;
+    SolExtras  x;
+} OptionsParam;
+
+static const struct { int id; size_t off; } extra_boxes[] = {
+    { IDC_AUTOTURN, offsetof(SolExtras, auto_turn) },
+    { IDC_CLICKMOVE, offsetof(SolExtras, click_move) },
+    { IDC_AUTOFINISH, offsetof(SolExtras, auto_finish) },
+    { IDC_WINNABLE, offsetof(SolExtras, winnable_only) },
+    { IDC_SAVEGAME, offsetof(SolExtras, save_game) },
+    { IDC_WARNUNWINNABLE, offsetof(SolExtras, warn_unwinnable) },
+};
+
+static int *extra_of(SolExtras *x, int k) { return (int *)((char *)x + extra_boxes[k].off); }
+
 static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 {
-    SolOptions *o = (SolOptions *)GetWindowLongPtrW(d, DWLP_USER);
+    OptionsParam *op = (OptionsParam *)GetWindowLongPtrW(d, DWLP_USER);
+    SolOptions *o = op ? &op->o : NULL;
+    int k;
     switch (m) {
     case WM_INITDIALOG:
         SetWindowLongPtrW(d, DWLP_USER, lp);
-        o = (SolOptions *)lp;
+        op = (OptionsParam *)lp;
+        o = &op->o;
         place_dialog(d, "options");
+        for (k = 0; k < (int)(sizeof extra_boxes / sizeof extra_boxes[0]); k++)
+            set_check(d, extra_boxes[k].id, *extra_of(&op->x, k));
         CheckRadioButton(d, IDC_STANDARD, IDC_NONE, IDC_STANDARD + o->scoring);
         CheckRadioButton(d, IDC_DRAWONE, IDC_DRAWTHREE, o->draw == 1 ? IDC_DRAWONE : IDC_DRAWTHREE);
         set_check(d, IDC_STATUSBAR, o->status_bar);
@@ -149,6 +188,8 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             o->status_bar = checked(d, IDC_STATUSBAR);
             o->outline = checked(d, IDC_OUTLINE);
             o->cumulative = checked(d, IDC_CUMULATIVE);
+            for (k = 0; k < (int)(sizeof extra_boxes / sizeof extra_boxes[0]); k++)
+                *extra_of(&op->x, k) = checked(d, extra_boxes[k].id);
             EndDialog(d, 1);
             return TRUE;
         case IDCANCEL:
@@ -162,17 +203,25 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 
 void dlg_options(App *a)
 {
-    SolOptions o;
+    OptionsParam op;
     int redeal;
     if (!dialogs_allowed(a))
         return;
-    o = a->s.opts;
-    if (run_dialog(a, IDD_OPTIONS, options_proc, (LPARAM)&o) != 1)
+    op.o = a->s.opts;
+    op.x = a->s.extras;
+    if (run_dialog(a, IDD_OPTIONS, options_proc, (LPARAM)&op) != 1) {
+        solver_deliver(a);
         return;
+    }
     if (sol_dragging(&a->s))
         sol_cancel_drag(&a->s);                       /* (the dialog took the focus: already cancelled) */
-    redeal = sol_apply_options(&a->s, &o);            /* writes Options; a new Draw / Timed / Scoring deals */
-    ce_log("options: 0x%02x%s", (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "");
+    sol_set_extras(&a->s, &op.x);                     /* first: a redeal below may want WinnableOnly */
+    sol_extras_save(&a->s.extras, &a->app_store);
+    redeal = sol_apply_options(&a->s, &op.o);         /* writes Options; a new Draw / Timed / Scoring deals */
+    ce_log("options: 0x%02x%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d",
+           (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "", a->s.extras.auto_turn,
+           a->s.extras.click_move, a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game,
+           a->s.extras.warn_unwinnable);
     if ((a->status != NULL) != (a->s.opts.status_bar != 0))
         status_show(a, a->s.opts.status_bar);         /* shows or hides it at once, the board re-laid out */
     status_update(a);
@@ -330,6 +379,91 @@ void dlg_deck(App *a)
     after_input(a);
 }
 
+/* ---- Statistics (extra, v1.1) -------------------------------------------------------------------------- */
+
+static void stats_save(App *a)
+{
+    CeBlobIO io = storage_stats_io();
+    if (!sol_stats_save(&a->s.stats, &io))
+        ce_log("statistics: could not be written");
+}
+
+static void stats_show(HWND d, int mode)
+{
+    App *a = &g_app;
+    char buf[256];
+    WCHAR w[256];
+    if (mode < 0 || mode >= SOL_STATS_MODES)
+        mode = 0;
+    sol_stats_format(&a->s.stats.m[mode], mode % 3 == 1 ? SOL_SCORING_VEGAS : mode % 3 == 2 ? SOL_SCORING_NONE
+                                                                                        : SOL_SCORING_STANDARD,
+                     a->s.currency, buf, sizeof buf);
+    ce_to_wide(buf, w, 256);
+    SetDlgItemTextW(d, IDC_STATS_VALUES, w);
+}
+
+static INT_PTR CALLBACK stats_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
+{
+    App *a = &g_app;
+    HWND combo = GetDlgItem(d, IDC_STATS_MODE);
+    switch (m) {
+    case WM_INITDIALOG: {
+        WCHAR t[256];
+        int i, cur = (int)lp;
+        place_dialog(d, "statistics");
+        for (i = 0; i < SOL_STATS_MODES; i++) {
+            static const WCHAR *const names[SOL_STATS_MODES] = { L"Draw One, Standard", L"Draw One, Vegas",
+                L"Draw One, None", L"Draw Three, Standard", L"Draw Three, Vegas", L"Draw Three, None" };
+            load_wstr(a, IDS_STATS_MODE0 + i, t, 64, names[i]);
+            SendMessageW(combo, CB_ADDSTRING, 0, (LPARAM)t);
+        }
+        SendMessageW(combo, CB_SETCURSEL, (WPARAM)cur, 0);
+        load_wstr(a, IDS_STATS_LABELS, t, 256,
+                  L"Games played:\nGames won:\nWin percentage:\nCurrent streak:\nLongest winning streak:\n"
+                  L"Longest losing streak:\nBest time:\nBest score:");
+        SetDlgItemTextW(d, IDC_STATS_LABELS, t);
+        stats_show(d, cur);
+        ce_log("statistics dialog: mode %d", cur);
+        return TRUE;
+    }
+    case WM_COMMAND:
+        switch (LOWORD(wp)) {
+        case IDC_STATS_MODE:
+            if (HIWORD(wp) == CBN_SELCHANGE)
+                stats_show(d, (int)SendMessageW(combo, CB_GETCURSEL, 0, 0));
+            return TRUE;
+        case IDC_STATS_RESET: {
+            WCHAR text[128], cap[32];
+            load_wstr(a, IDS_RESETSTATS, text, 128, L"Are you sure you want to delete all statistics?");
+            app_name(a, cap, 32);
+            if (MessageBoxW(d, text, cap, MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                sol_reset_stats(&a->s);               /* written through stats_changed */
+                ce_log("statistics: reset");
+                stats_show(d, (int)SendMessageW(combo, CB_GETCURSEL, 0, 0));
+            }
+            return TRUE;
+        }
+        case IDOK:
+        case IDCANCEL:
+            EndDialog(d, 0);
+            return TRUE;
+        }
+        break;
+    }
+    return FALSE;
+}
+
+/* Game > Statistics (F4): the current game's mode first (or the Options' when no game is on). */
+void dlg_statistics(App *a)
+{
+    int mode;
+    if (!dialogs_allowed(a) || !sol_idle(&a->s))
+        return;
+    mode = a->s.dealt ? sol_stats_mode(a->s.draw, a->s.game_scoring) : sol_stats_mode(a->s.opts.draw, a->s.opts.scoring);
+    run_dialog(a, IDD_STATS, stats_proc, (LPARAM)mode);
+    solver_deliver(a);
+}
+
 /* ---- Help (resources.md §2.1): sol.chm through HtmlHelp, our own text when it is missing ---------- */
 
 static const WCHAR how_to_play[] =
@@ -352,7 +486,11 @@ static const WCHAR how_to_play[] =
     L"30 seconds or more earns a bonus. Vegas: you bet $52 and win $5 for each card on a "
     L"foundation; Cumulative keeps a running total.\n\n"
     L"Keyboard: arrow keys, Tab, Home and End move between the piles and cards; Enter or Space picks "
-    L"up and drops; Esc cancels. F2 Deal, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it).";
+    L"up and drops; Esc cancels. F2 Deal, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it), "
+    L"H Hint, F6 Finish (once every card is face up and the deck is used up), F4 Statistics.\n\n"
+    L"Options > Extras (all off by default): turn cards over automatically, single click moves a card, "
+    L"finish automatically, deal only winnable games, save the game on exit, warn when the game can't "
+    L"be won.";
 
 static void builtin_help(App *a)
 {
@@ -470,6 +608,29 @@ static void cb_kbd_cursor(void *ctx, int pile, int card, int dragging)
     view_kbd_cursor((App *)ctx, pile, card, dragging);
 }
 
+/* ---- the extras' callbacks ---- */
+
+static void cb_message(void *ctx, int id, const char *text)
+{
+    App *a = ctx;
+    WCHAR fb[160], w[160];
+    ce_to_wide(text, fb, 160);
+    load_wstr(a, (UINT)id, w, 160, fb);
+    ce_log("message %d", id);
+    msgbox(a, w, MB_OK | MB_ICONINFORMATION);
+}
+
+static void cb_animate_move(void *ctx, int src, int dst) { view_animate_move((App *)ctx, src, dst); }
+
+static void cb_stats_changed(void *ctx) { stats_save((App *)ctx); }
+
+static void cb_solve_start(void *ctx, uint32_t id, const SolBoard *b, int draw, int left)
+{
+    solver_request((App *)ctx, id, b, draw, left);
+}
+
+static void cb_solve_cancel(void *ctx) { solver_cancel((App *)ctx); }
+
 void ui_make(App *a, SolSessionUI *ui)
 {
     memset(ui, 0, sizeof *ui);
@@ -482,4 +643,9 @@ void ui_make(App *a, SolSessionUI *ui)
     ui->post_command = cb_post_command;
     ui->now_seed = cb_now_seed;
     ui->kbd_cursor = cb_kbd_cursor;
+    ui->message = cb_message;
+    ui->animate_move = cb_animate_move;
+    ui->stats_changed = cb_stats_changed;
+    ui->solve_start = cb_solve_start;
+    ui->solve_cancel = cb_solve_cancel;
 }

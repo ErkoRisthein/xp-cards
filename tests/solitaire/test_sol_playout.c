@@ -6,7 +6,9 @@
  * undoes (a shadow stack), and at the end of each game Undo all returns to the deal, Redo all to the
  * position before. Inputs: legal and random drags (mouse and keyboard), presses, double-clicks,
  * autoplay, the stock with and without the cheat, keys with modifiers, clock ticks, deals, the
- * forced win, Undo and Redo.
+ * forced win, Undo and Redo. A third set of games runs with the extras on (auto-turn, Finish
+ * automatically, click-to-move, Hint and its flash, Finish, statistics): the same invariants, plus no
+ * face-down card left on top of a column after an action, and the statistics' sums.
  */
 #include "sol_test.h"
 
@@ -81,7 +83,9 @@ static int bad;
 
 static long long steps_total, undos_checked, games_restored, wins, forced_wins, max_home;
 
-static void play(unsigned game, uint32_t opts, int smart)
+static long long extra_finishes, extra_hints, extra_clicks;
+
+static void play(unsigned game, uint32_t opts, int smart, int extras)
 {
     SolSession s;
     Fake f;
@@ -90,6 +94,14 @@ static void play(unsigned game, uint32_t opts, int smart)
     Snap *shadow = malloc(sizeof(Snap) * 4096);
     int nshadow = 0;
     start(&s, &f, &r, opts, (int)(game * 7919u % 32768u));
+    if (extras) {
+        SolExtras x = s.extras;
+        x.auto_turn = 1;
+        x.auto_finish = (game & 3) != 0;
+        x.click_move = 1;
+        sol_set_extras(&s, &x);
+        sol_attach_stats(&s, NULL);
+    }
     f.now = game * 13u;
     f.deal_again = (int)(game & 1);
     int base = s.score;                         /* the score right after the deal */
@@ -101,10 +113,30 @@ static void play(unsigned game, uint32_t opts, int smart)
         take(&s, &prev);
         int prev_hist = s.nhist;
         int prev_dealt = s.dealt;
-        int what = trand() % 100;
+        int what = trand() % 100, nanim = f.nanim;
         if (smart && trand() % 100 < 90) what = -1;
         int mods = trand() % 8 == 0 ? (trand() & 7) : 0;
-        if (what < 0) {
+        if (extras && what >= 0 && trand() % 6 == 0) {
+            /* the extras' own inputs */
+            int k = trand() % 4;
+            if (k == 0) {
+                sol_command(&s, SOL_CMD_HINT);
+                if (s.hint) extra_hints++;
+                for (int t = trand() % 10; t > 0; t--) sol_timer(&s, SOL_TIMER_HINT);
+            } else if (k == 1) {
+                sol_command(&s, SOL_CMD_FINISH);
+            } else {                                /* a click on a random card: click-to-move */
+                int p = trand() % 13, n = s.board.p[p].n, i = n ? trand() % n : -1;
+                if (sol_press(&s, p, i, 0) == SOL_PRESS_DRAG) {
+                    int t = sol_click_target(&s);
+                    if (t >= 0) extra_clicks++;
+                    sol_drop(&s, t);
+                }
+            }
+            what = 200;
+        }
+        if (what == 200) {
+        } else if (what < 0) {
             if (!sol_dragging(&s) && !smart_step(&s) && trand() % 20 == 0) sol_command(&s, SOL_CMD_DEAL);
         } else if (what < 30) {                 /* a legal drag, by mouse or keyboard */
             int src, idx, dst;
@@ -196,6 +228,15 @@ static void play(unsigned game, uint32_t opts, int smart)
             INV(s.target == -1, "a target without a drag");
         }
         INV(s.ticks >= 0 && s.ticks <= SOL_TICKS_MAX, "ticks");
+        if (f.nanim > nanim) extra_finishes++;    /* Finish flew cards: by hand or automatically */
+        if (extras && s.dealt && s.nhist > prev_hist)
+            for (int t = SOL_TAB0; t < SOL_NPILES; t++)
+                INV(!s.board.p[t].n || sol_is_up(s.board.p[t].c[s.board.p[t].n - 1]),
+                    "game %u step %d: auto-turn left a face-down card on column %d", game, step, t);
+        if (extras) {
+            for (int m = 0; m < SOL_STATS_MODES; m++)
+                INV(s.stats.m[m].won <= s.stats.m[m].played, "stats: won > played");
+        }
         INV(s.timer_on == sol_clock_running(&s), "timer state");
         int kp, kc;
         sol_kbd_cursor(&s, &kp, &kc);
@@ -247,10 +288,16 @@ int main(void)
         0x2B, 0x23,             /* None */
         0x09, 0x0F };           /* untimed; outline dragging */
     int n = 0;
-    for (unsigned g = 1; g <= 450; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], 0), n++;
-    for (unsigned g = 1001; g <= 1300; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], 1), n++;
+    for (unsigned g = 1; g <= 450; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], 0, 0), n++;
+    for (unsigned g = 1001; g <= 1300; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], 1, 0), n++;
     printf("%d games, %lld inputs, %lld wins (+%lld forced), up to %lld cards home, %lld undos checked "
            "against the shadow history, %lld games undone to the deal and redone\n", n, steps_total, wins,
            forced_wins, max_home, undos_checked, games_restored);
+    steps_total = wins = forced_wins = max_home = undos_checked = games_restored = 0;
+    n = 0;
+    for (unsigned g = 2001; g <= 2300; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], (g >> 1) & 1, 1), n++;
+    printf("extras on: %d games, %lld inputs, %lld wins (+%lld forced), %lld finishes, %lld hints, %lld "
+           "click moves, %lld undos checked, %lld games undone to the deal and redone\n", n, steps_total, wins,
+           forced_wins, extra_finishes, extra_hints, extra_clicks, undos_checked, games_restored);
     return test_summary("test_sol_playout");
 }

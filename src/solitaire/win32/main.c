@@ -8,7 +8,10 @@
  * the last move; a double-click sends a card home; a right-button press plays every card it can to
  * the foundations. Differences from XP's window (layout.md §1): resizable with a scaled board (minimum
  * size from the layout), the placement remembered, a borderless full-screen mode (Game > Full Screen,
- * F11 / Alt+Enter, Esc leaves it), Redo (Ctrl+Y).
+ * F11 / Alt+Enter, Esc leaves it), Redo (Ctrl+Y), and the v1.1 extras: Hint (H), Finish (F6),
+ * Statistics (F4); with their options, a click that does not drag (released within the system's drag
+ * threshold) moves the card (click-to-move; its double-click is then ignored), the game saved at exit
+ * and resumed at start-up.
  */
 #include "app.h"
 
@@ -69,6 +72,52 @@ static void save_window_state(App *a)
     ce_store_set(&a->app_store, REG_FULLSCREEN, a->fs.on ? 1u : 0u);
 }
 
+/* WM_CLOSE / WM_ENDSESSION (extras): with "Save game on exit" the game in progress is written (an empty
+ * file when there is none); without it, a game that counts as played is lost and an old saved game is
+ * cleared (never resumed later). */
+static void save_game_state(App *a)
+{
+    CeBlobIO io = storage_game_io();
+    if (a->s.extras.save_game) {
+        int ok = sol_game_save(&a->s, &io);
+        ce_log("game %s at exit%s", a->s.dealt && !a->s.won ? "saved" : "(none) cleared", ok ? "" : ": FAILED");
+        return;
+    }
+    sol_abandon(&a->s);
+    {
+        uint8_t probe[1];
+        long n = io.read ? io.read(io.ctx, probe, sizeof probe) : -1;
+        if (n > 0)
+            sol_game_clear(&io);                      /* a saved game from before the option was turned off */
+    }
+}
+
+/* Start-up: resume the saved game (extra). Returns 1 if a game was restored. */
+static int resume_game(App *a)
+{
+    CeBlobIO io = storage_game_io();
+    int r;
+    if (!a->s.extras.save_game)
+        return 0;
+    r = sol_game_load(&a->s, &io);
+    switch (r) {
+    case SOL_LOAD_OK:
+        sol_game_clear(&io);                          /* resumed once: a crash later never resumes it again */
+        ce_log("saved game resumed: seed %u, score %d, %d s, %d actions", a->s.seed, a->s.score, sol_seconds(&a->s),
+               a->s.nhist);
+        return 1;
+    case SOL_LOAD_DAMAGED:
+        ce_log("game.bin is damaged: set aside as game.bad");
+        storage_game_set_aside();
+        return 0;
+    case SOL_LOAD_OTHER_OPTIONS:
+        ce_log("saved game ignored: saved with other Options");
+        return 0;
+    default:
+        return 0;
+    }
+}
+
 /* ---- input ---------------------------------------------------------------------------------------- */
 
 static int input_blocked(App *a) { return a->in_modal > 0 || !a->have_layout || !a->gfx || a->s.busy; }
@@ -100,12 +149,14 @@ void after_input(App *a)
         release_capture(a);
     view_sync(a);
     menu_update(a);
+    solver_deliver(a);                                /* a solver answer held meanwhile */
 }
 
 /* A drag that does not land (Esc, focus lost, capture lost): the cards slide back (XP: MouseUp with
  * fCancel -> AnimateBack), nothing is recorded. */
 static void drag_cancel(App *a, int zip, const char *why)
 {
+    a->click_armed = 0;                               /* no click either: a later button-up drops nothing */
     if (!sol_dragging(&a->s))
         return;
     release_capture(a);
@@ -115,10 +166,25 @@ static void drag_cancel(App *a, int zip, const char *why)
     ce_log("drag cancelled (%s)", why);
 }
 
-/* The button went up: drop on the target the last move found, or slide back. */
+/* The button went up: drop on the target the last move found, or slide back. With click-to-move
+ * (extra), a press released without leaving the drag threshold is a click: the cards go to the best
+ * place for them (assist.h), if any. */
 static void drag_drop(App *a)
 {
     int t = a->s.target, ok;
+    if (a->click_armed) {
+        int c = sol_click_target(&a->s);
+        a->click_armed = 0;
+        if (c >= 0) {
+            int src = a->s.drag_pile, idx = a->s.drag_index;
+            release_capture(a);
+            ok = sol_drop(&a->s, c);
+            a->click_moved = ok;
+            ce_log("click move: pile %d card %d -> %d, %s; score %d", src, idx, c, ok ? "moved" : "refused",
+                   a->s.score);
+            return;
+        }
+    }
     release_capture(a);
     if (t < 0 || !sol_can_drop_on(&a->s, t))
         view_zip_back(a);
@@ -129,12 +195,21 @@ static void drag_drop(App *a)
 static void on_button(App *a, LPARAM lp, int dbl)
 {
     int x = (short)LOWORD(lp), y = (short)HIWORD(lp), pile, card, r, mods = key_mods();
+    int swallow = dbl && a->click_moved;
+    a->click_moved = 0;
+    a->click_armed = 0;
     if (input_blocked(a)) {
         ce_log("%s %d,%d ignored", dbl ? "dblclick" : "press", x, y);
         return;
     }
     if (sol_dragging(&a->s))
         return;                                       /* XP's MouseDown: nothing while a card is selected */
+    if (swallow) {
+        /* extra (click-to-move): the first click already moved the card (to a foundation if one took
+         * it, as the double-click would) */
+        ce_log("dblclick %d,%d ignored (the click moved the card)", x, y);
+        return;
+    }
     if (!view_hit(a, x, y, &pile, &card)) {
         pile = SOL_MISS;
         card = -1;
@@ -148,6 +223,11 @@ static void on_button(App *a, LPARAM lp, int dbl)
         SetCapture(a->hwnd);
         a->lcapture = 1;
         sol_drag_over(&a->s, -1);                     /* the view tracks the target: none until a move */
+        if (a->s.extras.click_move) {                 /* a click, unless the pointer moves away */
+            a->click_armed = 1;
+            a->click_x = x;
+            a->click_y = y;
+        }
     }
     ce_log("%s %d,%d mods %d -> pile %d card %d: %s; score %d", dbl ? "dblclick" : "press", x, y, mods, pile,
            card, r == SOL_PRESS_DRAG ? "drag" : r == SOL_PRESS_DONE ? "done" : "nothing", a->s.score);
@@ -175,6 +255,7 @@ static int on_key(App *a, WPARAM wp)
         if (sol_key_drop_target(&a->s) < 0)
             view_zip_back(a);
         release_capture(a);
+        a->click_armed = 0;                           /* the mouse's press is used up */
     }
     handled = sol_key(&a->s, (int)wp, mods);
     if (handled)
@@ -187,7 +268,7 @@ static int on_key(App *a, WPARAM wp)
 static void on_command(App *a, int id)
 {
     switch (id) {
-    case IDM_DEAL: case IDM_UNDO: case IDM_REDO: case IDM_FORCEWIN:
+    case IDM_DEAL: case IDM_UNDO: case IDM_REDO: case IDM_FORCEWIN: case IDM_HINT: case IDM_FINISH:
         if (a->in_modal || a->s.busy || !a->gfx)
             return;
         if (id == IDM_FORCEWIN)
@@ -198,6 +279,7 @@ static void on_command(App *a, int id)
         break;
     case IDM_DECK: dlg_deck(a); break;
     case IDM_OPTIONS: dlg_options(a); break;
+    case IDM_STATISTICS: dlg_statistics(a); break;
     case IDM_FULLSCREEN:
         if (!a->in_modal && !a->s.busy)
             fullscreen_set(a, !a->fs.on);
@@ -236,6 +318,24 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         ui_make(a, &ui);
         sol_init(&a->s, &ui, &st);                    /* Options, Back, iCurrency from XP's key */
         a->app_store = storage_app_store();
+        {
+            SolExtras x;
+            SolStats stats;
+            CeBlobIO io = storage_stats_io();
+            int r;
+            sol_extras_load(&x, &a->app_store);       /* the extras, from our own key */
+            sol_set_extras(&a->s, &x);
+            r = sol_stats_load(&stats, &io);
+            if (r < 0) {
+                ce_log("statistics.bin is damaged: set aside as statistics.bad, starting empty");
+                storage_stats_set_aside();
+            }
+            sol_attach_stats(&a->s, &stats);
+            a->menu_hint = a->menu_finish = -1;
+            ce_log("extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d; statistics %s", x.auto_turn,
+                   x.click_move, x.auto_finish, x.winnable_only, x.save_game, x.warn_unwinnable,
+                   r > 0 ? "loaded" : r < 0 ? "damaged" : "none");
+        }
         if (a->s.opts.status_bar)
             a->status = CreateWindowExW(0, SOL_STATUS_CLASS, L"", WS_CHILD | WS_BORDER | WS_VISIBLE, 0, 0, 0,
                                         0, h, NULL, a->inst, NULL);
@@ -252,6 +352,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_APP_SYNC:
         a->sync_posted = 0;
         view_sync(a);
+        return 0;
+    case WM_APP_SOLVED:
+        solver_received(a, lp);
         return 0;
 
     case WM_GETMINMAXINFO: {
@@ -288,6 +391,13 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         on_button(a, lp, 1);
         return 0;
     case WM_MOUSEMOVE:
+        if (a->click_armed) {                         /* moved past the drag threshold: a drag, not a click */
+            int dx = (short)LOWORD(lp) - a->click_x, dy = (short)HIWORD(lp) - a->click_y;
+            if (dx < 0) dx = -dx;
+            if (dy < 0) dy = -dy;
+            if (dx > GetSystemMetrics(SM_CXDRAG) || dy > GetSystemMetrics(SM_CYDRAG))
+                a->click_armed = 0;
+        }
         if (a->drag_on && sol_dragging(&a->s) && !a->in_modal)
             view_drag_to(a, (short)LOWORD(lp), (short)HIWORD(lp));
         return 0;
@@ -320,6 +430,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         break;
     case WM_KEYDOWN:
+        a->click_moved = 0;
         if (!input_blocked(a)) {
             if (on_key(a, wp))
                 return 0;
@@ -328,9 +439,21 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             return 0;
         }
         break;                                        /* (F1 -> WM_HELP and the like) */
+    case WM_CHAR:
+        if ((wp == 'h' || wp == 'H') && !input_blocked(a) && !sol_dragging(&a->s)) {
+            sol_command(&a->s, SOL_CMD_HINT);         /* extra: XP's KeyHit knows no letters */
+            ce_log("hint: %s", a->s.hint ? "shown" : "none");
+            after_input(a);
+            return 0;
+        }
+        break;
     case WM_TIMER:
         if (wp == SOL_TIMER_CLOCK) {
             sol_timer(&a->s, SOL_TIMER_CLOCK);        /* XP: 250-ms ticks, the clock in the status bar */
+            return 0;
+        }
+        if (wp == SOL_TIMER_HINT) {
+            sol_timer(&a->s, SOL_TIMER_HINT);         /* extra: the hint's flash */
             return 0;
         }
         break;
@@ -361,16 +484,21 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             return 0;
         }
         save_window_state(a);
+        save_game_state(a);
         DestroyWindow(h);
         return 0;
     case WM_QUERYENDSESSION:
         return TRUE;
     case WM_ENDSESSION:
-        if (wp)
+        if (wp) {
             save_window_state(a);
+            save_game_state(a);
+        }
         return 0;
     case WM_DESTROY:
         KillTimer(h, SOL_TIMER_CLOCK);
+        KillTimer(h, SOL_TIMER_HINT);
+        solver_shutdown(a);
         view_anim_idle(a);
         ce_help_shutdown();
         PostQuitMessage(0);
@@ -501,7 +629,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
         ret = 1;
     } else {
         view_gfx_ready(a);
-        if (!no_deal)
+        if (resume_game(a))
+            after_input(a);                           /* extra: the saved game instead of a deal */
+        else if (!no_deal)
             PostMessageW(a->hwnd, WM_COMMAND, IDM_DEAL, 0);   /* XP deals at the end of its start-up */
         ret = ce_message_loop(&a->hwnd, a->accel);
     }

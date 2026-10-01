@@ -21,6 +21,10 @@
 /* Extras (not in XP) */
 #define IDM_FULLSCREEN      1100    /* Game > Full Screen (F11, Alt+Enter; Esc leaves) */
 #define IDM_REDO            1101    /* Game > Redo (Ctrl+Y) = SOL_CMD_REDO (src/solitaire/session.h) */
+/* Extras (v1.1) */
+#define IDM_HINT            1102    /* Game > Hint (H, WM_CHAR) = SOL_CMD_HINT */
+#define IDM_FINISH          1103    /* Game > Finish (F6) = SOL_CMD_FINISH */
+#define IDM_STATISTICS      1104    /* Game > Statistics... (F4) */
 
 /* Numeric resources */
 #define IDR_MENU            1       /* menu (XP: MAKEINTRESOURCE(1)) */
@@ -30,6 +34,7 @@
  * window's client origin */
 #define IDD_DECK            101     /* "Select Card Back" */
 #define IDD_OPTIONS         103     /* "Options" */
+#define IDD_STATS           105     /* "Solitaire Statistics" (extra, v1.1) */
 
 /* Select Card Back: the 12 owner-drawn buttons. A button's id is XP's cards.dll back id 54..65 = back
  * index + IDC_BACK0 (render.h SOL_NBACKS); rows 54 55 60 61 58 59 / 56 57 62 63 64 65 as XP's. */
@@ -47,6 +52,19 @@
 #define IDC_OUTLINE         307     /* "Out&line dragging" */
 #define IDC_CUMULATIVE      308     /* "&Cumulative" (enabled only with Vegas) */
 #define IDC_CUMSCORE        310     /* "Score": the second line of "Cumulative Score" (enabled with it) */
+/* Options, the "Extras" group (v1.1, not in XP; HKCU\Software\xp-cards\Solitaire HD) */
+#define IDC_EXTRAS_GROUP    320     /* "Extras" */
+#define IDC_AUTOTURN        321     /* "T&urn cards over automatically" (AutoTurn) */
+#define IDC_CLICKMOVE       322     /* "Single clic&k moves a card" (ClickToMove) */
+#define IDC_AUTOFINISH      323     /* "&Finish automatically" (AutoFinish) */
+#define IDC_WINNABLE        324     /* "Deal only winnable &games" (WinnableOnly) */
+#define IDC_SAVEGAME        325     /* "Sav&e game on exit, resume at start" (SaveGame) */
+#define IDC_WARNUNWINNABLE  326     /* "&Warn when the game can't be won" (WarnUnwinnable) */
+/* Statistics */
+#define IDC_STATS_MODE      330     /* the mode: a drop-down list, the current game's mode first selected */
+#define IDC_STATS_LABELS    331     /* the labels (IDS_STATS_LABELS) */
+#define IDC_STATS_VALUES    332     /* the values (src/solitaire/stats.h sol_stats_format) */
+#define IDC_STATS_RESET     333     /* "&Reset": all modes, after IDS_RESETSTATS */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif
@@ -64,6 +82,13 @@
 #define IDS_OUTOFMEMORY     300     /* "Out of memory" */
 #define IDS_HELPFAILED      301     /* "Unable to load Windows Help application" (XP: "Unable load") */
 #define IDS_NODRAGMEM       303     /* full drag image could not be allocated: use Outline dragging */
+/* Extra strings (v1.1): the session's messages (= SOL_MSG_*), the Statistics dialog */
+#define IDS_MSG_NOHINT      1110    /* "No hint is available." */
+#define IDS_MSG_UNWINNABLE  1111    /* "This game can no longer be won. Use Undo to go back." */
+#define IDS_MSG_UNWINNABLE_DEAL 1112 /* "This game cannot be won." */
+#define IDS_STATS_MODE0     1120    /* "Draw One, Standard" .. 1125 "Draw Three, None" (stats.h's modes) */
+#define IDS_STATS_LABELS    1126    /* the labels, one per line */
+#define IDS_RESETSTATS      1127    /* "Are you sure you want to delete all statistics?" */
 
 #ifndef RC_INVOKED
 #define RES_ACCEL           L"HiddenAccel"   /* XP loads its accelerators by this name */

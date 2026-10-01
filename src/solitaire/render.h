@@ -58,8 +58,9 @@ typedef struct SolView {
     int drag_mode;           /* SOL_DRAG_* */
     int target;              /* outline mode: the drop target under the drag (its top card, or the
                                 empty pile's card slot, inverted: XP's Hilight); -1 none */
-    int sel_pile, sel_card;  /* keyboard selection (extra): cards sel_card..n-1 of sel_pile inverted (an
-                                empty pile: its card slot); -1 none */
+    int sel_pile, sel_card;  /* a selection (extra; v1.1: the hint's flash, session.h sol_hint_view):
+                                cards sel_card..n-1 of sel_pile inverted (an empty pile: its card slot);
+                                -1 none */
 } SolView;
 
 void sol_view_init(SolView *v);   /* dealt, back 0, O, no drag, no target, no selection */

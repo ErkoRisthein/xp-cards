@@ -8,8 +8,10 @@
  *   view.c     layout, incremental rendering, painting, drag and drop (lifted stack / outline, the
  *              zip-back of a refused drop), the keyboard pointer, the win cascade
  *   status.c   XP's status bar: a child window at the bottom (menu help left, Score / Time right)
- *   ui.c       the session's UI callbacks, the dialogs (Options, Select Card Back, Deal Again?), menu
- *              graying, help and About, where settings are kept
+ *   ui.c       the session's UI callbacks, the dialogs (Options, Select Card Back, Deal Again?,
+ *              Statistics), menu graying, help and About, where settings, statistics and the saved
+ *              game are kept
+ *   solve.c    the background solver of the "Warn when the game can't be won" extra
  *
  * One window, one UI thread: everything lives in the global g_app.
  */
@@ -22,6 +24,7 @@
 #include "engine/win32/shell.h"
 #include "solitaire/layout.h"
 #include "solitaire/render.h"
+#include "solitaire/savegame.h"
 #include "solitaire/session.h"
 #include "solitaire/winanim.h"
 #include "../../../res/solitaire/resource.h"
@@ -29,6 +32,7 @@
 #define SOL_CLASS_NAME   L"SolitaireHD"
 #define SOL_STATUS_CLASS L"Stat"                  /* XP's status bar class name */
 #define WM_APP_SYNC      (WM_APP + 1)             /* deferred "session state changed": render the difference */
+#define WM_APP_SOLVED    (WM_APP + 2)             /* a solver job finished (lParam = the job; 0 = retry delivery) */
 #define SOL_ZIP_FRAME_MS 10                       /* the zip-back slide of a refused drop (layout.md §6.1) */
 
 typedef struct App {
@@ -77,6 +81,13 @@ typedef struct App {
     HFONT      status_font;     /* MS Shell Dlg 9 pt bold (the right part) */
 
     int        menu_undo, menu_redo, menu_idle;   /* menu item states as last set (-1 = unknown) */
+    int        menu_hint, menu_finish;
+
+    /* extras (v1.1) */
+    int        click_armed;     /* a mouse press began a drag that has not moved past the drag threshold */
+    int        click_x, click_y;
+    int        click_moved;     /* the last click moved cards (click-to-move): its double-click is ignored */
+    struct SolveJob *solve_ready;   /* a solver answer waiting to be delivered (solve.c) */
 
     /* test hooks (environment, read once): SOLHD_TIME replaces time(NULL), so deals and the random
      * back are reproducible; SOLHD_NO_WARP keeps the keyboard from moving the real pointer (the e2e
@@ -104,6 +115,7 @@ void   view_drag_to(App *a, int x, int y);           /* the pointer moved while 
 void   view_zip_back(App *a);                        /* animate the dragged cards back (refused drop) */
 void   view_kbd_cursor(App *a, int pile, int card, int dragging);
 void   view_cascade(App *a);                         /* the win animation, until done or input */
+void   view_animate_move(App *a, int src, int dst);  /* Finish: fly the top card of src to dst */
 void   view_anim_idle(App *a);
 
 /* status.c */
@@ -123,6 +135,11 @@ extern const WCHAR SOL_APP_KEY[];
 void   menu_update(App *a);                          /* Undo / Redo / Deal / Deck / About graying */
 void   dlg_options(App *a);
 void   dlg_deck(App *a);
+void   dlg_statistics(App *a);                       /* extra */
+CeBlobIO storage_stats_io(void);                     /* %APPDATA%\xp-cards\Solitaire HD\statistics.bin */
+void   storage_stats_set_aside(void);                /* a damaged one becomes statistics.bad */
+CeBlobIO storage_game_io(void);                      /* ...\game.bin: the saved game */
+void   storage_game_set_aside(void);
 void   help_contents(App *a);
 void   help_search(App *a);
 void   help_howto(App *a);
@@ -131,6 +148,13 @@ int    load_wstr(App *a, UINT id, WCHAR *out, int n, const WCHAR *fallback);
 void   modal_begin(App *a);
 void   modal_end(App *a);
 uint32_t app_time(App *a);                           /* time(NULL), or SOLHD_TIME */
+
+/* solve.c */
+void   solver_request(App *a, uint32_t id, const SolBoard *b, int draw, int left);
+void   solver_cancel(App *a);
+void   solver_received(App *a, LPARAM lp);           /* WM_APP_SOLVED */
+void   solver_deliver(App *a);                       /* an answer held while busy, now */
+void   solver_shutdown(App *a);                      /* WM_DESTROY */
 
 /* main.c */
 void   fullscreen_set(App *a, int on);
