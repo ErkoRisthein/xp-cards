@@ -1,0 +1,132 @@
+# Solitaire HD end to end: the Options dialog and the Select Card Back dialog, their values in XP's own
+# key (HKCU\Software\Microsoft\Solitaire, REG_DWORD Options / Back, written at OK), what they change at
+# once (a new deal for Draw / Timed / Scoring, the Vegas bet and the Cumulative score, the status bar
+# hidden, Outline dragging) and that they persist.  Run by tests/e2e/run_solhd_e2e.sh.
+#
+# Options bits (rules.md §10): 1 status bar, 2 timed, 4 outline dragging, 8 Draw Three, 0x10 Vegas,
+# 0x20 None, 0x40 cumulative; missing = 0x0B. Back = XP's back id - 53 (1..12).
+# Deals alternate 64, 65, 64 (SOLHD_TIME fixed; geometry and deal 64 in solhd_smoke.txt); the outline
+# drag below is deal 64's 4S (col 2, 201,237) onto 5D (col 5, 732,255).
+# The Space back (Back 10) is navy (0B1030) at 40,120 on the stock.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 120
+resize_client 1264 854
+
+# ---- the defaults; Cancel changes nothing ------------------------------------------------------------
+command 1003
+wait_dialog Options
+dialog_text
+assert_dialog_text "[300] Button \"Draw &One\" [ ]"
+assert_dialog_text "[301] Button \"Draw &Three\" [x]"
+assert_dialog_text "[302] Button \"St&andard\" [x]"
+assert_dialog_text "[303] Button \"&Vegas\" [ ]"
+assert_dialog_text "[304] Button \"&None\" [ ]"
+assert_dialog_text "[305] Button \"T&imed game\" [x]"
+assert_dialog_text "[306] Button \"Status &bar\" [x]"
+assert_dialog_text "[307] Button \"Out&line dragging\" [ ]"
+assert_dialog_text "[308] Button \"&Cumulative\" [ ] (disabled)"   # only with Vegas
+assert_dialog_text "[310] Static \"Score\" (disabled)"
+capture_dialog 20_options_default.bmp
+dialog_check 300 1
+dialog_click Cancel
+assert_no_dialog
+assert_reg HKCU\Software\Microsoft\Solitaire Options absent
+
+# ---- Draw One + Vegas + Cumulative: a new deal and the $52 bet, then a running total -------------------
+command 1003
+wait_dialog Options
+dialog_check 300 1                            # BS_RADIOBUTTON: the dialog checks it itself
+dialog_check 303 1                            # Vegas enables Cumulative
+dialog_check 308 1
+dialog_text
+capture_dialog 21_options_vegas.bmp
+dialog_click OK
+assert_no_dialog
+assert_reg HKCU\Software\Microsoft\Solitaire Options 83     # 0x53
+assert_reg HKCU\Software\Microsoft\Solitaire Back 1         # untouched
+assert_window_text "-$52 "
+vkey F2                                       # Cumulative: each deal bets again on the running total
+assert_window_text "-$104 "
+vkey F2
+assert_window_text "-$156 "
+command 1003                                  # back to Draw Three: an Options redeal starts over (XP)
+wait_dialog Options
+assert_dialog_text "[300] Button \"Draw &One\" [x]"
+assert_dialog_text "[303] Button \"&Vegas\" [x]"
+assert_dialog_text "[308] Button \"&Cumulative\" [x]"
+dialog_check 301 1
+dialog_click OK
+assert_reg HKCU\Software\Microsoft\Solitaire Options 91     # 0x5B
+assert_window_text "-$52 "
+
+# ---- no status bar (the board takes its room) and Outline dragging: no new deal ---------------------
+command 1003
+wait_dialog Options
+dialog_check 306 0
+dialog_check 307 1
+dialog_click OK
+assert_reg HKCU\Software\Microsoft\Solitaire Options 94     # 0x5E
+assert_pixel 600 850 008000                   # no status bar
+assert_pixel 600 853 008000
+assert_pixel 277 443 000000                   # the same deal (64: 4S in col 2)
+capture 22_no_status_bar.bmp
+ldown 277 337                                 # 4S, outline dragging: the cards stay, an outline moves
+move 500 380
+move 808 387                                  # the outline at 732,287 over 5D, which shows inverted
+capture 23_outline_drag.bmp
+assert_pixel 277 443 000000                   # 4S still drawn in its column
+assert_pixel 732 480 FF7FFF                   # the outline: the table inverted
+lup 808 387
+assert_pixel 732 480 000000                   # 4S on 5D (732,287)
+assert_pixel 277 443 008000
+capture 24_outline_dropped.bmp
+
+# ---- Select Card Back: XP's 12 ids in XP's order, our 12 HD backs; Back = id - 53 ------------------------
+command 1002
+wait_dialog "Select Card Back"
+dialog_text
+capture_dialog 25_deck_sky.bmp
+dialog_click 63                               # "Space" (XP's astronaut)
+capture_dialog 26_deck_space.bmp
+dialog_click OK
+assert_no_dialog
+assert_reg HKCU\Software\Microsoft\Solitaire Back 10
+assert_pixel 40 120 0B1030                    # the stock shows the new back; no new deal
+assert_pixel 732 480 000000
+capture 27_back_space.bmp
+command 1002
+wait_dialog "Select Card Back"
+dialog_click 58                               # "Rose", then Cancel: nothing changes
+dialog_click Cancel
+assert_reg HKCU\Software\Microsoft\Solitaire Back 10
+assert_pixel 40 120 0B1030
+
+# ---- all of it persists ------------------------------------------------------------------------------------
+close
+regdump HKCU\Software\Microsoft\Solitaire
+launch ${REPO}/build/SolitaireHD.exe
+assert_client_size 1264 854
+assert_pixel 600 850 008000                   # still no status bar
+assert_pixel 40 120 0B1030                    # the Space back
+command 1003
+wait_dialog Options
+assert_dialog_text "[301] Button \"Draw &Three\" [x]"
+assert_dialog_text "[303] Button \"&Vegas\" [x]"
+assert_dialog_text "[305] Button \"T&imed game\" [x]"
+assert_dialog_text "[306] Button \"Status &bar\" [ ]"
+assert_dialog_text "[307] Button \"Out&line dragging\" [x]"
+assert_dialog_text "[308] Button \"&Cumulative\" [x]"
+dialog_check 306 1                            # the status bar back: shown at once
+dialog_check 302 1                            # Standard: a new deal
+dialog_click OK
+assert_reg HKCU\Software\Microsoft\Solitaire Options 79     # 0x4F
+assert_window_text "Score: "
+assert_window_text "0 "
+capture 28_status_bar_back.bmp
+close

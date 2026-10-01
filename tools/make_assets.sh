@@ -1,20 +1,26 @@
 #!/bin/sh
-# FreeCell HD — regenerate the generated art from its sources (run from anywhere).
+# FreeCell HD and Solitaire HD — regenerate the generated art from its sources (run from anywhere).
 #
-#   tools/make_assets.sh [kings] [icon] [cursor] [cards] [check]     (default: kings icon cursor check)
+#   tools/make_assets.sh [kings] [icon] [cursor] [cards] [backs] [solicon] [check]
+#                                                              (default: kings icon cursor solicon check)
 #
-#   kings   res/cards-svg/KS.svg -> res/king/src/king_{right,left,smile}.svg (derive_kings.py)
-#           -> res/king/king_{right,left,smile}.png (1024x1024 RGBA, rsvg-convert + oxipng)
-#   icon    res/king/src/king_left.svg -> res/icon/icon_card.svg -> res/freecell.ico
-#   cursor  res/icon/make_cursor.py -> res/downarrow.cur
-#   cards   res/cards-svg/<R><S>.svg -> res/cards/<R><S>.png (400x560 RGBA; docs/card-art.md §2, slow:
-#           zopfli). The SVGs themselves come from the RevK generator URL in res/cards-src/ and are
+#   kings   res/common/cards-svg/KS.svg -> res/freecell/king/src/king_{right,left,smile}.svg (derive_kings.py)
+#           -> res/freecell/king/king_{right,left,smile}.png (1024x1024 RGBA, rsvg-convert + oxipng)
+#   icon    res/freecell/king/src/king_left.svg -> res/freecell/icon/icon_card.svg -> res/freecell/freecell.ico
+#   cursor  res/freecell/icon/make_cursor.py -> res/freecell/downarrow.cur
+#   cards   res/common/cards-svg/<R><S>.svg -> res/common/cards/<R><S>.png (400x560 RGBA; docs/card-art.md §2, slow:
+#           zopfli). The SVGs themselves come from the RevK generator URL in res/common/cards-src/ and are
 #           kept unmodified; tools/edit_card_svg.py edits a copy before rasterising (docs/DESIGN.md
 #           "Crispness decisions"): the rank-index stroke goes from the generator's 80 to
 #           $INDEX_STROKE (default 130, closer to XP's bold index and readable at small sizes), and the
 #           court-art linework (stroke #44F) becomes $COURT_MULT x wider (default 1.6) and
 #           $COURT_COLOUR (default #223, dark navy), the court picture frame $COURT_COLOUR at
 #           $COURT_FRAME_W units (default 1.5). The blue fills stay.
+#   backs   res/solitaire/backs-src/<id>_<name>.svg -> res/solitaire/backs/<id>_<name>.png (Solitaire HD's 12
+#           backs, 400x560 RGB; slow: zopfli). The SVGs are the RevK generator's, kept unmodified;
+#           make_backs.py edits a copy (the pattern block scaled to a 5-unit inset, the Diamond lattice
+#           doubled) and makes the edge band and corners opaque.
+#   solicon res/solitaire/icon/make_icon.py -> res/solitaire/icon/icon_box.svg, res/solitaire/solitaire.ico
 #   check   structure checks of the .ico/.cur and PNG sizes/formats
 #
 # Needs: rsvg-convert (librsvg), Python 3 with Pillow ($PYTHON, default python3) and, for PNG
@@ -47,48 +53,55 @@ EOF
 }
 
 kings() {
-    "$PYTHON" res/king/src/derive_kings.py res/cards-svg/KS.svg res/king/src
+    "$PYTHON" res/freecell/king/src/derive_kings.py res/common/cards-svg/KS.svg res/freecell/king/src
     for v in right left smile; do
-        rsvg-convert -w 1024 -h 1024 "res/king/src/king_$v.svg" -o "$TMP/king_$v.png"
-        optimise "$TMP/king_$v.png" "res/king/king_$v.png" 0
-        echo "res/king/king_$v.png"
+        rsvg-convert -w 1024 -h 1024 "res/freecell/king/src/king_$v.svg" -o "$TMP/king_$v.png"
+        optimise "$TMP/king_$v.png" "res/freecell/king/king_$v.png" 0
+        echo "res/freecell/king/king_$v.png"
     done
 }
 
-icon()   { "$PYTHON" res/icon/make_icon.py res/king/src/king_left.svg res/icon res/freecell.ico; echo res/freecell.ico; }
-cursor() { "$PYTHON" res/icon/make_cursor.py res/downarrow.cur >/dev/null; echo res/downarrow.cur; }
+icon()   { "$PYTHON" res/freecell/icon/make_icon.py res/freecell/king/src/king_left.svg res/freecell/icon res/freecell/freecell.ico; echo res/freecell/freecell.ico; }
+cursor() { "$PYTHON" res/freecell/icon/make_cursor.py res/freecell/downarrow.cur >/dev/null; echo res/freecell/downarrow.cur; }
+backs()  { "$OXIPNG_PYTHON" res/solitaire/backs-src/make_backs.py res/solitaire/backs-src res/solitaire/backs; }
+solicon() { "$PYTHON" res/solitaire/icon/make_icon.py res/solitaire/icon res/solitaire/solitaire.ico; echo res/solitaire/solitaire.ico; }
 
 cards() {
-    for f in res/cards-svg/??.svg; do
+    for f in res/common/cards-svg/??.svg; do
         n=$(basename "$f" .svg)
         "$PYTHON" tools/edit_card_svg.py "$f" "$TMP/$n.svg" "$INDEX_STROKE" "$COURT_MULT" "$COURT_COLOUR" \
             "$COURT_FRAME_W"
         rsvg-convert -h 560 "$TMP/$n.svg" -o "$TMP/$n.png"
-        optimise "$TMP/$n.png" "res/cards/$n.png" 15
+        optimise "$TMP/$n.png" "res/common/cards/$n.png" 15
         printf '%s ' "$n"
     done
     echo
 }
 
 check() {
-    "$PYTHON" res/icon/check_icocur.py res/freecell.ico
-    "$PYTHON" res/icon/check_icocur.py res/downarrow.cur
+    "$PYTHON" res/freecell/icon/check_icocur.py res/freecell/freecell.ico
+    "$PYTHON" res/freecell/icon/check_icocur.py res/freecell/downarrow.cur
+    "$PYTHON" res/freecell/icon/check_icocur.py res/solitaire/solitaire.ico
     "$PYTHON" - <<'EOF'
 import glob, os
 from PIL import Image
-for pat, size in (('res/king/king_*.png', (1024, 1024)), ('res/cards/??.png', (400, 560))):
+# the backs are opaque: oxipng may store them RGB or palette
+for pat, size, modes in (('res/freecell/king/king_*.png', (1024, 1024), ('RGBA',)),
+                         ('res/common/cards/??.png', (400, 560), ('RGBA',)),
+                         ('res/solitaire/backs/[0-9][0-9]_*.png', (400, 560), ('RGB', 'P'))):
     files = sorted(glob.glob(pat))
-    bad = [f for f in files if Image.open(f).size != size or Image.open(f).mode != 'RGBA']
+    bad = [f for f in files if Image.open(f).size != size or Image.open(f).mode not in modes or
+           ('RGB' in modes and Image.open(f).convert('RGBA').getextrema()[3][0] != 255)]
     print('%-20s %2d files, %8d bytes%s' % (pat, len(files), sum(os.path.getsize(f) for f in files),
           ', BAD: %s' % bad if bad else ', OK'))
     if bad: raise SystemExit(1)
 EOF
 }
 
-[ $# -gt 0 ] || set -- kings icon cursor check
+[ $# -gt 0 ] || set -- kings icon cursor solicon check
 for step in "$@"; do
     case $step in
-        kings|icon|cursor|cards|check) $step ;;
+        kings|icon|cursor|cards|backs|solicon|check) $step ;;
         *) echo "unknown step: $step" >&2; exit 2 ;;
     esac
 done

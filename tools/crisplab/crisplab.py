@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """crisplab — FreeCell HD card-crispness test bench.
 
-Reproduces the runtime card pipeline (src/gfx/cardset.c + src/gfx/image.c) in numpy for a set of
+Reproduces the runtime card pipeline (src/engine/cardset.c + src/engine/image.c) in numpy for a set of
 CANDIDATES (dicts of parameters) and writes comparison sheets, metrics and blind A/B sheets.
 
-Pipeline per card and target height ch (cw = round(71 * ch / 96), as src/gfx/layout.c):
-  1. art      res/cards-svg/<R><S>.svg, edited: rank-index stroke 80 -> index_stroke (as
+Pipeline per card and target height ch (cw = round(71 * ch / 96), as src/freecell/layout.c):
+  1. art      res/common/cards-svg/<R><S>.svg, edited: rank-index stroke 80 -> index_stroke (as
               tools/make_assets.sh), court linework (#44F strokes inside the 1300x2000 court art)
               x court_mult and recoloured, optional court frame width/colour, optional colour map
-  2. raster   rsvg-convert at master_w x master_h (default 400x560 = res/cards/*.png), or at
+  2. raster   rsvg-convert at master_w x master_h (default 400x560 = res/common/cards/*.png), or at
               cw x ch directly (source='vector': the 'vector at target size' reference)
   3. clean    clean_master(): premultiply, composite over white, whiten the outline band
   4. resample separable filter, independent x/y factors, kernel stretched by the downscale
@@ -40,7 +40,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-SVG_DIR = REPO / 'res' / 'cards-svg'
+SVG_DIR = REPO / 'res' / 'common' / 'cards-svg'
 TABLE = (0, 127, 0)
 SUITS = 'CDHS'
 RANKS = 'A23456789TJQK'

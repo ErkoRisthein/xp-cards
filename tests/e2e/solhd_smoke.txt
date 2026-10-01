@@ -1,0 +1,146 @@
+# Solitaire HD end to end: start, the deal, mouse play (drag and drop, turning a card over,
+# double-click home, right-click autoplay, a refused drop sliding back, Esc during a drag, a king to an
+# empty column), the status bar, the menu graying, undo / redo, About, Exit.  Run by
+# tests/e2e/run_solhd_e2e.sh (make e2e-solitaire).
+#
+# SOLHD_TIME fixes time(NULL), so the first deal is XP's deal 64 and F2 deals 65 (the next seed when the
+# second repeats).  The client is 1264 x 854 (scale 2.161: cards 153 x 207, columns x = 24 201 378 555
+# 732 909 1086, tableau top y = 231, steps 6 / 32; stock 24,10, waste 201,10, foundations x = 555 732
+# 909 1086; the status bar 18 px).  Deal 64 (# = face down):
+#   col 1 AH@24,231   col 2 #7H 4S@201,237   col 3 # # TD@378,243   col 4 # # # KC@555,249
+#   col 5 # # # # 5D@732,255   col 6 # # # # # AC@909,261   col 7 # # # # # # 2H@1086,267
+# A card's left edge is its black frame (000000); the table is 008000.
+# Ids: res/solitaire/resource.h (XP's 1000 Deal, 1001 Undo, 1002 Deck, 1003 Options, 1004 Exit, 2000 About,
+# 1010 Alt+Shift+2; extras 1100 Full Screen, 1101 Redo).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+info
+assert_title Solitaire
+capture_window 00_first_run_window.bmp        # first run: ~85% of the work area height, dealt at once
+assert_reg HKCU\Software\Microsoft\Solitaire Back absent      # a random back until the Deck dialog's OK
+assert_reg HKCU\Software\Microsoft\Solitaire Options absent   # written by the Options dialog only
+assert_menu 1000 enabled
+assert_menu 1001 grayed                       # nothing to undo
+assert_menu 1101 grayed
+assert_menu 1002 enabled
+assert_menu 1003 enabled
+assert_menu 2000 enabled
+assert_menu 1100 unchecked
+
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+assert_window_text "Score: "                  # the status bar: "Score: 0 Time: 0"
+assert_window_text "0 "
+assert_window_text "Time: 0"
+assert_pixel 23 334 008000
+assert_pixel 24 334 000000                    # AH (col 1)
+assert_pixel 201 400 000000                   # 4S (col 2)
+assert_pixel 277 443 000000                   # ... its bottom edge
+assert_pixel 1086 400 000000                  # 2H (col 7)
+assert_pixel 413 120 008000                   # the waste is empty
+capture 01_deal64_1264x854.bmp
+capture_window 01_deal64_1264x854_window.bmp
+
+# ---- drag 4S onto 5D (the stack follows the pointer, the target is the first pile it overlaps) --------
+ldown 277 337                                 # 4S, grabbed 76,100 from its corner
+move 450 380
+move 700 380                                  # the card at 624,280: over 5D
+assert_menu 1000 grayed                       # XP grays Deal, Undo, Deck and About during a drag
+assert_menu 1001 grayed
+assert_menu 1002 grayed
+assert_menu 2000 grayed
+assert_menu 1003 enabled                      # ... but not Options
+capture 02_dragging.bmp
+assert_pixel 277 443 008000                   # lifted out of its column (the bottom edge of 4S: y 443; 7H ends at 437)
+move 808 387
+lup 808 387
+assert_pixel 732 470 000000                   # 4S on 5D (732,287)
+assert_pixel 277 443 008000                   # col 2 is the face-down 7H alone
+assert_window_text "0 "                       # tableau to tableau scores nothing
+assert_menu 1000 enabled
+assert_menu 1001 enabled
+capture 03_dropped.bmp
+
+# ---- turn the face-down 7H over (+5), double-click AH home (+10), right-click: AC, 2H home (+20) -----
+click 277 330
+assert_window_text "5 "
+dblclick 100 330
+assert_pixel 688 30 FFFFFF                    # AH on the first foundation (a white corner, not the ghost)
+assert_pixel 24 334 008000                    # col 1 empty
+assert_window_text "15 "
+rclick 600 700                                # anywhere: every card that can go home goes
+assert_pixel 865 30 FFFFFF                    # AC on the second foundation
+assert_window_text "35 "
+capture 04_autoplay.bmp
+
+# ---- undo / redo (unlimited, an extra; Undo charges XP's -2 in Standard) -------------------------------
+command 1001                                  # the autoplay as one step: 15, then -2
+assert_window_text "13 "
+assert_pixel 909 450 000000                   # AC back in col 6
+assert_menu 1101 enabled
+command 1001                                  # the double-click: AH back
+assert_window_text "3 "
+assert_pixel 24 334 000000
+vkey Y ctrl                                   # Redo (Ctrl+Y)
+assert_window_text "13 "
+vkey Y ctrl
+assert_window_text "33 "
+assert_menu 1101 grayed
+capture 05_redo.bmp
+
+# ---- a refused drop slides back; Esc during a drag; a king to the empty column ----------------------
+drag 454 343 600 700 6                        # TD to the empty table: no target
+assert_pixel 378 400 000000                   # back in col 3
+drag 631 349 900 600 3                        # KC over nothing that takes it: back
+assert_pixel 555 400 000000
+ldown 631 349                                 # KC again; Esc while dragging
+move 700 650
+vkey ESC
+lup 700 650
+assert_pixel 555 400 000000
+assert_window_text "33 "
+drag 631 349 100 400 6                        # KC to the empty col 1 (only a king may go there)
+assert_pixel 24 400 000000
+assert_window_text "33 "
+click 631 300                                 # turn col 4's new top over (+5)
+assert_window_text "38 "
+capture 06_king_moved.bmp
+
+# ---- F2: a new deal, no confirmation (XP); the score resets --------------------------------------------
+vkey F2
+assert_window_text "Score: "
+assert_window_text "0 "
+assert_menu 1001 grayed
+capture 07_deal65.bmp
+
+# ---- Help: sol.chm through HtmlHelp; under Wine there is none, so the built-in text shows ------------
+command 65506                                 # Help > Contents (0xFFE2)
+wait_dialog "How to Play Solitaire"
+dialog_text
+capture_dialog 08_help.bmp
+dialog_click OK
+assert_no_dialog
+command 65507                                 # Search for Help on...
+wait_dialog "How to Play Solitaire"
+dialog_click OK
+command 65508                                 # How to Use Help (NTHelp.chm)
+wait_dialog "How to Play Solitaire"
+dialog_click OK
+assert_no_dialog
+
+# ---- About: ShellAbout with writable strings (a literal crashed XP's ShellAboutW) --------------------
+command 2000
+wait_dialog
+dialog_text
+capture_dialog 09_about.bmp
+dialog_click OK
+assert_no_dialog
+assert_running
+
+command 1004                                  # Exit: closes at once (XP has no confirmation)
+wait_exit 10000

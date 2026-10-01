@@ -1,6 +1,6 @@
 # crisplab: card crispness test bench
 
-`crisplab.py` reproduces the runtime card pipeline (src/gfx/cardset.c + src/gfx/image.c) in numpy
+`crisplab.py` reproduces the runtime card pipeline (src/engine/cardset.c + src/engine/image.c) in numpy
 for any number of **candidates** (JSON dicts of parameters). It renders comparison sheets,
 zoomed crops, metrics, artefact checks and blind A/B sheets, so changes to the art or the
 resampler can be judged at every display size before any C is written.
@@ -9,7 +9,7 @@ The bench is faithful. `proto/check.py runtime` renders the shipped masters with
 runtime box code and agrees with the model to within 1 LSB at h72-320; `proto/check.py shipped`
 does the same for the shipped card resampler (`fc_image_resample_card`, v1.1.1) against candidate
 `art+darkbias+sharpen+clamp`. That candidate's rsvg rasterisation is bit-identical to
-`res/cards/*.png` (v1.1.1); the default candidate's was bit-identical to the v1.1 masters.
+`res/common/cards/*.png` (v1.1.1); the default candidate's was bit-identical to the v1.1 masters.
 
 **Shipped (v1.1.1):** `candidates/shipped.json` → `art+darkbias+sharpen+clamp` (the finalist C of
 FINALISTS.md plus the overshoot clamp and the t < 0.1 cut). The lab defaults (`{"name": "current"}`)

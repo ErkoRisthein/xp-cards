@@ -33,10 +33,20 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   click-click stays the default).
 
 ## 2. Solitaire HD (Klondike, sol.exe)
-- Extract the shared card-game engine from FreeCell first: scaling layout primitives, sprite cache,
-  renderer, animation, stats/options persistence, Win32 shell pieces, Wine test harness.
-- New infrastructure: drag-and-drop, card backs (CC0 designs in the spirit of XP's 12, some
-  animated), deal/flip animations, Standard/Vegas/timed scoring, status bar, bouncing-cards win.
+- [x] Extract the shared card-game engine from FreeCell first (docs/ENGINE.md): images, the card set
+  (now with optional card backs), clipped drawing, stats/options persistence interfaces, Win32 shell
+  pieces (back buffer, animation clock, menu-bar text, placement, full screen, registry, dialogs, help,
+  worker thread); FreeCell HD unchanged (same tests, snapshots and e2e captures). `make` builds
+  `build/SolitaireHD.exe`, for now a stub window with XP's menu.
+- [x] The game (docs/xp-reference/solitaire/): XP's rules and deals (XP's RNG), Standard / Vegas /
+  cumulative / timed scoring, unlimited undo + redo, the keyboard interface, both cheats, XP's two bugs
+  fixed; the scalable layout and renderer (XP's formulas scaled, the draw-3 fan, 3-D piles, O / X /
+  ghost); 12 HD card backs (CC0, one per XP back; none animated, as in XP); the bouncing-cards win,
+  frame-exact with XP's logs. No deal or flip animations (XP has none).
+- [x] Win32 front end (`src/solitaire/win32/`): drag and drop (the lifted stack, Outline dragging, the
+  zip-back of a refused drop), double-click and right-click autoplay, XP's status bar, the cascade and
+  "Deal Again?", Options / Select Card Back, menu graying, help and About, full screen, the remembered
+  placement; Wine end-to-end scenarios (`tests/e2e/solhd_*.txt`).
 - The same fidelity process as FreeCell: reverse-engineer sol.exe and match XP pixel-for-pixel at 1x.
 
 ## 3. Spider HD, then Hearts HD

@@ -130,7 +130,7 @@ Art: exactly §2 (`tools/edit_card_svg.py`, called by `tools/make_assets.sh card
 regenerated masters are pixel-identical to the lab's rasterisation of the C art. The 52 PNGs total
 1,560,965 bytes (v1.1: 1,579,399).
 
-C: `fc_image_resample_card` / `fc_card_filter_*` in `src/gfx/image.c`; the card set keeps one
+C: `ce_image_resample_card` / `ce_card_filter_*` in `src/engine/image.c`; the card set keeps one
 `FcCardFilter` (LUTs and taps) per size. `proto/check.py shipped`: whole sprites within 1 LSB of the
 model for AS 8H JD KH TC QH KS at h72-320. `tests/test_image.c` checks golden values from the model
 (`proto/make_golden.py` → `tests/card_golden.h`) and a float reference of the spec. The Windows exe

@@ -3,15 +3,15 @@
 
   check.py runtime <runtime_card binary>     current pipeline vs the unchanged runtime C code
   check.py shipped <runtime_card binary>     the shipped masters through the runtime's
-                                              fc_image_resample_card vs candidate
+                                              ce_image_resample_card vs candidate
                                               'art+darkbias+sharpen+clamp' (candidates/shipped.json)
   check.py proto <resample_card binary> <masters dir>
                                               finalists art+darkbias / art+darkbias+sharpen vs the
                                               integer C prototype (masters = PNGs of the new art)
 
 Build (from the repo root):
-  cc -O2 -w -Isrc/gfx -Isrc/core -Ithird_party -o /tmp/runtime_card tools/crisplab/proto/runtime_card.c -lm
-  cc -O2 -w -Isrc/gfx -Isrc/core -Ithird_party -o /tmp/resample_card tools/crisplab/proto/resample_card.c -lm
+  cc -O2 -w -Isrc/engine -Isrc -Ithird_party -o /tmp/runtime_card tools/crisplab/proto/runtime_card.c -lm
+  cc -O2 -w -Isrc/engine -Isrc -Ithird_party -o /tmp/resample_card tools/crisplab/proto/resample_card.c -lm
 Prints the max abs difference per card and height (expected: <= 1).
 """
 import json
@@ -48,7 +48,7 @@ def main():
                 cands = json.loads((HERE.parent / 'candidates' / 'shipped.json').read_text())
                 cur, extra = [c for c in cands if c['name'] == 'art+darkbias+sharpen+clamp'][0], ['card']
             for c in CARDS:
-                png = cl.REPO / 'res' / 'cards' / (c + '.png')
+                png = cl.REPO / 'res' / 'common' / 'cards' / (c + '.png')
                 ship = np.asarray(Image.open(png).convert('RGBA'))
                 for h in HEIGHTS:
                     cw, ch = cl.card_size(h)

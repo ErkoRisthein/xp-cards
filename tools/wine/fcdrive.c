@@ -35,6 +35,7 @@ static struct {
     FcIpc *ipc;
     HHOOK hk_call, hk_msg;
     LONG log_seen;
+    int held;               /* hold: modifier keys set in the target thread */
 } T;
 
 static HANDLE launched[32];
@@ -536,6 +537,15 @@ static int c_capture_method(int argc, WCHAR **argv)
     return 0;
 }
 
+/* setenv <name> [value]: set (or, without a value, remove) an environment variable for the processes
+ * launched from now on. */
+static int c_setenv(int argc, WCHAR **argv)
+{
+    if (!SetEnvironmentVariableW(argv[1], argc > 2 ? argv[2] : NULL) && argc > 2)
+        return err(L"SetEnvironmentVariable(%ls) failed (%lu)", argv[1], GetLastError());
+    return 0;
+}
+
 static int c_launch_dir(int argc, WCHAR **argv)
 {
     if (argc < 2 || !wcscmp(argv[1], L"-")) launch_dir[0] = 0;
@@ -633,6 +643,36 @@ static int c_move_window(int argc, WCHAR **argv)
     return 0;
 }
 
+/* hold <shift|ctrl|alt>...: keep modifier keys down in the target thread's key state (GetKeyState sees
+ * them) for the mouse input that follows, until release. */
+static int c_hold(int argc, WCHAR **argv)
+{
+    int k = 2;
+    if (need_target() || ensure_hook()) return 1;
+    memset(T.ipc->arg, 0, sizeof T.ipc->arg);
+    T.ipc->arg[0] = 1;
+    for (int i = 1; i < argc; i++) {
+        if (!_wcsicmp(argv[i], L"shift")) { T.ipc->arg[k++] = VK_SHIFT; T.ipc->arg[k++] = VK_LSHIFT; }
+        else if (!_wcsicmp(argv[i], L"ctrl")) { T.ipc->arg[k++] = VK_CONTROL; T.ipc->arg[k++] = VK_LCONTROL; }
+        else if (!_wcsicmp(argv[i], L"alt")) T.ipc->arg[k++] = VK_MENU;
+        else return err(L"hold: unknown modifier '%ls' (shift, ctrl, alt)", argv[i]);
+        if (k > 7) return err(L"hold: too many keys");
+    }
+    if (hook_op(T.hwnd, FCOP_SETKEYS)) return 1;
+    T.held = 1;
+    return 0;
+}
+
+static int c_release(int argc, WCHAR **argv)
+{
+    if (need_target() || ensure_hook()) return 1;
+    if (!T.held) return 0;
+    sync_target(1);                         /* the held keys apply to everything posted before */
+    T.ipc->arg[0] = 0;
+    T.held = 0;
+    return hook_op(T.hwnd, FCOP_SETKEYS);
+}
+
 static int c_command(int argc, WCHAR **argv)
 {
     long id;
@@ -669,6 +709,47 @@ static int c_rdown(int argc, WCHAR **argv) { return post_mouse(L"r", argc, argv)
 static int c_rup(int argc, WCHAR **argv) { return post_mouse(L"R", argc, argv); }
 static int c_rclick(int argc, WCHAR **argv) { return post_mouse(L"rR", argc, argv); }
 static int c_move(int argc, WCHAR **argv) { return post_mouse(L"", argc, argv); }
+
+/* drag <x0> <y0> <x1> <y1> [steps]: button down at (x0, y0), `steps` mouse moves (default 8) along the
+ * straight line with the button held, the last one at (x1, y1), then the button up there; one sync at the
+ * end. The target sees exactly the messages a real drag sends (posted, so GetCursorPos does not follow). */
+static int c_drag(int argc, WCHAR **argv)
+{
+    long x0, y0, x1, y1, steps = 8;
+    if (want_int(argv[1], &x0, argv[0]) || want_int(argv[2], &y0, argv[0]) || want_int(argv[3], &x1, argv[0]) ||
+        want_int(argv[4], &y1, argv[0]) || (argc > 5 && want_int(argv[5], &steps, argv[0])) || need_target())
+        return 1;
+    if (steps < 1) steps = 1;
+    HWND h = T.hwnd;
+    LPARAM l = MAKELPARAM((WORD)(short)x0, (WORD)(short)y0);
+    PostMessageW(h, WM_MOUSEMOVE, buttons, l);
+    buttons |= MK_LBUTTON;
+    PostMessageW(h, WM_LBUTTONDOWN, buttons, l);
+    for (long i = 1; i <= steps; i++) {
+        long x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
+        PostMessageW(h, WM_MOUSEMOVE, buttons, MAKELPARAM((WORD)(short)x, (WORD)(short)y));
+    }
+    buttons &= ~MK_LBUTTON;
+    PostMessageW(h, WM_LBUTTONUP, buttons, MAKELPARAM((WORD)(short)x1, (WORD)(short)y1));
+    settle();
+    return 0;
+}
+
+/* sendmsg <msg> <wparam> <lparam>: SendMessage to the main window (numbers; 0x.. hex allowed), e.g. a
+ * WM_MENUSELECT as the menu loop would send it. Prints the result. */
+static int c_sendmsg(int argc, WCHAR **argv)
+{
+    long msg, wp, lp;
+    DWORD_PTR r = 0;
+    if (want_int(argv[1], &msg, argv[0]) || want_int(argv[2], &wp, argv[0]) || want_int(argv[3], &lp, argv[0]) ||
+        need_target())
+        return 1;
+    if (!SendMessageTimeoutW(T.hwnd, (UINT)msg, (WPARAM)(DWORD)wp, (LPARAM)lp, SMTO_NORMAL, (UINT)timeout_ms, &r))
+        return err(L"SendMessage(0x%lx) timed out", msg);
+    say(L"sendmsg 0x%lx -> %ld", msg, (long)r);
+    settle();
+    return 0;
+}
 
 /* Posted input never activates the window, so the system's WM_MOUSEACTIVATE is sent by hand. */
 static int c_mouse_activate(int argc, WCHAR **argv)
@@ -900,6 +981,34 @@ static int c_drawn_text(int argc, WCHAR **argv)
         say(L"  #%ld hwnd=%08lx %ls (%ld,%ld) \"%ls\"", e->seq, e->hwnd, e->nc ? L"nonclient" : L"client", e->x, e->y, t);
     }
     T.log_seen = end;
+    return 0;
+}
+
+/* window_text [substring]: repaint the main window and its children (e.g. a status bar) at once and
+ * print every string drawn while doing so (client area and children; off-screen drawing included). */
+static int c_window_text(int argc, WCHAR **argv)
+{
+    if (ensure_hook()) return 1;
+    sync_target(1);
+    LONG start = T.ipc->log_count;
+    if (hook_op(T.hwnd, FCOP_REDRAW)) return 1;
+    sync_target(1);
+    WCHAR all[2048] = L"";
+    LONG end = T.ipc->log_count;
+    if (end - start > FCIPC_LOG_N) start = end - FCIPC_LOG_N;
+    for (LONG i = start; i < end; i++) {
+        FcTextEntry *e = &T.ipc->log[i % FCIPC_LOG_N];
+        if (e->nc || !e->text[0]) continue;
+        if (all[0]) wcsncat(all, L" | ", 2040 - wcslen(all));
+        wcsncat(all, e->text, 2040 - wcslen(all));
+    }
+    T.log_seen = end;
+    if (argc > 1) {
+        if (!wcsstr(all, argv[1])) return err(L"window text \"%ls\" does not contain \"%ls\"", all, argv[1]);
+        say(L"ok: window_text \"%ls\"", all);
+        return 0;
+    }
+    say(L"window_text: \"%ls\"", all);
     return 0;
 }
 
@@ -1158,6 +1267,7 @@ static const struct cmd {
     const WCHAR *help;
 } cmds[] = {
     {L"launch", 1, 30, c_launch, L"<exe> [args...]  start a process (cwd = exe dir) and wait for its window"},
+    {L"setenv", 1, 2, c_setenv, L"<name> [value]  environment of later launches (no value: remove it)"},
     {L"launch_dir", 0, 1, c_launch_dir, L"[dir|-]  working directory for later launches (- = exe dir)"},
     {L"wait", 1, 1, c_wait, L"<ms>  sleep"},
     {L"sync", 0, 0, c_sync, L"wait until the target has processed all posted input"},
@@ -1182,6 +1292,10 @@ static const struct cmd {
     {L"rclick_down", 2, 2, c_rdown, L"<x> <y>  right button down"},
     {L"rclick_up", 2, 2, c_rup, L"<x> <y>  right button up"},
     {L"move", 2, 2, c_move, L"<x> <y>  mouse move (with the buttons currently held)"},
+    {L"drag", 4, 5, c_drag, L"<x0> <y0> <x1> <y1> [steps]  left button down, moves (default 8) with it held, up"},
+    {L"hold", 1, 3, c_hold, L"<shift|ctrl|alt>...  keep modifier keys down for the input that follows"},
+    {L"release", 0, 0, c_release, L"let go of the keys of hold"},
+    {L"sendmsg", 3, 3, c_sendmsg, L"<msg> <wparam> <lparam>  SendMessage to the main window (e.g. 0x11F WM_MENUSELECT)"},
     {L"mouse_activate", 2, 2, c_mouse_activate, L"<hittest> <mouse msg>  send WM_MOUSEACTIVATE (e.g. 1 516 = HTCLIENT, WM_RBUTTONDOWN)"},
     {L"key", 1, 1, c_key, L"<chars>  post WM_CHAR for each character to the focus window"},
     {L"vkey", 1, 4, c_vkey, L"<code|F1..F24|ESC|ENTER|..> [shift] [ctrl] [alt]  key down + up"},
@@ -1196,6 +1310,8 @@ static const struct cmd {
     {L"assert_menu", 2, 2, c_menu_state, L"<id> enabled|grayed|checked|unchecked"},
     {L"menubar_text", 0, 0, c_menubar_text, L"print text the app draws into its menu bar (e.g. Cards Left)"},
     {L"assert_menubar_text", 1, 1, c_menubar_text, L"<substring>"},
+    {L"window_text", 0, 0, c_window_text, L"repaint the window and its children, print the strings drawn"},
+    {L"assert_window_text", 1, 1, c_window_text, L"<substring>  (e.g. a status bar text)"},
     {L"drawn_text", 0, 0, c_drawn_text, L"print strings drawn by the app (TextOut/ExtTextOut/DrawText) since last call"},
     {L"wait_dialog", 0, 2, c_wait_dialog, L"[title|*] [ms]  wait for a dialog / message box"},
     {L"assert_no_dialog", 0, 0, c_no_dialog, L"fail if a dialog stays open (waits up to timeout)"},

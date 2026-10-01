@@ -42,12 +42,12 @@ The commands are listed below (`fcdrive.exe -h` has the full list with arguments
 
 | Group | Commands |
 |---|---|
-| process | `launch <exe> [args]` (cwd = exe dir, or `launch_dir`), `close [Yes\|No\|<button>\|none]`, `kill`, `wait_exit [ms]`, `assert_running` |
+| process | `launch <exe> [args]` (cwd = exe dir, or `launch_dir`), `setenv <name> [value]` (the environment of later launches), `close [Yes\|No\|<button>\|none]`, `kill`, `wait_exit [ms]`, `assert_running` |
 | timing | `wait <ms>`, `sync`, `timeout <ms>` (default 10000), `settle <ms>` (delay after each input, default 100) |
 | window | `info`, `title`, `assert_title <t>`, `maximize`, `minimize`, `restore`, `resize_client <w> <h>`, `move_window <x> <y>`, `assert_client_size <w> <h>` |
-| input | `command <id>`, `click`, `dblclick`, `ldown`, `lup`, `move`, `rclick`, `rclick_down`, `rclick_up` (all `<x> <y>`), `key <chars>`, `vkey <F5\|ESC\|ENTER\|code> [shift] [ctrl] [alt]`, `mouse_activate <hittest> <mouse msg>` (sends `WM_MOUSEACTIVATE`, which posted input never causes) |
+| input | `command <id>`, `click`, `dblclick`, `ldown`, `lup`, `move`, `rclick`, `rclick_down`, `rclick_up` (all `<x> <y>`), `key <chars>`, `vkey <F5\|ESC\|ENTER\|code> [shift] [ctrl] [alt]` (a number is a VK code: the "2" key is `vkey 50`), `drag <x0> <y0> <x1> <y1> [steps]` (button down, `steps` moves with it held, button up), `hold <shift\|ctrl\|alt>...` / `release` (modifier keys held for the mouse input in between), `mouse_activate <hittest> <mouse msg>` (sends `WM_MOUSEACTIVATE`, which posted input never causes), `sendmsg <msg> <wparam> <lparam>` (SendMessage to the main window, e.g. a `WM_MENUSELECT`) |
 | look | `capture <f.bmp>`, `capture_window <f.bmp>`, `capture_dialog <f.bmp>`, `capture_method dc\|print`, `pixel <x> <y>`, `assert_pixel <x> <y> <RRGGBB> [tol]`, `wait_pixel <x> <y> <RRGGBB> [tol] [ms]` (polls until it matches, e.g. a flashing card) |
-| menu | `menu_state <id>`, `assert_menu <id> enabled\|grayed\|checked\|unchecked`, `menubar_text`, `assert_menubar_text <s>`, `drawn_text` |
+| menu | `menu_state <id>`, `assert_menu <id> enabled\|grayed\|checked\|unchecked`, `menubar_text`, `assert_menubar_text <s>`, `drawn_text`, `window_text`, `assert_window_text <s>` |
 | dialogs | `wait_dialog [title] [ms]`, `dialog_text`, `assert_dialog_text <s>`, `dialog_click <id\|caption>`, `dialog_set_text <id> <text>`, `dialog_check <id> <0\|1>`, `assert_no_dialog` |
 | registry | `regdump <key>`, `regset <key> <name> dword\|bin32\|binary\|sz <data>`, `regdel <key> [name]`, `assert_reg <key> <name> <value\|absent>` |
 | misc | `echo <text>`, `fail [msg]` |
@@ -64,7 +64,9 @@ The commands are listed below (`fcdrive.exe -h` has the full list with arguments
   `DrawText` (A/W) and logs every string the application draws. `menubar_text` forces a full redraw,
   including the frame, and prints the strings that were drawn above the client area through a window DC. That
   is how XP FreeCell paints "Cards Left: N". If the app draws nothing there, the command prints a note and
-  succeeds. `drawn_text` prints the whole log.
+  succeeds. `drawn_text` prints the whole log. `window_text` repaints the window and its children (e.g.
+  Solitaire's status bar, drawn off screen) and prints the strings drawn in the client areas; with
+  `assert_window_text` one of them must contain the given text.
 
 ## How it works, and the lessons from the research helpers
 

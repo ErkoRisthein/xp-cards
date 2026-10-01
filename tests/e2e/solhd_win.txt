@@ -1,0 +1,85 @@
+# Solitaire HD end to end: the win. Alt+Shift+2 (XP's "force a win") plays the bouncing-cards cascade
+# over the board (the status bar: "Bonus: <n>  Press Esc or a mouse button to stop..." in Standard,
+# without the bonus in Vegas), any key or mouse button stops it, the table is erased and "Deal Again?"
+# asks; No leaves an empty, frozen table until Deal, Yes deals.  At 1264 x 854 and at full HD.
+# Run by tests/e2e/run_solhd_e2e.sh.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 120
+resize_client 1264 854
+click 600 700                                 # a press on the table starts the clock
+vkey 50 shift alt                             # Alt+Shift+2 (VK 0x32 = the "2" key)
+wait 1500
+assert_window_text "Bonus: 0  Press Esc or a mouse button to stop..."   # (no bonus under 30 s)
+capture 40_cascade_1s.bmp
+wait 2500
+capture 41_cascade_4s.bmp
+capture_window 41_cascade_4s_window.bmp
+assert_menu 1001 grayed
+vkey ESC                                      # any key stops it
+wait_dialog Solitaire
+assert_dialog_text "Deal Again?"
+capture 42_table_erased.bmp
+assert_pixel 108 114 008000                   # the table is erased
+assert_pixel 600 400 008000
+capture_dialog 43_deal_again.bmp
+dialog_click No
+assert_no_dialog
+assert_pixel 108 114 008000                   # No: an empty table ...
+assert_window_text "Score: "                  # ... the status bar keeps the score
+click 108 114                                 # ... and nothing reacts but Deal
+rclick 600 400
+command 1010
+assert_no_dialog
+assert_pixel 108 114 008000
+assert_menu 1001 grayed
+vkey F2
+assert_pixel 24 120 000000                    # dealt (the stock)
+
+# ---- a mouse button stops it; Yes deals ----------------------------------------------------------------
+vkey 50 shift alt
+wait 1000
+click 600 600
+wait_dialog Solitaire
+dialog_click Yes
+assert_no_dialog
+assert_pixel 24 120 000000
+assert_window_text "0 "
+
+# ---- Vegas: no bonus; the right button stops it ---------------------------------------------------------
+close
+regset HKCU\Software\Microsoft\Solitaire Options dword 0x1B
+launch ${REPO}/build/SolitaireHD.exe
+vkey 50 shift alt
+wait 800
+assert_window_text "Press Esc or a mouse button to stop..."
+window_text
+capture 44_vegas_cascade.bmp
+rclick 300 300
+wait_dialog Solitaire
+dialog_click No
+assert_no_dialog
+assert_window_text "-$52 "                    # a forced win credits no cards (XP)
+
+# ---- full HD -----------------------------------------------------------------------------------------------
+close
+regdel HKCU\Software\Microsoft\Solitaire Options
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 40
+resize_client 1904 996
+vkey 50 shift alt
+wait 2000
+capture 45_cascade_1904x996_2s.bmp
+wait 4000
+capture 46_cascade_1904x996_6s.bmp
+vkey A
+wait_dialog Solitaire
+dialog_click Yes
+assert_no_dialog
+assert_pixel 72 400 000000                    # deal 65 (5S in col 1)
+close

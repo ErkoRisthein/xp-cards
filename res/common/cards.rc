@@ -1,0 +1,19 @@
+/*
+ * The 52 card faces as RCDATA resources, shared by every game: #include "cards.rc" from a game's
+ * resource script, compiled with -I res/common. Ids are the engine's asset ids (src/engine/cardset.h):
+ * CE_ASSET_CARD0 (1000) + rank*4 + suit, rank A..K = 0..12, suit C D H S = 0..3. The PNGs are
+ * 400x560 RGBA masters rendered from res/common/cards-svg (tools/make_assets.sh, res/LICENSE-ART.md).
+ */
+1000 RCDATA "cards/AC.png"  1001 RCDATA "cards/AD.png"  1002 RCDATA "cards/AH.png"  1003 RCDATA "cards/AS.png"
+1004 RCDATA "cards/2C.png"  1005 RCDATA "cards/2D.png"  1006 RCDATA "cards/2H.png"  1007 RCDATA "cards/2S.png"
+1008 RCDATA "cards/3C.png"  1009 RCDATA "cards/3D.png"  1010 RCDATA "cards/3H.png"  1011 RCDATA "cards/3S.png"
+1012 RCDATA "cards/4C.png"  1013 RCDATA "cards/4D.png"  1014 RCDATA "cards/4H.png"  1015 RCDATA "cards/4S.png"
+1016 RCDATA "cards/5C.png"  1017 RCDATA "cards/5D.png"  1018 RCDATA "cards/5H.png"  1019 RCDATA "cards/5S.png"
+1020 RCDATA "cards/6C.png"  1021 RCDATA "cards/6D.png"  1022 RCDATA "cards/6H.png"  1023 RCDATA "cards/6S.png"
+1024 RCDATA "cards/7C.png"  1025 RCDATA "cards/7D.png"  1026 RCDATA "cards/7H.png"  1027 RCDATA "cards/7S.png"
+1028 RCDATA "cards/8C.png"  1029 RCDATA "cards/8D.png"  1030 RCDATA "cards/8H.png"  1031 RCDATA "cards/8S.png"
+1032 RCDATA "cards/9C.png"  1033 RCDATA "cards/9D.png"  1034 RCDATA "cards/9H.png"  1035 RCDATA "cards/9S.png"
+1036 RCDATA "cards/TC.png"  1037 RCDATA "cards/TD.png"  1038 RCDATA "cards/TH.png"  1039 RCDATA "cards/TS.png"
+1040 RCDATA "cards/JC.png"  1041 RCDATA "cards/JD.png"  1042 RCDATA "cards/JH.png"  1043 RCDATA "cards/JS.png"
+1044 RCDATA "cards/QC.png"  1045 RCDATA "cards/QD.png"  1046 RCDATA "cards/QH.png"  1047 RCDATA "cards/QS.png"
+1048 RCDATA "cards/KC.png"  1049 RCDATA "cards/KD.png"  1050 RCDATA "cards/KH.png"  1051 RCDATA "cards/KS.png"

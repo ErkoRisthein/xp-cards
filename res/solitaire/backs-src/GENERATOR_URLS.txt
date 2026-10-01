@@ -1,0 +1,48 @@
+Solitaire HD card backs: provenance (CC0 1.0, like the card faces; see res/LICENSE-ART.md)
+
+Source: "SVG playing cards" by Adrian Kennard (RevK), https://www.me.uk/cards/ (https://cards.revk.uk),
+the same generator and licence as res/common/cards-svg. Each back is the 2B.svg ("red" back, the
+redcolour pattern on backcolour) of one generator request, fetched 2026-10-01 and kept unmodified
+here as <XP back id>_<name>.svg. The common query string is the faces' (res/common/cards-src/
+GENERATOR_URL.txt) plus the back design and its two colours:
+
+https://www.me.uk/cards/makeadeck.cgi?size=poker&ace=Fancy&ace1=&ace2=&qr=&value=0&super=1&pip=1&wider=on&zip=Download&back=<Design>&redcolour=%23<pattern>&backcolour=%23<background>
+
+id  file             Design    pattern  background  replaces XP's back (cards.dll id)
+54  54_sky.svg       Diamond   3a78e8   ffffff     sky, clouds
+55  55_aqua.svg      Illusion  0a9fb0   d8fbff     aqua glass
+56  56_fish.svg      Goodall   ff8800   2a6fd6     tropical fish
+57  57_frog.svg      Maze      2e9e2e   ff7a1a     frog
+58  58_rose.svg      Diamond   d0102a   ffffff     red swirl
+59  59_island.svg    Goodall   f4e4a0   20b8c8     palm island
+60  60_mosaic.svg    Illusion  2f7fd0   a8d8f0     blue mosaic
+61  61_orchid.svg    Diamond   a0209a   fbe6fb     purple lights
+62  62_night.svg     Maze      e08a3a   10204a     desert, moon
+63  63_space.svg     Arrows    ffffff   0b1030     astronaut
+64  64_sunset.svg    Goodall   ff5a00   ffc040     orange stripes
+65  65_racing.svg    Illusion  128a12   fff3a0     race cars
+
+Notes:
+- Goodall (56, 59, 64) ignores redcolour: the ornament is always black; Arrows (63) ignores both colours
+  of its marks (multicolour). Maze (57, 62) and Arrows are drawn at random by the generator, so the
+  same URL returns a different maze / scatter each time: the files here are the ones it returned.
+- The XP id is cards.dll's back id: the registry's Back value is id - 53, the engine's back index id - 54
+  (asset id 1200 + index, res/solitaire/solitaire.rc).
+- Rasterised to res/solitaire/backs/<id>_<name>.png (400x560) by make_backs.py (tools/make_assets.sh
+  backs), after an edit of ours (CC0 as well): the pattern block of Diamond, Illusion and Maze scaled to a
+  5-unit inset so its colour reaches the 3-D pile edges, the Diamond lattice drawn at twice its period
+  (moire at small sizes), and the edge band made opaque.
+
+SHA-256 of the SVGs as shipped:
+591205f7eac94eb6bb119ba5dcc6fb120996a816966cccedb2cd6afaa683d7db  54_sky.svg
+d290d88cdabc6fb50fbf9b166fab6024b41caf13ab7d6cf8d961576dfd94858b  55_aqua.svg
+bdf3528a964e718cbf82016845a9eb68d0e936b10f82ed26db3a995ba4d0eeff  56_fish.svg
+bbd71bce300e01b0a04441cae8a0b135391f690b5b59d5a8c9e00ba265a6848f  57_frog.svg
+3c0f9e5bfbd64e0101eb6191d86594bf3e4a7bcd1546dd1da641cec94f23461f  58_rose.svg
+fd88078038ab68a1bf8acf458ae9a5b5a010bac44d14dbe9647e538243c116c2  59_island.svg
+60115d0c56c36d6baf9f622b7f836b3cfb1110257f2cff79cbb01f38b4d3ae31  60_mosaic.svg
+a521b428fb23fc13ac6ca679bf7d70d062c77a9ef675035fb456f94429fb44f1  61_orchid.svg
+e371f86565fa98b335c17b8eebb5ece241df1322469e840d3fb3d306e81fa700  62_night.svg
+e557ffbf073162a4ec528b7840c9b6014d78d6b5d20e161336c2d531346d291d  63_space.svg
+0cb4a70106ae94f34e4d2e6efe13a8f6c3701fd8bbd816c6559d897893c3f57d  64_sunset.svg
+cbf20c46a163a53e32147055f3d544507ca236b0da0b0c7ef1e6f010089275c3  65_racing.svg

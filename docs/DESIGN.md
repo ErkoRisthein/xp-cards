@@ -2,7 +2,7 @@
 
 A from-scratch re-implementation of Windows XP FreeCell whose window is freely resizable, with cards
 that scale with it (crisp at native 1920x1080), running on Windows XP SP2/SP3 (32-bit), built on macOS
-with mingw-w64.
+with mingw-w64. It is built on the card-game engine it shares with Solitaire HD (`docs/ENGINE.md`).
 
 Reference material (reverse-engineered from the XP binaries in this repo):
 
@@ -43,35 +43,46 @@ Reference material (reverse-engineered from the XP binaries in this repo):
 * CPU: P6 class or later (Pentium Pro/II, Athlon/Duron, VIA C3 Nehemiah): the code uses CMOV and FCOMI,
   and so does mingw-w64's prebuilt i686 runtime (gdtoa, printf), so `-march=i586` alone would not make
   the exe run on a Pentium MMX, K6 or early C3. No SSE (`STBI_NO_SIMD`; Athlon Thunderbird/Duron work).
-* x87 is slow, so hot loops in `src/gfx` are integer: floating point (the anti-aliased card shape,
-  bevel rings, the master edge test) runs once per size or on a few pixels per row, not per pixel per
-  card.
+* x87 is slow, so hot loops in `src/engine` (and the games' renderers) are integer: floating point
+  (the anti-aliased card shape, bevel rings, the master edge test) runs once per size or on a few
+  pixels per row, not per pixel per card.
 * Every imported function must exist on Windows XP SP2 — checked by `tools/xp_imports_check.py`.
-* Portable core: everything in `src/core` and `src/gfx` is plain C with no Windows headers, so it is
-  unit-tested natively on macOS (`make test`) and renders snapshot PNGs (`make snapshots`).
-* Output: `build/FreeCellHD.exe` — a single self-contained exe (art embedded as RCDATA PNGs).
+* Portable core: everything in `src/engine` and `src/freecell` (outside their `win32/` directories) is
+  plain C with no Windows headers, so it is unit-tested natively on macOS (`make test`) and renders
+  snapshot PNGs (`make snapshots`).
+* Output: `build/FreeCellHD.exe` — a single self-contained exe (art embedded as RCDATA PNGs). `make`
+  also builds `build/SolitaireHD.exe` from the same engine.
 
 ## Source layout
 
+The engine (`src/engine`, `src/engine/win32`, `res/common`) is described in `docs/ENGINE.md`: images,
+the card set, clipped drawing, persistence interfaces, and the Win32 shell pieces (back buffer,
+animation clock, menu-bar text, placement and full screen, registry, dialogs, help, worker thread).
+FreeCell HD's own code:
+
 ```
-src/core/game.{h,c}      rules primitives: deal, predicates, capacity, move planning, autoplay, no-moves
-src/core/session.{h,c}   XP controller/state machine (selection, clicks, keyboard, undo history,
-                         new/select/restart flow, win/lose, stats bookkeeping) — platform-independent,
-                         talks to the UI through a callback table
-src/core/stats.{h,c}     statistics/options model + XP percentage/streak math (storage via callbacks)
-src/core/solver.{h,c}    solver for Hint / "no longer winnable" / auto-finish (ROADMAP 1b): session
-                         actions, weighted best-first search, sure-win test
-src/core/assist.{h,c}    v1.2 state machines on the solver: Hint, the unwinnable warning, the solution
-                         cache (Finish itself is a session action in session.c)
-src/gfx/image.{h,c}      premultiplied BGRA images, PNG decode (stb_image), HQ resampling, compositing
-src/gfx/cardset.{h,c}    card/king sprites at the current size (lazy HQ rescale, outline, inversion)
-src/gfx/layout.{h,c}     scalable geometry + hit testing
-src/gfx/render.{h,c}     draws the board into an image (used by Win32 and by native snapshot tests)
-src/win32/*.c            WinMain, window proc, menus, dialogs, registry, cursors, animation, help, the
-                         solver's worker thread (solve.c)
-res/                     .rc, resource.h, manifest, icon, cursor, card PNGs, king PNGs
-tests/                   native unit tests + snapshot renderer
-tools/                   XP import checker, Wine end-to-end driver
+src/freecell/game.{h,c}      rules primitives: deal, predicates, capacity, move planning, autoplay,
+                             no-moves
+src/freecell/session.{h,c}   XP controller/state machine (selection, clicks, keyboard, undo history,
+                             new/select/restart flow, win/lose, stats bookkeeping) — platform-
+                             independent, talks to the UI through a callback table
+src/freecell/stats.{h,c}     statistics/options model + XP percentage/streak math (storage: CeStore)
+src/freecell/wondeals.{h,c}  the won-deals set and its file format (I/O: engine CeBlobIO)
+src/freecell/solver.{h,c}    solver for Hint / "no longer winnable" / auto-finish (ROADMAP 1b): session
+                             actions, weighted best-first search, sure-win test
+src/freecell/assist.{h,c}    v1.2 state machines on the solver: Hint, the unwinnable warning, the solution
+                             cache (Finish itself is a session action in session.c)
+src/freecell/sprites.{h,c}   FcCardSet: the engine card set (faces) plus the three kings
+src/freecell/layout.{h,c}    scalable geometry + hit testing
+src/freecell/render.{h,c}    draws the board into an image through the engine's CeDraw (used by Win32
+                             and by native snapshot tests)
+src/freecell/win32/*.c       WinMain, window proc, view (incremental rendering, flights, cursors,
+                             "Cards Left"), dialogs, storage keys, help text, the solver's worker job
+res/freecell/                .rc, resource.h, manifest, icon, cursor, king PNGs (+ sources, icon tools);
+                             the card PNGs are res/common/cards (res/common/cards.rc)
+tests/freecell/              native unit tests + snapshot renderer + solver benchmark
+tests/e2e/fchd_*.txt         Wine end-to-end scenarios
+tools/                       XP import checker, Wine end-to-end driver, asset scripts, crispness lab
 ```
 
 ## Input model
@@ -87,7 +98,7 @@ a run. Drag-and-drop is planned as an optional mode once Solitaire builds the dr
 
 Identical to XP (rules.md §0): `card = rank*4 + suit`, rank 0=A..12=K, suit 0=♣ 1=♦ 2=♥ 3=♠,
 -1 = empty. `board[0][0..3]` free cells, `board[0][4..7]` home cells (top card only), `board[1..8][i]`
-tableau columns (index 0 = furthest from the player). See `src/core/game.h`.
+tableau columns (index 0 = furthest from the player). See `src/freecell/game.h`.
 
 ## Layout (scaling)
 
@@ -139,17 +150,17 @@ of the dark bias alone, the art change alone and v1.1.
   the 1300x2000 court art) 1.6x wider and dark navy `#223`, and the court picture frame `#223` at
   1.5 units: the original sub-pixel light-blue lines washed the courts out to pastel even at 1080p.
   Blue *fills* stay.
-* **Resampling** (card masters at best quality, `fc_image_resample_card` in `src/gfx/image.c`): with
+* **Resampling** (card masters at best quality, `ce_image_resample_card` in `src/engine/image.c`): with
   `f = 560 / ch` and `t = clamp((f - 2) / 2, 0, 1)` (full strength at ch ≤ 140, 0.75 at h160, 0 from
   h280), the exact-area box filter runs on `v^g` with `g = 1 - 0.4 t` (a dark bias, "stem
   darkening": thin dark strokes keep their weight), then a 3-tap sharpen `[-a/4, 1 + a/2, -a/4]` with
   `a = 0.2 t` along x then y, **each sample clamped to the [min, max] of the three it came from** (no
   overshoot: removes the stray near-white/cyan halo pixels the plain sharpen left in the court art),
   then back with `v^(1/g)`. Flat colours are unchanged exactly (white stays 255, table and frame are
-  drawn separately), the card shape and frame still come from `fc_image_card_finish`. `t < 0.1`
+  drawn separately), the card shape and frame still come from `ce_image_card_finish`. `t < 0.1`
   counts as 0, so from h255 up (1080p maximised is h257) the v1.1 box code runs, bit for bit.
   Integer inner loops: 16-bit power-space LUTs (`pow()` runs 4352 times per *size change*, in
-  `fc_card_filter_new`), 16.16 box weights, 4.12 sharpen weights, a 3-row ring for the y pass. Only
+  `ce_card_filter_new`), 16.16 box weights, 4.12 sharpen weights, a 3-row ring for the y pass. Only
   opaque sources take this path (the cleaned masters are); kings, the half-size mips and the
   live-resize bilinear path (quality 0) are unchanged.
 * Rejected: Lanczos-3 + a light unsharp mask (the plan before the lab): 3.8-5.4x the taps of the box,
@@ -161,7 +172,7 @@ of the dark bias alone, the art change alone and v1.1.
 
 ## Solver
 
-`src/core/solver.{h,c}` (v1.2; used by Hint, the warning and Finish, below). Platform independent,
+`src/freecell/solver.{h,c}` (v1.2; used by Hint, the warning and Finish, below). Platform independent,
 integer only, no globals.
 
 * **Moves are session actions.** A solver move is one click pair as `fcs_click` plays it: the user's
@@ -196,7 +207,7 @@ deals within ~0.2 s, 99.97% within ~1 s, and gives up after ~2 s.
 
 ## Hint, warning and Finish (v1.2)
 
-The state machines are platform independent (`src/core/assist.c`, Finish in `session.c`) and unit
+The state machines are platform independent (`src/freecell/assist.c`, Finish in `session.c`) and unit
 tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thread and the drawing.
 
 * **One background search at a time, for the current position.** The session asks the UI to solve a
@@ -231,13 +242,13 @@ tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thr
   counted as a move (like autoplay). It comes before XP's no-moves check (a sure win always has a move),
   so a position with one legal move left does not start the "one move left" window flash just before
   the win; with the cheat's "lose" armed the move still loses.
-* **Win32** (`src/win32/solve.c`): one worker thread (CreateThread on first use,
-  THREAD_PRIORITY_BELOW_NORMAL so the UI and card flights come first on a single core) owns the solver
-  (fc_solver_new once, 8.7 MiB). A request replaces a job not yet started and sets the running job's
-  cancel flag; the job holds its own board copy and only posts its result back (WM_APP_SOLVED). The
-  result is handed to the session only when no session call is running and no modal dialog is up (a
-  modal loop dispatches posted messages); until then it is held and retried after the next input or
-  when the dialog closes. WM_DESTROY cancels and joins the thread.
+* **Win32** (`src/freecell/win32/solve.c` on the engine's `CeWorker`): one worker thread (CreateThread
+  on first use, THREAD_PRIORITY_BELOW_NORMAL so the UI and card flights come first on a single core)
+  owns the solver (fc_solver_new once, 8.7 MiB). A request replaces a job not yet started and sets the
+  running job's cancel flag; the job holds its own board copy and only posts its result back
+  (WM_APP_SOLVED). The result is handed to the session only when no session call is running and no modal
+  dialog is up (a modal loop dispatches posted messages); until then it is held and retried after the
+  next input or when the dialog closes. WM_DESTROY cancels and joins the thread.
 * Measured (the exe under Wine on the M3): game #1's hint in 1 ms (1062 positions); #11982 proven
   unwinnable in 116 ms (61643 positions; natively 92 ms, 1.5 us per position as the larger table misses
   the cache). At the solver section's 20x the Athlon XP needs about 2 s for that proof, in the
@@ -252,6 +263,9 @@ tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thr
 * Window placement (extra): `HKCU\Software\xp-cards\FreeCell HD`, value `WindowPlacement`
   (REG_BINARY WINDOWPLACEMENT). First run: centred, sized to ~75% of the work area height with the
   board's aspect.
+* The registry keys and the won-deals file are reached through the engine (`engine/win32/regstore.h`:
+  a `CeRegStore` per key, REG_BINARY for XP's key and REG_DWORD for ours; `CeAppFile` for the file);
+  `src/freecell/win32/storage.c` names them.
 * The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
   `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2).
 
@@ -270,31 +284,36 @@ Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
 
 ## Testing
 
-* `make test` — native unit tests of core + layout (deals vs Rosetta Code, capacity, run length,
-  autoplay, no-moves, undo, stats math, session flows incl. messages on/off, MoveCol dialog choices,
-  keyboard, cheat; random-playout invariants), and of the image code: the card resampler against a
-  float reference and against golden values from the crispness lab's model (`tests/card_golden.h`,
-  regenerated by `tools/crisplab/proto/make_golden.py` when the masters or the resampler change).
-* `make test` also runs `tests/test_solver.c`: 300 deals (XP rule) and 100 (standard rule) solved and
-  replayed through `fcs_click` with scripted MoveCol answers to a win; the solver's move set compared
-  with every click pair the session accepts from 160 positions; deal 11982 and constructed dead
+* `make test` — native unit tests of the engine (`tests/engine/`: images, the card set incl. backs,
+  clipped drawing, the store helpers) and of FreeCell (`tests/freecell/`): core + layout (deals vs
+  Rosetta Code, capacity, run length, autoplay, no-moves, undo, stats math, session flows incl. messages
+  on/off, MoveCol dialog choices, keyboard, cheat; random-playout invariants), and of the image code:
+  the card resampler against a float reference and against golden values from the crispness lab's model
+  (`tests/card_golden.h`, regenerated by `tools/crisplab/proto/make_golden.py` when the masters or the
+  resampler change).
+* `make test` also runs `tests/freecell/test_solver.c`: 300 deals (XP rule) and 100 (standard rule)
+  solved and replayed through `fcs_click` with scripted MoveCol answers to a win; the solver's move set
+  compared with every click pair the session accepts from 160 positions; deal 11982 and constructed dead
   positions proven unsolvable and cross-checked by independent exhaustive searches (one using the
   session itself as the move oracle); mid-game solves; sure win; budget, cancel, determinism.
 * `make solver-bench` — the full 1..32000 sweep (BENCH_ARGS, e.g. `"1 1000 -std -n 50000 -v"`), every
   solution replayed through the session.
-* `make test` runs `tests/test_assist.c` too: the v1.2 state machines with a fake UI and a synchronous
-  solver stub (requests are answered by the real solver, or with a scripted status, as the worker's
-  posted message would): hint request, wait cursor, the eight flash steps and their cells, following
-  hints to a win on one search, the cache across Restart, cancel by input / new game, the 5-s limit,
-  gave up / cancelled / no solver, answers while busy or stale; the warning once, derived without a
-  search, re-armed through Undo, again after Redo, the unwinnable deal, rule changes; Finish grayed
+* `make test` runs `tests/freecell/test_assist.c` too: the v1.2 state machines with a fake UI and a
+  synchronous solver stub (requests are answered by the real solver, or with a scripted status, as the
+  worker's posted message would): hint request, wait cursor, the eight flash steps and their cells,
+  following hints to a win on one search, the cache across Restart, cancel by input / new game, the 5-s
+  limit, gave up / cancelled / no solver, answers while busy or stale; the warning once, derived without
+  a search, re-armed through Undo, again after Redo, the unwinnable deal, rule changes; Finish grayed
   until the sure win of #31364 (the solver's line), one counted action of single-card flights, Finish
-  automatically (not counted), the registry values. `tests/test_layout.c` checks the hint drawing
-  (a card as a selection, both cancel out, runs, empty cells and columns, clipped renders).
+  automatically (not counted), the registry values. `tests/freecell/test_layout.c` checks the hint
+  drawing (a card as a selection, both cancel out, runs, empty cells and columns, clipped renders).
 * `tests/e2e/fchd_v12.txt` (Wine): the hint on game #1 captured mid-flash (source, then destination,
   polled with the driver's `wait_pixel`), the next hint after following it, the warning, the unwinnable
   deal, Finish by hand and automatically on #31364 via the solver's embedded click line, the options'
   registry values across a restart.
 * `make snapshots` — native renders of the board to PNG at several window sizes/states for review.
-* `make xpcheck` — verifies every import of the exe exists on Windows XP SP2.
+* `make xpcheck` — verifies every import of the exes exists on Windows XP SP2.
 * `tools/wine/` — end-to-end driver run under Wine (launch, click, capture the client area).
+* `make e2e` runs `tests/e2e/fchd_*.txt` (`make e2e-freecell`) and Solitaire HD's `tests/e2e/solhd_*.txt`
+  (`make e2e-solitaire`: mouse and keyboard play, the stock and Vegas, the dialogs and the registry, the
+  window, the win cascade).

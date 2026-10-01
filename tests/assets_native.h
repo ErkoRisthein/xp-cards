@@ -1,6 +1,7 @@
 /*
- * FreeCell HD — native asset loader for tests and snapshots (header-only): serves the card set's
- * asset ids from res/cards/<R><S>.png and res/king/king_{right,left,smile}.png.
+ * Native asset loader for tests and snapshots (header-only): serves the engine's card faces
+ * (CE_ASSET_CARD0 + c) from <res>/common/cards/<R><S>.png and FreeCell's kings (FC_ASSET_KING_*) from
+ * <res>/freecell/king/king_{right,left,smile}.png, as the exes' RCDATA resources do.
  */
 #ifndef FC_ASSETS_NATIVE_H
 #define FC_ASSETS_NATIVE_H
@@ -8,7 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "gfx/cardset.h"
+#include "engine/cardset.h"
 
 typedef struct FcNativeAssets {
     char   dir[512];
@@ -52,7 +53,7 @@ static void *fc_native_read_file(const char *path, size_t *len)
     return p;
 }
 
-/* FcAssetLoader; ctx = FcNativeAssets*. Missing files return NULL. */
+/* CeAssetLoader; ctx = FcNativeAssets*. Missing files and other ids return NULL. */
 static const void *fc_native_asset_loader(int id, size_t *len, void *ctx)
 {
     static const char ranks[] = "A23456789TJQK", suits[] = "CDHS";
@@ -60,13 +61,13 @@ static const void *fc_native_asset_loader(int id, size_t *len, void *ctx)
     FcNativeAssets *a = (FcNativeAssets *)ctx;
     char path[600];
     int slot;
-    if (id >= FC_ASSET_CARD0 && id < FC_ASSET_CARD0 + 52) {
-        int c = id - FC_ASSET_CARD0;
+    if (id >= CE_ASSET_CARD0 && id < CE_ASSET_CARD0 + 52) {
+        int c = id - CE_ASSET_CARD0;
         slot = c;
-        snprintf(path, sizeof path, "%s/cards/%c%c.png", a->dir, ranks[c >> 2], suits[c & 3]);
-    } else if (id >= FC_ASSET_KING_RIGHT && id <= FC_ASSET_KING_SMILE) {
-        slot = 52 + id - FC_ASSET_KING_RIGHT;
-        snprintf(path, sizeof path, "%s/king/%s.png", a->dir, kings[id - FC_ASSET_KING_RIGHT]);
+        snprintf(path, sizeof path, "%s/common/cards/%c%c.png", a->dir, ranks[c >> 2], suits[c & 3]);
+    } else if (id >= CE_ASSET_GAME0 && id <= CE_ASSET_GAME0 + 2) {     /* FreeCell's FC_ASSET_KING_* */
+        slot = 52 + id - CE_ASSET_GAME0;
+        snprintf(path, sizeof path, "%s/freecell/king/%s.png", a->dir, kings[id - CE_ASSET_GAME0]);
     } else {
         *len = 0;
         return NULL;

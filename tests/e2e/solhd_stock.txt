@@ -1,0 +1,148 @@
+# Solitaire HD end to end: the stock and the waste. Draw Three (the 3-card fan, a cycle through the
+# deck, the recycle and the green O), XP's Ctrl+Alt+Shift cheat (one card in Draw Three), the double-
+# click on the stock (two draws), Vegas with its pass limits (Draw One: one pass, then the red X; Draw
+# Three: three passes) and its "-$52" in red, iCurrency.  Run by tests/e2e/run_solhd_e2e.sh.
+#
+# Deal 64 at 1264 x 854 (geometry in solhd_smoke.txt). The stock: 24 cards, its top at 32,14 (3-D
+# layers of 4,2 px per 10 cards), a click at 108,114 hits it (and the empty slot 24,10 153x207). The
+# waste at 201,10: a draw fans 3 cards at x = 201, 231, 261 (y + 2 each), so 413,120 is the right edge
+# of the third card (black) and green when a single card was drawn. The empty stock's O: a green
+# (00FF00) ring through 46,114; the X: red (FF0000) bars crossing at 101,114.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 120
+resize_client 1264 854
+
+# ---- Draw Three (XP's default) --------------------------------------------------------------------------
+click 108 114
+assert_pixel 201 120 000000                   # three cards fanned
+assert_pixel 413 120 000000
+assert_pixel 414 120 008000
+assert_menu 1001 enabled                      # a draw can be undone
+capture 10_draw3.bmp
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114                                 # the 8th: the stock is empty
+assert_pixel 46 114 00FF00                    # the O: click to turn the waste over
+assert_pixel 421 124 000000                   # 24 cards: the fan starts on the 3-D pile's top (2 layers)
+assert_window_text "0 "                       # drawing scores nothing
+capture 11_stock_empty_O.bmp
+click 108 114                                 # recycle (Standard, Draw Three: free for the first 3)
+assert_pixel 413 120 008000                   # the waste is empty again
+assert_pixel 201 120 008000
+assert_window_text "0 "
+capture 12_recycled.bmp
+
+# ---- Ctrl+Alt+Shift + click: one card (XP's cheat), then a double-click: two draws ------------------
+hold ctrl alt shift
+click 108 114
+release
+assert_pixel 201 120 000000                   # one card, no fan
+assert_pixel 413 120 008000
+capture 13_cheat_one_card.bmp
+dblclick 108 114                              # the second click of a double-click draws again
+assert_pixel 413 120 000000
+command 1001                                  # undo both draws and the single card
+command 1001
+command 1001
+assert_pixel 201 120 008000
+command 1001                                  # ... and the recycle: the full waste and the O are back
+assert_pixel 46 114 00FF00
+assert_window_text "0 "                       # (Undo: -2, floored at 0)
+
+# ---- Vegas, Draw One (Options = 0x13): one pass through the deck -----------------------------------------
+close
+regset HKCU\Software\Microsoft\Solitaire Options dword 0x13
+launch ${REPO}/build/SolitaireHD.exe
+assert_client_size 1264 854                   # the placement was remembered
+assert_window_text "-$52 "                    # the bet, in red
+capture_window 14_vegas_draw1_window.bmp
+click 108 114
+assert_pixel 201 120 000000
+assert_pixel 413 120 008000                   # Draw One: no fan
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114                                 # the 24th card
+assert_pixel 101 114 FF0000                   # the X: no pass left
+assert_pixel 46 114 008000
+capture 15_vegas_X.bmp
+click 108 114                                 # nothing happens
+assert_pixel 101 114 FF0000
+assert_pixel 201 120 000000
+command 1001                                  # undo the last draw: a card in the stock again
+assert_pixel 101 114 FFFFFF                   # the back's white
+click 108 114
+assert_pixel 101 114 FF0000
+
+# ---- Vegas, Draw Three (0x1B): three passes; iCurrency 1 puts the $ after the number --------------------
+close
+regset HKCU\Software\Microsoft\Solitaire Options dword 0x1B
+regset HKCU\Software\Microsoft\Solitaire iCurrency dword 1
+launch ${REPO}/build/SolitaireHD.exe
+assert_window_text "-52$ "
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+assert_pixel 46 114 00FF00                    # pass 1 done: O
+click 108 114                                 # recycle 1
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+assert_pixel 46 114 00FF00                    # pass 2 done: O
+click 108 114                                 # recycle 2
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+click 108 114
+assert_pixel 101 114 FF0000                   # pass 3 done: X
+assert_pixel 46 114 008000
+click 108 114
+assert_pixel 101 114 FF0000
+assert_pixel 421 124 000000
+capture 16_vegas_draw3_X.bmp
+assert_window_text "-52$ "
+regdel HKCU\Software\Microsoft\Solitaire iCurrency
+close

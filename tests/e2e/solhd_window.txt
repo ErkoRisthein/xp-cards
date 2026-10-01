@@ -1,0 +1,94 @@
+# Solitaire HD end to end: the HD window. Full-HD board (a 1904 x 996 client: a maximized window on a
+# 1920 x 1080 XP desktop), dragging there, maximize / restore, full screen (F11, Alt+Enter, the menu;
+# Esc leaves), the minimum size, minimize / restore, and the placement and the full-screen mode
+# remembered across runs (HKCU\Software\xp-cards\Solitaire HD).  Needs a screen of at least
+# 1920 x 1060: tests/e2e/run_solhd_e2e.sh runs it in the Retina-mode prefix (3600 x 2338 on this Mac).
+#
+# Deal 64 at 1904 x 996 (scale 2.668: cards 189 x 256, columns x = 72 333 594 855 1116 1377 1638, tableau
+# top 285, steps 8 / 40; the stock at 72,13): AH@72,285, 4S@333,293, 5D@1116,317.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 40
+resize_client 1904 996
+assert_client_size 1904 996
+assert_pixel 71 400 008000
+assert_pixel 72 400 000000                    # AH
+assert_pixel 333 520 000000                   # 4S
+assert_pixel 1116 600 008000                  # below 5D (317..572)
+assert_window_text "Score: "
+capture 30_1904x996_deal64.bmp
+capture_window 30_1904x996_deal64_window.bmp
+ldown 427 421                                 # 4S, grabbed at its centre
+move 800 450
+move 1210 485                                 # the card at 1116,357 over 5D
+capture 31_1904x996_dragging.bmp
+lup 1210 485
+assert_pixel 1116 600 000000                  # 4S on 5D (1116,357..612)
+capture 32_1904x996_dropped.bmp
+
+# ---- maximize, restore --------------------------------------------------------------------------------
+maximize
+info
+assert_window_text "Score: "
+capture 33_maximized.bmp
+capture_window 33_maximized_window.bmp
+restore
+assert_client_size 1904 996
+assert_pixel 1116 600 000000
+
+# ---- full screen: F11, Esc; Alt+Enter twice; the menu item --------------------------------------------
+vkey F11
+info
+assert_menu 1100 checked
+assert_window_text "Score: "
+capture 34_fullscreen.bmp
+capture_window 34_fullscreen_window.bmp
+vkey ESC
+assert_client_size 1904 996
+assert_menu 1100 unchecked
+vkey ENTER alt
+assert_menu 1100 checked
+vkey ENTER alt
+assert_client_size 1904 996
+command 1100
+assert_menu 1100 checked
+command 1100
+assert_client_size 1904 996
+
+# ---- the minimum size (scale 0.5) and minimize / restore ---------------------------------------------
+resize_client 293 201
+assert_client_size 293 201
+assert_window_text "Score: "
+capture 35_min_293x201.bmp
+capture_window 35_min_293x201_window.bmp
+minimize
+restore
+assert_running
+assert_client_size 293 201
+resize_client 585 384                         # XP's own size: scale 1, XP's coordinates
+assert_pixel 11 150 000000                    # AH at 11,107 (71 x 96)
+assert_pixel 10 150 008000
+capture 36_585x384.bmp
+
+# ---- the placement and full screen are remembered ------------------------------------------------------
+resize_client 900 600
+close
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" FullScreen 0
+launch ${REPO}/build/SolitaireHD.exe
+assert_client_size 900 600
+vkey F11
+close                                         # closed in full screen
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" FullScreen 1
+launch ${REPO}/build/SolitaireHD.exe
+info
+assert_menu 1100 checked                      # back in full screen
+capture_window 37_fullscreen_restart_window.bmp
+vkey ESC
+assert_client_size 900 600                    # ... and Esc returns to the saved placement
+regdump "HKCU\Software\xp-cards\Solitaire HD"
+close

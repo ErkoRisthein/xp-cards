@@ -1,0 +1,179 @@
+/*
+ * Solitaire HD — Win32 resources. Menus, accelerators, dialogs, strings and ids replicate XP
+ * Solitaire (docs/xp-reference/solitaire/resources.md) except:
+ *   - the extras Game > Redo (Ctrl+Y) and Game > Full Screen (F11, Alt+Enter), with their status-bar
+ *     help strings;
+ *   - no context help ("?" / DS_CONTEXTHELP: we cannot ship sol.hlp);
+ *   - Select Card Back shows our 12 backs in buttons of the card's shape (XP stretched its 71 x 96
+ *     backs to 33 x 62): 34 x 42 DLU instead of 26 x 42, so the dialog is 230 DLU wide instead of 178;
+ *     ids, order, rows, OK / Cancel unchanged;
+ *   - string 301 reads "Unable to load ..." (XP: "Unable load"); the strings XP never shows (debug
+ *     commands 1005-1009, 202 "Bitmap", 302) and the registry names (code) are left out;
+ *   - the icon is our own card box, the version info is ours.
+ * Build: windres -I res/solitaire -I res/common -I src -O coff -o solitaire_res.o res/solitaire/solitaire.rc
+ * (files are found through the -I directories: this one's, then res/common for the card faces)
+ */
+#include <windows.h>
+#include "resource.h"
+
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "solitaire.manifest"
+
+IDI_SOLITAIRE ICON "solitaire.ico"
+
+IDR_MENU MENU
+BEGIN
+    POPUP "&Game"
+    BEGIN
+        MENUITEM "&Deal\t F2",              IDM_DEAL            /* sic: space after the tab */
+        MENUITEM SEPARATOR
+        MENUITEM "&Undo",                   IDM_UNDO
+        MENUITEM "&Redo\tCtrl+Y",           IDM_REDO            /* extra */
+        MENUITEM "De&ck...",                IDM_DECK
+        MENUITEM "&Options...",             IDM_OPTIONS
+        MENUITEM "&Full Screen\tF11",       IDM_FULLSCREEN      /* extra */
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit",                   IDM_EXIT
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&Contents\t F1",          IDM_HELPCONTENTS    /* sic */
+        MENUITEM "&Search for Help on...",  IDM_HELPSEARCH
+        MENUITEM "&How to Use Help",        IDM_HELPHOWTO
+        MENUITEM SEPARATOR
+        MENUITEM "&About Solitaire",        IDM_ABOUT
+    END
+END
+
+/* XP's two (F1 is not here: it arrives as WM_HELP) plus the extras */
+HIDDENACCEL ACCELERATORS
+BEGIN
+    "2",       IDM_FORCEWIN,   VIRTKEY, SHIFT, ALT, NOINVERT
+    VK_F2,     IDM_DEAL,       VIRTKEY
+    "Y",       IDM_REDO,       VIRTKEY, CONTROL                 /* extra */
+    VK_F11,    IDM_FULLSCREEN, VIRTKEY                          /* extra */
+    VK_RETURN, IDM_FULLSCREEN, VIRTKEY, ALT                     /* extra */
+END
+
+/* Dialogs: plain DIALOG templates, "MS Shell Dlg" 8, XP's positions (x/y from the main window's
+ * client origin: XP does not centre them) and control styles. */
+IDD_DECK DIALOG 11, 12, 230, 112
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Select Card Back"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    /* owner-drawn: the back inset 3 px in the button (45 x 62 px at 96 DPI), XP's 2-px COLOR_HIGHLIGHT
+     * frame around the selected one; id = XP's back id 54..65 */
+    CONTROL "", 54, "Button", BS_OWNERDRAW | WS_GROUP | WS_TABSTOP,   8,  4, 34, 42
+    CONTROL "", 55, "Button", BS_OWNERDRAW,                          44,  4, 34, 42
+    CONTROL "", 60, "Button", BS_OWNERDRAW,                          80,  4, 34, 42
+    CONTROL "", 61, "Button", BS_OWNERDRAW,                         116,  4, 34, 42
+    CONTROL "", 58, "Button", BS_OWNERDRAW,                         152,  4, 34, 42
+    CONTROL "", 59, "Button", BS_OWNERDRAW,                         188,  4, 34, 42
+    CONTROL "", 56, "Button", BS_OWNERDRAW,                           8, 48, 34, 42
+    CONTROL "", 57, "Button", BS_OWNERDRAW,                          44, 48, 34, 42
+    CONTROL "", 62, "Button", BS_OWNERDRAW,                          80, 48, 34, 42
+    CONTROL "", 63, "Button", BS_OWNERDRAW,                         116, 48, 34, 42
+    CONTROL "", 64, "Button", BS_OWNERDRAW,                         152, 48, 34, 42
+    CONTROL "", 65, "Button", BS_OWNERDRAW,                         188, 48, 34, 42
+    CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_GROUP | WS_TABSTOP, 70, 94, 40, 14
+    CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 120, 94, 40, 14
+END
+
+IDD_OPTIONS DIALOG 50, 31, 134, 101
+STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Options"
+FONT 8, "MS Shell Dlg"
+BEGIN
+    CONTROL "&Draw", IDC_STATIC, "Button", BS_GROUPBOX, 4, 4, 60, 36
+    CONTROL "Draw &One", IDC_DRAWONE, "Button", BS_RADIOBUTTON | WS_GROUP | WS_TABSTOP, 8, 13, 52, 12
+    CONTROL "Draw &Three", IDC_DRAWTHREE, "Button", BS_RADIOBUTTON, 8, 25, 52, 12
+    CONTROL "&Scoring", IDC_STATIC, "Button", BS_GROUPBOX | WS_GROUP, 68, 4, 56, 48
+    CONTROL "St&andard", IDC_STANDARD, "Button", BS_RADIOBUTTON | WS_GROUP | WS_TABSTOP, 72, 14, 43, 12
+    CONTROL "&Vegas", IDC_VEGAS, "Button", BS_RADIOBUTTON, 72, 26, 36, 12
+    CONTROL "&None", IDC_NONE, "Button", BS_RADIOBUTTON, 72, 38, 30, 12
+    CONTROL "T&imed game", IDC_TIMED, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP, 8, 44, 52, 12
+    CONTROL "Status &bar", IDC_STATUSBAR, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 8, 56, 52, 12
+    CONTROL "Out&line dragging", IDC_OUTLINE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 8, 68, 76, 12
+    CONTROL "&Cumulative", IDC_CUMULATIVE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP, 72, 56, 62, 12
+    CONTROL "Score", IDC_CUMSCORE, "Static", SS_LEFT | WS_GROUP, 84, 68, 20, 12
+    CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_GROUP | WS_TABSTOP, 36, 84, 36, 14
+    CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 76, 84, 40, 14
+END
+
+STRINGTABLE
+BEGIN
+    IDS_APPNAME         "Solitaire"
+    IDS_SCORE           "Score: "
+    IDS_TIME            "Time: "
+    IDS_DEALAGAIN       "Deal Again?"
+    IDS_HELPFILE        "sol.chm"
+    IDS_PRESSESC        "Press Esc or a mouse button to stop..."
+    IDS_BONUS           "Bonus: "
+    IDS_BYLINE          "Developed for Microsoft by Wes Cherry"
+    IDS_ABOUTTEXT       "A resizable re-creation of Windows XP Solitaire.\r\nCards by Adrian Kennard: cards.revk.uk (CC0)"
+    IDS_OUTOFMEMORY     "Out of memory"
+    IDS_HELPFAILED      "Unable to load Windows Help application"
+    IDS_NODRAGMEM       "Insufficient memory to display card faces when cards move;\n\nselect the Outline dragging box from the Options menu."
+    /* status-bar help of the menu items: string id = command id (WM_MENUSELECT) */
+    IDM_DEAL            "Deal a new game"
+    IDM_UNDO            "Undo last action"
+    IDM_DECK            "Choose new deck back"
+    IDM_OPTIONS         "Change Solitaire options"
+    IDM_EXIT            "Exit Solitaire"
+    IDM_FORCEWIN        "Force a win"
+    IDM_FULLSCREEN      "Switch between a window and the full screen"
+    IDM_REDO            "Redo the last action undone"
+    IDM_ABOUT           "About Solitaire"
+    IDM_HELPCONTENTS    "Index of Solitaire help topics"
+    IDM_HELPSEARCH      "Search the Help Engine for a specific topic"
+    IDM_HELPHOWTO       "Help using help"
+END
+
+/* Card faces (400x560 RGBA PNG): the engine's asset ids 1000 + card (res/common/cards.rc) */
+#include "cards.rc"
+
+/* Card backs (400x560 RGB PNG; res/solitaire/backs-src: CC0 designs from the RevK generator, edited by
+ * make_backs.py): the engine's asset ids 1200 + i = XP's back 54 + i (CE_ASSET_BACK0, render.h) */
+1200 RCDATA "backs/54_sky.png"
+1201 RCDATA "backs/55_aqua.png"
+1202 RCDATA "backs/56_fish.png"
+1203 RCDATA "backs/57_frog.png"
+1204 RCDATA "backs/58_rose.png"
+1205 RCDATA "backs/59_island.png"
+1206 RCDATA "backs/60_mosaic.png"
+1207 RCDATA "backs/61_orchid.png"
+1208 RCDATA "backs/62_night.png"
+1209 RCDATA "backs/63_space.png"
+1210 RCDATA "backs/64_sunset.png"
+1211 RCDATA "backs/65_racing.png"
+
+1 VERSIONINFO
+FILEVERSION     1, 0, 0, 0
+PRODUCTVERSION  1, 0, 0, 0
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "xp-cards"
+            VALUE "FileDescription",  "Solitaire HD"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "SolitaireHD"
+            VALUE "OriginalFilename", "SolitaireHD.exe"
+            VALUE "ProductName",      "Solitaire HD"
+            VALUE "ProductVersion",   "1.0.0.0"
+            VALUE "Comments",         "A re-implementation of Solitaire for Windows XP, whose design (by Wes Cherry, Microsoft) it follows; not affiliated with or endorsed by Microsoft. Card faces and backs: SVG playing cards by Adrian Kennard - https://cards.revk.uk (CC0)."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

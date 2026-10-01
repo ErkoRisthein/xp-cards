@@ -92,7 +92,8 @@ links the GCC runtime statically, so the result is a single file.
 **macOS**
 
     brew install mingw-w64
-    make                  # build/FreeCellHD.exe
+    make                  # build/FreeCellHD.exe and build/SolitaireHD.exe (in development)
+    make freecell         # build/FreeCellHD.exe only
     make release          # the same, stripped (-s), then the XP import check
 
 Homebrew's toolchain defaults to the UCRT. The Makefile passes `-mcrtdll=msvcrt-os` (GCC 14+).
@@ -116,12 +117,13 @@ macOS's own SMB client no longer supports. It needs a Python with [impacket](htt
 
 ## Tests
 
-    make test         # native unit tests of the rules, controller, layout and images (ASan + UBSan)
+    make test         # native unit tests of the engine and of the rules, controller and layout (ASan + UBSan)
     make snapshots    # render boards at several sizes to build/snapshots/*.png
-    make xpcheck      # every function the exe imports must exist on Windows XP SP2 and SP3
+    make xpcheck      # every function the exes import must exist on Windows XP SP2 and SP3
     make e2e          # end-to-end scenarios under Wine (tests/e2e/fchd_*.txt)
 
-The game logic in `src/core` and `src/gfx` is plain C with no Windows headers, so it is tested natively.
+The game logic and the shared engine (`src/freecell`, `src/engine`, outside their `win32` directories)
+are plain C with no Windows headers, so they are tested natively.
 `make e2e` drives the real exe under Wine: it clicks, presses keys, answers dialogs, reads pixels and the
 registry, and captures screenshots. The driver is documented in [tools/wine/README.md](tools/wine/README.md).
 `make e2e` is set up for the macOS development machine. On Linux, run the smoke scenario under a virtual
@@ -134,22 +136,22 @@ This needs `wine`, `wine32:i386`, `xvfb`, `openbox` and ImageMagick. `WINE`, `WI
 `WINEPREFIX` override the defaults.
 
 **Continuous integration.** `.github/workflows/build.yml` runs on every push and pull request on Ubuntu
-24.04. It builds the stripped exe, runs `make test`, `make xpcheck` and `make snapshots`, and uploads the
-exe and the snapshots as artifacts. A Wine smoke test runs as an informational job that cannot fail the
+24.04. It builds the stripped exes, runs `make test`, `make xpcheck` and `make snapshots`, and uploads the
+exes and the snapshots as artifacts. A Wine smoke test runs as an informational job that cannot fail the
 build. Pushing a tag `v*` (for example `git tag -a v1.1 -m "What's new" && git push origin v1.1`) also
-publishes a GitHub Release with `FreeCellHD.exe`. The release notes come from `tools/ci/release-notes.md`,
-and an annotated tag's message becomes their "What's new" section. GitHub disables Actions on a fork until
-its owner enables them on the fork's Actions tab.
+publishes a GitHub Release with `FreeCellHD.exe` and `SolitaireHD.exe`. The release notes come from
+`tools/ci/release-notes.md`, and an annotated tag's message becomes their "What's new" section. GitHub
+disables Actions on a fork until its owner enables them on the fork's Actions tab.
 
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `src/core` | rules, the XP game controller, statistics, the solver and the hint / finish logic |
-| `src/gfx` | images, card sprites, scalable layout, board renderer |
-| `src/win32` | the Windows front end: window, menus, dialogs, registry, help |
-| `res` | resource script, card and king art, icon, cursor, manifest |
-| `tests` | native unit tests, the snapshot renderer, Wine end-to-end scenarios |
+| `src/engine` | the card-game engine shared by the games ([docs/ENGINE.md](docs/ENGINE.md)): images, card sprites, drawing, persistence, and in `win32/` the Windows pieces every game uses |
+| `src/freecell` | FreeCell HD: rules, the XP game controller, statistics, the solver and the hint / finish logic, scalable layout, board renderer; `win32/` the window, menus, dialogs, registry, help |
+| `src/solitaire` | Solitaire HD: rules, the XP game controller, the win cascade, scalable layout, board renderer; `win32/` the window, drag and drop, status bar, dialogs, registry, help |
+| `res` | `common/`: the card art shared by the games; `freecell/`, `solitaire/`: resource scripts, king art, icon, cursor, manifests |
+| `tests` | native unit tests (`engine/`, `freecell/`), the snapshot renderer, Wine end-to-end scenarios |
 | `tools` | XP import checker, Wine driver, SMB deploy, asset scripts, CI helpers |
 | `docs` | [design](docs/DESIGN.md), [roadmap](docs/ROADMAP.md), reverse-engineered XP reference |
 

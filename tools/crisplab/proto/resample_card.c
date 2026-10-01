@@ -2,13 +2,13 @@
  * Prototype of the proposed card resampler (crisplab finalists C/D), written against the runtime's
  * image.c (included textually so the static taps_build/box path is reused unchanged).
  *
- *   fc_image_resample_card(src, w, h, g, a)
+ *   proto_resample_card(src, w, h, g, a)
  *     src  opaque premultiplied master (alpha 255 everywhere: clean_master() output)
  *     g    space gamma in (0, 1]: box-average v^g instead of v (dark-biased, "stem darkening")
  *     a    3-tap sharpening amount >= 0 at output scale, kernel [-a/4, 1 + a/2, -a/4] in x then y
  *   The caller ramps both with the downscale factor f = src->h / h:
  *     t = clamp((f - 2) / 2, 0, 1);  g_eff = 1 - (1 - g) * t;  a_eff = a * t
- *   With g_eff == 1 and a_eff == 0 this is exactly fc_image_resample(src, w, h, 1).
+ *   With g_eff == 1 and a_eff == 0 this is exactly ce_image_resample(src, w, h, 1).
  *
  * Integer only in the pixel loops (x87-free): uint16 power-space samples, 16.16 box weights (sum
  * exactly 65536), 4.12 sharpening weights, int32 intermediates. pow() only builds 256 + 4096 LUT
@@ -20,7 +20,7 @@
 #include "image.c"
 #include "cardset.c"
 
-FcImage *fc_image_resample_card(const FcImage *src, int w, int h, double g, double a)
+CeImage *proto_resample_card(const CeImage *src, int w, int h, double g, double a)
 {
     uint16_t fwd[256];
     uint8_t inv[4096];
@@ -28,16 +28,16 @@ FcImage *fc_image_resample_card(const FcImage *src, int w, int h, double g, doub
     uint32_t *acc;
     uint16_t *row;
     int32_t *plane, *tmp = NULL;
-    FcImage *dst;
+    CeImage *dst;
     int sw = src->w, x, y, i, c;
     int32_t k1 = (int32_t)floor(a / 4 * 4096 + 0.5), k0 = 4096 + 2 * k1;
     if (g >= 1.0 && k1 == 0)
-        return fc_image_resample(src, w, h, 1);
+        return ce_image_resample(src, w, h, 1);
     for (i = 0; i < 256; i++)
         fwd[i] = (uint16_t)floor(65535.0 * pow(i / 255.0, g) + 0.5);
     for (i = 0; i < 4096; i++)
         inv[i] = (uint8_t)floor(255.0 * pow((i * 16 + 8) / 65535.0, 1.0 / g) + 0.5);
-    dst = fc_image_new(w, h);
+    dst = ce_image_new(w, h);
     memset(&tx, 0, sizeof tx);
     memset(&ty, 0, sizeof ty);
     acc = (uint32_t *)malloc(sizeof(uint32_t) * 3 * (size_t)sw);
@@ -128,20 +128,20 @@ int main(int argc, char **argv)
         size_t len = fread(buf, 1, sizeof buf, f);
         int ch = atoi(argv[2]), cw = (int)floor(71 * ch / 96.0 + 0.5);
         double t, g = atof(argv[3]), a = atof(argv[4]);
-        FcImage *m, *s;
+        CeImage *m, *s;
         fclose(f);
-        m = fc_image_decode_png(buf, len);
-        clean_master(m);
+        m = ce_image_decode_png(buf, len);
+        clean_master(m, CE_CARD_WHITE);
         t = ramp((double)m->h / ch);
-        s = fc_image_resample_card(m, cw, ch, 1.0 - (1.0 - g) * t, a * t);
-        fc_image_card_finish(s, 0.0372 * ch, frame_px(ch), FC_FRAME_COLOUR, FC_CARD_WHITE);
+        s = proto_resample_card(m, cw, ch, 1.0 - (1.0 - g) * t, a * t);
+        ce_image_card_finish(s, 0.0372 * ch, frame_px(ch), CE_FRAME_COLOUR, CE_CARD_WHITE);
         f = fopen(argv[5], "wb");
         fwrite(s->px, 4, (size_t)cw * ch, f);
         fclose(f);
         return 0;
     }
     if (argc == 6) {
-        static FcImage *m[52];
+        static CeImage *m[52];
         const char *names[13] = {"A","2","3","4","5","6","7","8","9","T","J","Q","K"}, *suits = "CDHS";
         int ch = atoi(argv[3]), cw = (int)floor(71 * ch / 96.0 + 0.5), i, k, reps = 5;
         double g = atof(argv[4]), a = atof(argv[5]), tt, best[2] = {1e9, 1e9};
@@ -153,8 +153,8 @@ int main(int argc, char **argv)
             f = fopen(p, "rb");
             len = fread(buf, 1, sizeof buf, f);
             fclose(f);
-            m[i] = fc_image_decode_png(buf, len);
-            clean_master(m[i]);
+            m[i] = ce_image_decode_png(buf, len);
+            clean_master(m[i], CE_CARD_WHITE);
         }
         tt = ramp(560.0 / ch);
         for (k = 0; k < reps; k++) {
@@ -162,9 +162,9 @@ int main(int argc, char **argv)
             for (mode = 0; mode < 2; mode++) {
                 clock_t c0 = clock();
                 for (i = 0; i < 52; i++) {
-                    FcImage *s = mode ? fc_image_resample_card(m[i], cw, ch, 1.0 - (1.0 - g) * tt, a * tt)
-                                      : fc_image_resample(m[i], cw, ch, 1);
-                    fc_image_free(s);
+                    CeImage *s = mode ? proto_resample_card(m[i], cw, ch, 1.0 - (1.0 - g) * tt, a * tt)
+                                      : ce_image_resample(m[i], cw, ch, 1);
+                    ce_image_free(s);
                 }
                 double ms = 1000.0 * (clock() - c0) / CLOCKS_PER_SEC;
                 if (ms < best[mode]) best[mode] = ms;

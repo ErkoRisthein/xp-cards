@@ -1,6 +1,6 @@
 # End-to-end smoke test of FreeCell HD (build/FreeCellHD.exe) under Wine.
 #   make e2e        (or: tools/wine/run.sh -o build/e2e/fchd tests/e2e/fchd_smoke.txt)
-# Ids: docs/xp-reference/resources.md + res/resource.h (103 Select Game, edit 203; 105 Statistics;
+# Ids: docs/xp-reference/resources.md + res/freecell/resource.h (103 Select Game, edit 203; 105 Statistics;
 # 109 Options; 107 Restart; 115 Undo (F10); 116 Redo (Ctrl+Y, extra)).
 # At a 632x427 client the scale is exactly 1, so every coordinate is XP's (layout.md section 2):
 # columns x = 7 85 163 241 319 397 475 553 (71 wide), first card y = 106, step 18, card 71x96,

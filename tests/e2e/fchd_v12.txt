@@ -5,7 +5,7 @@
 # move does not, Undo back to a winnable position and Redo warns again; the deal #11982 "cannot be
 # won"; Hint there says "There are no more winning moves.". Finish (F6) is grayed until the position is
 # a sure win, reached without the cheat by playing the solver's line for game #31364 (generated
-# natively with src/core/solver.c and embedded below; the first 21 moves, no MoveCol dialog); Finish
+# natively with src/freecell/solver.c and embedded below; the first 21 moves, no MoveCol dialog); Finish
 # by hand is one move, "Finish automatically" finishes right after the 21st move and is not a move.
 # The two Options and their registry values survive a restart.  Run by tests/e2e/run_fchd_e2e.sh.
 # The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card

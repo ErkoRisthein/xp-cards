@@ -1,20 +1,20 @@
 # Artwork licences
 
-## Card faces: `res/cards-svg/` (SVG) and `res/cards/` (400x560 PNG masters)
+## Card faces: `res/common/cards-svg/` (SVG) and `res/common/cards/` (400x560 PNG masters)
 
 **Source:** "SVG playing cards" by Adrian Kennard (RevK), generated with the author's online generator.
 - Project page (primary source): https://www.me.uk/cards/
 - Exact generator request used (zip of SVGs):
   `https://www.me.uk/cards/makeadeck.cgi?size=poker&ace=Fancy&ace1=&ace2=&qr=&back=Diamond&value=0&super=1&pip=1&wider=on&zip=Download`
-  (copy in `res/cards-src/GENERATOR_URL.txt`). The zip it returned on 2026-10-01 (sha256
+  (copy in `res/common/cards-src/GENERATOR_URL.txt`). The zip it returned on 2026-10-01 (sha256
   `f74072710820e6f554f04ae6fc123050097285ec537691f53b5bf1caa3d9e716`) is not shipped; its 52 face SVGs
-  are `res/cards-svg/<R><S>.svg`.
-- Snapshot of the project page as fetched 2026-10-01: `res/cards-src/me.uk_cards_page_2026-10-01.html`
-- `res/cards/<R><S>.png` are rasterised from those SVGs (`rsvg-convert -h 560`, then lossless oxipng;
+  are `res/common/cards-svg/<R><S>.svg`.
+- Snapshot of the project page as fetched 2026-10-01: `res/common/cards-src/me.uk_cards_page_2026-10-01.html`
+- `res/common/cards/<R><S>.png` are rasterised from those SVGs (`rsvg-convert -h 560`, then lossless oxipng;
   `tools/make_assets.sh cards`, see `docs/card-art.md`) after a small edit by
   `tools/edit_card_svg.py`: a bolder rank index (stroke 80 → 130) and, on the court cards, darker
   (`#223`) and 1.6x wider court linework and a darker court picture frame. These changes are ours and
-  are dedicated to the public domain under CC0 1.0 as well; the SVGs in `res/cards-svg/` are kept as
+  are dedicated to the public domain under CC0 1.0 as well; the SVGs in `res/common/cards-svg/` are kept as
   generated.
 - Independent archived copy: http://web.archive.org/web/20260829054033/https://www.me.uk/cards/
 - Generator source code: https://codeberg.org/RevK/SVG-playing-cards
@@ -33,7 +33,7 @@
 
 The page links the CC0 legal code at https://creativecommons.org/publicdomain/zero/1.0/legalcode
 and shows the CC public-domain mark (`https://i.creativecommons.org/p/mark/1.0/88x31.png`).
-A full copy of the CC0 1.0 legal code is in `res/cards-src/CC0-1.0-legalcode.txt`.
+A full copy of the CC0 1.0 legal code is in `res/common/cards-src/CC0-1.0-legalcode.txt`.
 
 Our Ace of Spades has no link on it, because we generated it with the `ace1`, `ace2` and `qr` fields
 left blank. The author says the link is "not a requirement".
@@ -47,12 +47,12 @@ age.
 **Attribution (optional, as a courtesy; wording from `docs/DESIGN.md`):** "Card faces: SVG playing
 cards by Adrian Kennard — https://cards.revk.uk (CC0)". The exe's version info carries it in `Comments`.
 
-## King art: `res/king/` (our derivative, CC0 1.0)
+## King art: `res/freecell/king/` (our derivative, CC0 1.0)
 
-`res/king/king_right.png`, `king_left.png` and `king_smile.png` (1024x1024 RGBA, the busts shown in
-the king box and after a win) are rendered from `res/king/src/king_{right,left,smile}.svg`, which
-`res/king/src/derive_kings.py` derives from the **King of Spades court figure of the RevK card set
-above** (`res/cards-svg/KS.svg`, CC0 1.0, after the public-domain Goodall & Son pattern):
+`res/freecell/king/king_right.png`, `king_left.png` and `king_smile.png` (1024x1024 RGBA, the busts shown in
+the king box and after a win) are rendered from `res/freecell/king/src/king_{right,left,smile}.svg`, which
+`res/freecell/king/src/derive_kings.py` derives from the **King of Spades court figure of the RevK card set
+above** (`res/common/cards-svg/KS.svg`, CC0 1.0, after the public-domain Goodall & Son pattern):
 
 - the upper figure cropped to a square bust; the card's dividing line removed; outlines darkened and
   thickened; an explicit white backing added; the crown's open top outlined;
@@ -63,16 +63,16 @@ No part of Microsoft's FreeCell bitmaps ("KingBitmap", "KingLeft", "KingSmile") 
 only looked at for composition (a king's bust looking right, left, and smiling). We dedicate our
 changes to the public domain under **CC0 1.0** as well, so the king art is CC0 as a whole.
 
-## Program icon `res/freecell.ico` and cursor `res/downarrow.cur` (our own work, CC0 1.0)
+## Program icon `res/freecell/freecell.ico` and cursor `res/freecell/downarrow.cur` (our own work, CC0 1.0)
 
 - The icon (48, 32, 24 and 16 px; 32-bpp, 8-bpp and 4-bpp) is our own composition, made by
-  `res/icon/make_icon.py`: our king bust above (CC0) in front of a card drawn with RevK's diamond
-  pip shape (CC0); its SVG source is `res/icon/icon_card.svg`. The 16x16 image is an original pixel
+  `res/freecell/icon/make_icon.py`: our king bust above (CC0) in front of a card drawn with RevK's diamond
+  pip shape (CC0); its SVG source is `res/freecell/icon/icon_card.svg`. The 16x16 image is an original pixel
   drawing kept as text in `make_icon.py`. It only follows the idea of XP FreeCell's icon (a king's
   head in front of a card) and contains no Microsoft pixels.
-- The "DownArrow" cursor is generated from simple geometry by `res/icon/make_cursor.py` (a 4-px shaft,
+- The "DownArrow" cursor is generated from simple geometry by `res/freecell/icon/make_cursor.py` (a 4-px shaft,
   a broad head, a 2-px outline, hotspot at the tip); it is not a copy of XP's bitmap.
-- Both are dedicated to the public domain under **CC0 1.0** (legal code: `res/cards-src/CC0-1.0-legalcode.txt`).
+- Both are dedicated to the public domain under **CC0 1.0** (legal code: `res/common/cards-src/CC0-1.0-legalcode.txt`).
 
 `tools/make_assets.sh` regenerates all of the above from these sources.
 

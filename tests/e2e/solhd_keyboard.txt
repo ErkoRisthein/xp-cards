@@ -1,0 +1,101 @@
+# Solitaire HD end to end: XP's keyboard interface (rules.md §9.1). A cursor on a pile and a card:
+# arrows, Tab / Shift+Tab (the next pile of another kind), Home / End; Enter or Space presses at the
+# cursor (picks up, draws, turns over) and, while something is picked up, drops it on the pile the
+# cards are over, which follow the cursor (XP's MouseUp; a refused drop slides back); Esc puts it back; Ctrl+A plays every card it can home. XP moves the
+# real pointer onto the card (SetCursorPos); run_solhd_e2e.sh sets SOLHD_NO_WARP so that the host's
+# pointer stays put under Wine: the picked-up cards follow the cursor all the same.
+# Deal 64 at 1264 x 854 (geometry in solhd_smoke.txt).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 120
+resize_client 1264 854
+
+vkey RIGHT                                    # moving the cursor does not start the clock
+wait 1300
+assert_window_text "Time: 0"
+vkey HOME                                     # the stock
+vkey TAB                                      # the waste
+vkey TAB                                      # the first foundation
+vkey TAB                                      # the first column (AH)
+vkey RIGHT                                    # column 2 (4S)
+vkey ENTER                                    # picks it up (and starts the clock)
+assert_menu 1000 grayed
+capture 50_kbd_picked_up.bmp
+vkey RIGHT                                    # column 3; while dragging the stock and waste are skipped
+vkey RIGHT
+vkey RIGHT                                    # column 5 (5D): the card follows, one step lower
+capture 51_kbd_over_5D.bmp
+vkey ENTER                                    # drops it there
+assert_pixel 732 470 000000                   # 4S on 5D
+assert_pixel 277 443 008000
+assert_menu 1000 enabled
+assert_window_text "0 "
+vkey LEFT
+vkey LEFT
+vkey LEFT                                     # column 2: the face-down 7H
+vkey SPACE                                    # turned over (+5)
+assert_window_text "5 "
+vkey A ctrl                                   # Ctrl+A: AH, AC, 2H home (+30)
+assert_window_text "35 "
+assert_pixel 24 334 008000
+
+# ---- Esc puts it back; a refused drop slides back ------------------------------------------------------
+vkey RIGHT                                    # column 3 (TD)
+vkey ENTER
+vkey RIGHT                                    # over KC
+vkey ESC
+assert_pixel 378 400 000000                   # TD back in column 3
+assert_menu 1000 enabled
+vkey ENTER                                    # KC (column 4)
+vkey LEFT                                     # over TD: refused
+vkey ENTER
+assert_pixel 555 400 000000                   # KC back in column 4
+assert_window_text "35 "
+
+# ---- the stock and the last column ------------------------------------------------------------------------
+vkey HOME
+vkey SPACE                                    # draws three
+assert_pixel 413 120 000000
+vkey END                                      # column 7: the face-down QS after 2H went home
+vkey SPACE                                    # turned over (+5)
+assert_window_text "40 "
+vkey TAB shift                                # Shift+Tab: a pile of another kind (the last foundation)
+vkey TAB shift                                # the waste
+vkey ENTER                                    # picks up the waste's top card
+vkey ESC
+assert_pixel 413 120 000000
+capture 52_kbd_end.bmp
+close
+
+# ---- Enter / Space during a drag is XP's MouseUp: a drop on the highlighted target, where the cards
+# are (KeyHit 0x1002F4C) -- also during a mouse drag, and after the mouse moved a keyboard pick-up ----
+launch ${REPO}/build/SolitaireHD.exe
+move_window 0 120
+resize_client 1264 854
+ldown 277 337                                 # 4S with the mouse ...
+move 450 380
+move 808 387                                  # ... over 5D
+vkey SPACE                                    # dropped there (the keyboard cursor is on the stock)
+lup 808 387
+assert_pixel 732 470 000000                   # 4S on 5D
+assert_pixel 277 443 008000
+command 1001                                  # Undo
+assert_pixel 277 443 000000
+vkey HOME
+vkey TAB
+vkey TAB
+vkey TAB
+vkey RIGHT                                    # column 2 (4S)
+vkey ENTER                                    # picked up by the keyboard ...
+move 700 400
+move 808 387                                  # ... and moved over 5D by the mouse
+vkey ENTER                                    # dropped where the cards are, not on the cursor's column
+assert_pixel 732 470 000000
+assert_pixel 277 443 008000
+capture 53_kbd_drop_on_target.bmp
+close
