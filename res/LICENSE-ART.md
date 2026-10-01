@@ -11,7 +11,11 @@
   are `res/cards-svg/<R><S>.svg`.
 - Snapshot of the project page as fetched 2026-10-01: `res/cards-src/me.uk_cards_page_2026-10-01.html`
 - `res/cards/<R><S>.png` are rasterised from those SVGs (`rsvg-convert -h 560`, then lossless oxipng;
-  `tools/make_assets.sh cards`, see `docs/card-art.md`).
+  `tools/make_assets.sh cards`, see `docs/card-art.md`) after a small edit by
+  `tools/edit_card_svg.py`: a bolder rank index (stroke 80 → 130) and, on the court cards, darker
+  (`#223`) and 1.6x wider court linework and a darker court picture frame. These changes are ours and
+  are dedicated to the public domain under CC0 1.0 as well; the SVGs in `res/cards-svg/` are kept as
+  generated.
 - Independent archived copy: http://web.archive.org/web/20260829054033/https://www.me.uk/cards/
 - Generator source code: https://codeberg.org/RevK/SVG-playing-cards
 

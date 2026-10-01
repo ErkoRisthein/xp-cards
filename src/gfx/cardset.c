@@ -3,12 +3,14 @@
  *
  * Masters: 52 card faces 400x560 (docs/card-art.md §2) decoded and premultiplied once, plus the
  * three king PNGs. Scaled sprites are built lazily per card on first use after a size change:
- * HQ resample (quality 1) or fast bilinear (quality 0), then fc_image_card_finish draws XP's crisp
+ * HQ resample (quality 1: fc_image_resample_card, the dark-biased, sharpened box of docs/DESIGN.md
+ * "Crispness decisions") or fast bilinear (quality 0), then fc_image_card_finish draws XP's crisp
  * dark frame over the art's own (sub-pixel at these sizes) outline and gives the sprite an exact
  * rounded shape with transparent corners.
  *
  * The rounded shape (an analytic coverage, floating point) is the same for every card of a size, so
- * it is computed once per size (FcCardShape) and applied with integer math.
+ * it is computed once per size (FcCardShape) and applied with integer math; likewise the HQ
+ * resampler's LUTs and taps (FcCardFilter).
  *
  * Quality: a fast-quality request at an unchanged card size keeps the sprites it has (a live resize
  * that only moves a border of a height-limited window rebuilds nothing); a new size, or a better
@@ -58,6 +60,7 @@ struct FcCardSet {
     FcImage      *card[52];
     FcImage      *king[3][2];
     FcCardShape  *shape;            /* the card shape at cw x ch */
+    FcCardFilter *filter;           /* the HQ card resampler, master size -> cw x ch */
     BevelSlot     bevel[FC_BEVEL_SLOTS];
     int           bevel_next;
 };
@@ -193,6 +196,7 @@ void fc_cardset_free(FcCardSet *cs)
     for (i = 0; i < FC_BEVEL_SLOTS; i++)
         fc_image_free(cs->bevel[i].img);
     fc_card_shape_free(cs->shape);
+    fc_card_filter_free(cs->filter);
     free(cs);
 }
 
@@ -239,6 +243,18 @@ void fc_cardset_set_size(FcCardSet *cs, int cw, int ch, int king_px, int big_kin
             }
 }
 
+/* HQ sprite from an (opaque, cleaned) master: the card resampler, its per-size tables kept. */
+static FcImage *resample_hq(FcCardSet *cs, const FcImage *m)
+{
+    if (!fc_card_filter_is(cs->filter, m->w, m->h, cs->cw, cs->ch)) {
+        fc_card_filter_free(cs->filter);
+        cs->filter = fc_card_filter_new(m->w, m->h, cs->cw, cs->ch);
+    }
+    if (!cs->filter)
+        return fc_image_resample(m, cs->cw, cs->ch, 1);   /* out of memory: the plain box */
+    return fc_image_resample_card_filter(m, cs->filter);
+}
+
 /* Frame thickness: XP's crisp 1-px frame up to ch 300, then growing with the card so it always
  * covers the art's own outline (ch/336 px, card-art.md §3). */
 static double frame_px(int ch)
@@ -272,7 +288,7 @@ const FcImage *fc_cardset_card(FcCardSet *cs, Card c)
         m = cs->master[c] ? cs->master[c] : load_card(cs, c);
         if (!m)
             return NULL;
-        s = fc_image_resample(m, cs->cw, cs->ch, cs->card_q);
+        s = cs->card_q ? resample_hq(cs, m) : fc_image_resample(m, cs->cw, cs->ch, 0);
         if (cs->keep_masters) {
             cs->master[c] = m;
             fc_image_free(cs->mip[c]);                         /* the master is back for good */

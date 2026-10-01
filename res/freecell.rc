@@ -196,8 +196,8 @@ IDR_KING_LEFT  RCDATA "king/king_left.png"
 IDR_KING_SMILE RCDATA "king/king_smile.png"
 
 1 VERSIONINFO
-FILEVERSION     1, 1, 0, 0
-PRODUCTVERSION  1, 1, 0, 0
+FILEVERSION     1, 1, 1, 0
+PRODUCTVERSION  1, 1, 1, 0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -210,11 +210,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "xp-cards"
             VALUE "FileDescription",  "FreeCell HD"
-            VALUE "FileVersion",      "1.1.0.0"
+            VALUE "FileVersion",      "1.1.1.0"
             VALUE "InternalName",     "FreeCellHD"
             VALUE "OriginalFilename", "FreeCellHD.exe"
             VALUE "ProductName",      "FreeCell HD"
-            VALUE "ProductVersion",   "1.1.0.0"
+            VALUE "ProductVersion",   "1.1.1.0"
             VALUE "Comments",         "A re-implementation of FreeCell for Windows XP, whose design (by Jim Horne, Microsoft) it follows; not affiliated with or endorsed by Microsoft. Card faces: SVG playing cards by Adrian Kennard - https://cards.revk.uk (CC0)."
         END
     END

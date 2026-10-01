@@ -115,16 +115,17 @@ int main(int argc, char **argv)
             printf("note: king asset %d missing, placeholder used\n", i);
     }
 
-    /* timings: HQ and fast rescale of all 52 at the 1080p size; full render at 1904x996 */
-    for (rep = 0; rep < 2; rep++) {
-        int q = rep == 0 ? 1 : 0;
+    /* timings: HQ rescale of all 52 at small, medium and 1080p sizes (the card resampler's dark bias
+     * and sharpen are on below h255), HQ and fast at 213x288; full render at 1904x996 */
+    for (rep = 0; rep < 5; rep++) {
+        static const int sz[5][3] = { { 71, 96, 1 }, { 95, 128, 1 }, { 190, 257, 1 }, { 213, 288, 1 }, { 213, 288, 0 } };
         fc_cardset_set_size(cs, 1, 1, 1, 1, 1);   /* invalidate */
-        fc_cardset_set_size(cs, 213, 288, 96, 960, q);
+        fc_cardset_set_size(cs, sz[rep][0], sz[rep][1], 96, 960, sz[rep][2]);
         t0 = now_ms();
         for (i = 0; i < 52; i++)
             fc_cardset_card(cs, i);
         t1 = now_ms();
-        printf("rescale 52 cards to 213x288, quality %d: %.1f ms\n", q, t1 - t0);
+        printf("rescale 52 cards to %dx%d, quality %d: %.1f ms\n", sz[rep][0], sz[rep][1], sz[rep][2], t1 - t0);
     }
     fc_deal(&g1, 1);
     fc_view_init(&v);

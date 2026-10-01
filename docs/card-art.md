@@ -54,6 +54,12 @@ the court frame, which Medium otherwise narrows (compared in `revk_variants.png`
 - **Source aspect:** 5:7, from viewBox `-120 -168 240 336`. **Master size: 400×560 px** exactly
   (height 560, width 560×240/336 = 400). The scale is **1 SVG unit = 1.6667 px**.
 - Rasterized with `rsvg-convert -h 560` (librsvg 2.63.2, cairo 1.18.4).
+- **Art edit before rasterising (v1.1.1, `tools/edit_card_svg.py`, run by `tools/make_assets.sh
+  cards`; the SVGs in the repo stay as generated):** the rank-index stroke goes from 80 to **130**
+  units, and in J/Q/K the court-art linework (`stroke="#44F"`, widths 3 to 72 in the 1300x2000 court
+  art) becomes **1.6x wider and `#223`** (dark navy), the court picture frame **`#223` at 1.5 units**.
+  The blue fills stay. Why: docs/DESIGN.md "Crispness decisions" (the original thin light-blue lines
+  wash the courts out to pastel at every size; the thin index fades at small sizes).
 - Format: PNG, 8-bit RGBA (colour type 6) in every file, straight (non-premultiplied) alpha. Pixels
   outside the rounded corners are fully transparent; I checked the four corner pixels (alpha 0) and
   the centre (alpha 255) of every file.
@@ -70,6 +76,9 @@ the court frame, which Medium otherwise narrows (compared in `revk_variants.png`
 | oxipng (pyoxipng 9.x), level 6, libdeflate 12, RGBA forced | 1,623,601 |
 | **oxipng, zopfli 15 iterations, RGBA forced (the files shipped in `master/`)** | **1,587,142 (1.51 MiB)** |
 | oxipng with colour-type reduction allowed (20 black cards become grey+alpha) | 1,494,656 (not used, so that every file has the same format) |
+
+These figures are for the generator's art. The masters shipped since v1.1.1 (with the art edit above,
+the same oxipng/zopfli settings) total **1,560,965 bytes** (v1.1, index stroke 115: 1,579,399).
 
 All optimised files were checked to be pixel-identical to the rsvg output. The smallest file is
 AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers `svg/` and
@@ -93,11 +102,12 @@ AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers
     radius ≈ 0.0357·h, or ≈ 0.052·w as a share of width.
   - Examples: h=96 → 3.6 px; 150 → 5.6; 200 → 7.4; 260 → 9.7; 300 → 11.2.
   - Use the same radius for the empty free-cell and foundation outlines.
-- **Index** (master px; measured with the generator's stroke 80 — we now render the rank stroke at 115, see tools/make_assets.sh):
+- **Index** (master px; measured with the generator's stroke 80; the shipped masters use 130, see §2):
   - Rank glyph bbox, e.g. 7♦: x 20–69, y 20–102 (83 px tall, about 50 px wide; stroke 6.7 px).
   - Suit glyph below it: about 46×56 px at y 118–174.
   - The bottom-right index is the same, rotated 180°.
-- **Court frame:** `#4444FF` line, 1.67 px. The bbox on K♥ is x 79–320, y 86–473 px (144×232 units,
+- **Court frame:** `#4444FF` line, 1.67 px in the generator's art (the shipped masters: `#222233`,
+  2.5 px, see §2). The bbox on K♥ is x 79–320, y 86–473 px (144×232 units,
   centred). The court figure is 1300×2000 artwork drawn into a 144×232 box with
   `preserveAspectRatio="none"`, so it is compressed horizontally by 4.5 %. This is not noticeable.
 - **Court palette:** `#44F` blue, `#FC4` gold, red, black and white.
@@ -153,7 +163,8 @@ AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers
      Black cards have a black frame.
    - UNVERIFIED: whether cdtDraw overpaints the frame black at runtime. Someone should check the real
      game before deciding the outline colour of red cards in the clone.
-7. **Regenerating the art:**
+7. **Regenerating the art:** `tools/make_assets.sh cards check` (the edit of §2, rsvg-convert, oxipng).
+   The original procedure, before the edit:
    - `for f in svg/??.svg; do rsvg-convert -h 560 $f -o raw/$(basename $f .svg).png; done`
    - Then run oxipng with zopfli: `pyoxipng` in the venv,
      `oxipng.optimize(src, dst, level=6, strip=StripChunks.all(), color_type_reduction=False,

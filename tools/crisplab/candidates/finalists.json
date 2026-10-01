@@ -1,0 +1,52 @@
+[
+ {
+  "name": "current",
+  "note": "shipped today: box (area) filter, index 115, courts as generated"
+ },
+ {
+  "name": "art-only",
+  "note": "new art (index 130, court lines #223 x1.6, court frame #223 1.5), box filter: asset change only",
+  "index_stroke": 130,
+  "court_mult": 1.6,
+  "court_colour": "#223",
+  "court_frame_w": 1.5,
+  "court_frame_colour": "#223"
+ },
+ {
+  "name": "art+darkbias",
+  "note": "new art + box filter in power space v^g, g = 1 - 0.5 t, t = clamp((560/ch - 2)/2, 0, 1)",
+  "space_gamma": 0.5,
+  "tone_ramp": [
+   2.0,
+   4.0
+  ],
+  "index_stroke": 130,
+  "court_mult": 1.6,
+  "court_colour": "#223",
+  "court_frame_w": 1.5,
+  "court_frame_colour": "#223"
+ },
+ {
+  "name": "art+darkbias+sharpen",
+  "note": "new art + box in v^g, g = 1 - 0.4 t, + 3-tap sharpen a = 0.2 t ([-a/4, 1+a/2, -a/4] in x then y)",
+  "space_gamma": 0.6,
+  "tone_ramp": [
+   2.0,
+   4.0
+  ],
+  "sharpen": {
+   "mode": "sep",
+   "sigma": 0,
+   "amount": 0.2,
+   "ramp": [
+    2.0,
+    4.0
+   ]
+  },
+  "index_stroke": 130,
+  "court_mult": 1.6,
+  "court_colour": "#223",
+  "court_frame_w": 1.5,
+  "court_frame_colour": "#223"
+ }
+]

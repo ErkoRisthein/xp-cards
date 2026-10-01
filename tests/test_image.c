@@ -1,6 +1,7 @@
 /*
- * FreeCell HD — native tests for src/gfx/image.c: resampling, compositing, inversion, AA shapes,
- * PNG round trip.
+ * FreeCell HD — native tests for src/gfx/image.c: resampling (incl. the card resampler against the
+ * crisplab model's golden values, tests/card_golden.h), compositing, inversion, AA shapes, PNG round
+ * trip.
  */
 #include <math.h>
 #include <stdio.h>
@@ -8,6 +9,8 @@
 #include <string.h>
 
 #include "gfx/image.h"
+#include "assets_native.h"
+#include "card_golden.h"
 
 static int failures, checks;
 
@@ -185,6 +188,301 @@ static void test_premul_invariant(void)
         fc_image_free(dst);
         fc_image_free(src);
     }
+}
+
+static FcImage *opaque_noise(int w, int h)
+{
+    FcImage *img = fc_image_new(w, h);
+    int i;
+    for (i = 0; i < w * h; i++)
+        img->px[i] = FC_RGB(rnd() & 255, rnd() & 255, rnd() & 255);
+    return img;
+}
+
+static int same_px(const FcImage *a, const FcImage *b)
+{
+    return a && b && a->w == b->w && a->h == b->h &&
+           memcmp(a->px, b->px, sizeof(uint32_t) * (size_t)a->w * (size_t)a->h) == 0;
+}
+
+/* Floating-point reference of the card resampler, straight from the spec (docs/DESIGN.md
+ * "Crispness decisions"): exact-area box on (v/255)^g, clamped 3-tap sharpen along x then y, back with
+ * ^(1/g). Downscales only (w < sw, h < sh). */
+static double *ref_box_weights(int sn, int dn)
+{
+    double *wt = (double *)calloc((size_t)dn * sn, sizeof(double));
+    int i, j;
+    for (i = 0; i < dn; i++)
+        for (j = 0; j < sn; j++) {
+            double a0 = (double)i * sn, a1 = a0 + sn, b0 = (double)j * dn, b1 = b0 + dn;
+            double lo = a0 > b0 ? a0 : b0, hi = a1 < b1 ? a1 : b1;
+            wt[(size_t)i * sn + j] = hi > lo ? (hi - lo) / sn : 0;
+        }
+    return wt;
+}
+
+static void ref_sharpen(double *v, int n, int stride, double a)
+{
+    double *o = (double *)malloc(sizeof(double) * (size_t)n);
+    int i;
+    for (i = 0; i < n; i++) {
+        double l = v[(i > 0 ? i - 1 : 0) * stride], c = v[i * stride], r = v[(i + 1 < n ? i + 1 : i) * stride];
+        double x = (1 + a / 2) * c - a / 4 * (l + r), lo = fmin(fmin(l, r), c), hi = fmax(fmax(l, r), c);
+        o[i] = x < lo ? lo : (x > hi ? hi : x);
+    }
+    for (i = 0; i < n; i++)
+        v[i * stride] = o[i];
+    free(o);
+}
+
+static FcImage *ref_card_resample(const FcImage *src, int w, int h)
+{
+    int sw = src->w, sh = src->h, x, y, i, j, c;
+    double t = fmin(1, fmax(0, ((double)sh / h - 2) / 2)), g = 1 - 0.4 * t, a = 0.2 * t;
+    double *wx = ref_box_weights(sw, w), *wy = ref_box_weights(sh, h);
+    double *pl = (double *)calloc((size_t)w * h * 3, sizeof(double));
+    FcImage *dst = fc_image_new(w, h);
+    for (c = 0; c < 3; c++)
+        for (y = 0; y < h; y++)
+            for (x = 0; x < w; x++) {
+                double s = 0;
+                for (j = 0; j < sh; j++)
+                    if (wy[(size_t)y * sh + j] > 0)
+                        for (i = 0; i < sw; i++)
+                            if (wx[(size_t)x * sw + i] > 0)
+                                s += wy[(size_t)y * sh + j] * wx[(size_t)x * sw + i] *
+                                     pow(((src->px[j * src->stride + i] >> (8 * c)) & 255) / 255.0, g);
+                pl[((size_t)y * w + x) * 3 + c] = s;
+            }
+    for (c = 0; c < 3; c++) {
+        for (y = 0; y < h; y++)
+            ref_sharpen(pl + (size_t)y * w * 3 + c, w, 3, a);
+        for (x = 0; x < w; x++)
+            ref_sharpen(pl + (size_t)x * 3 + c, h, 3 * w, a);
+    }
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++) {
+            uint32_t p = 0xff000000u;
+            for (c = 0; c < 3; c++)
+                p |= (uint32_t)floor(255 * pow(pl[((size_t)y * w + x) * 3 + c], 1 / g) + 0.5) << (8 * c);
+            dst->px[y * w + x] = p;
+        }
+    free(wx);
+    free(wy);
+    free(pl);
+    return dst;
+}
+
+/* The card resampler (docs/DESIGN.md "Crispness decisions"): the float reference within 1 LSB
+ * (including 1- and 2-pixel edges), flat colours exact at every strength, dark bias and no halos,
+ * plain box where it is off, fallbacks. */
+static void test_card_filter(void)
+{
+    static const int dims[][4] = { { 40, 56, 7, 10 }, { 40, 56, 10, 14 }, { 40, 56, 12, 18 }, { 40, 56, 30, 25 },
+                                   { 40, 56, 1, 10 }, { 40, 56, 2, 14 }, { 40, 56, 7, 1 }, { 40, 56, 1, 1 },
+                                   { 40, 56, 3, 2 }, { 33, 47, 21, 20 } };
+    FcImage *src, *a, *b;
+    FcCardFilter *f;
+    size_t k;
+    int v, x, y, bad = 0;
+    /* a flat colour stays exactly the same (fwd/inv LUT round trip, weights summing to 1) */
+    for (k = 0; k < sizeof dims / sizeof dims[0]; k++)
+        for (v = 0; v < 256; v++) {
+            uint32_t c = FC_RGB(v, 255 - v, v / 2 + 64);
+            src = solid(dims[k][0], dims[k][1], c);
+            a = fc_image_resample_card(src, dims[k][2], dims[k][3], 1);
+            for (y = 0; a && y < a->h; y++)
+                for (x = 0; x < a->w; x++)
+                    bad += a->px[y * a->stride + x] != c;
+            bad += !a;
+            fc_image_free(a);
+            fc_image_free(src);
+        }
+    CHECK(bad == 0, "%d pixels of flat colours changed", bad);
+
+    /* random art against the float reference */
+    for (k = 0, bad = 0; k < sizeof dims / sizeof dims[0]; k++) {
+        int worst = 0;
+        src = opaque_noise(dims[k][0], dims[k][1]);
+        a = fc_image_resample_card(src, dims[k][2], dims[k][3], 1);
+        b = ref_card_resample(src, dims[k][2], dims[k][3]);
+        for (v = 0; a && v < a->w * a->h; v++) {
+            int c;
+            for (c = 0; c < 32; c += 8) {
+                int d = abs((int)((a->px[v] >> c) & 255) - (int)((b->px[v] >> c) & 255));
+                worst = d > worst ? d : worst;
+            }
+        }
+        CHECK(a && worst <= 1, "%dx%d -> %dx%d: %d LSB from the reference", dims[k][0], dims[k][1], dims[k][2],
+              dims[k][3], worst);
+        fc_image_free(a);
+        fc_image_free(b);
+        fc_image_free(src);
+    }
+
+    /* dark bias at full strength (f >= 4): a 50 % black/white checkerboard averages v^0.6 to
+     * 0.5^(1/0.6) = 0.315 -> 80 (the box gives 128) */
+    src = fc_image_new(16, 16);
+    for (y = 0; y < 16; y++)
+        for (x = 0; x < 16; x++)
+            src->px[y * 16 + x] = (x + y) & 1 ? FC_RGB(255, 255, 255) : FC_RGB(0, 0, 0);
+    a = fc_image_resample_card(src, 4, 4, 1);
+    b = fc_image_resample(src, 4, 4, 1);
+    CHECK(a && a->px[5] == FC_RGB(80, 80, 80) && b->px[5] == FC_RGB(128, 128, 128), "checker %08x %08x",
+          a ? a->px[5] : 0, b->px[5]);
+    fc_image_free(a);
+    fc_image_free(b);
+    fc_image_free(src);
+
+    /* a dark line on grey: darker than the box, and no light halo beside it (overshoot clamp) */
+    src = solid(400, 560, FC_RGB(160, 160, 160));
+    fc_fill_rect(src, 199, 0, 3, 560, FC_RGB(0, 0, 0));   /* 0.53 of output column 35 */
+    a = fc_image_resample_card(src, 71, 96, 1);
+    b = fc_image_resample(src, 71, 96, 1);
+    {
+        uint32_t amin = 255, bmin = 255, amax = 0;
+        for (x = 0; a && x < 71; x++) {
+            uint32_t pa = R(a->px[48 * 71 + x]), pb = R(b->px[48 * 71 + x]);
+            amin = pa < amin ? pa : amin;
+            bmin = pb < bmin ? pb : bmin;
+            amax = pa > amax ? pa : amax;
+        }
+        CHECK(a && amin + 20 < bmin && amax == 160, "line: min %u (box %u), max %u", amin, bmin, amax);
+    }
+    fc_image_free(a);
+    fc_image_free(b);
+    fc_image_free(src);
+
+    /* off for t < 0.1 (h >= 255 from 560: 1080p maximised is h257) and for upscales: exactly the box */
+    src = opaque_noise(400, 560);
+    for (k = 0; k < 4; k++) {
+        static const int out[4][2] = { { 189, 255 }, { 190, 257 }, { 213, 288 }, { 430, 581 } };
+        a = fc_image_resample_card(src, out[k][0], out[k][1], 1);
+        b = fc_image_resample(src, out[k][0], out[k][1], 1);
+        CHECK(same_px(a, b), "box at %dx%d", out[k][0], out[k][1]);
+        fc_image_free(a);
+        fc_image_free(b);
+    }
+    /* ... and on at h254 (t = 0.102): not the box */
+    a = fc_image_resample_card(src, 188, 254, 1);
+    b = fc_image_resample(src, 188, 254, 1);
+    CHECK(a && !same_px(a, b), "on at h254");
+    fc_image_free(a);
+    fc_image_free(b);
+    /* quality 0 is the fast path */
+    a = fc_image_resample_card(src, 71, 96, 0);
+    b = fc_image_resample(src, 71, 96, 0);
+    CHECK(same_px(a, b), "quality 0");
+    fc_image_free(a);
+    fc_image_free(b);
+    /* a cached filter gives the one-off result; keys; mismatched source size */
+    f = fc_card_filter_new(400, 560, 95, 128);
+    a = fc_image_resample_card_filter(src, f);
+    b = fc_image_resample_card(src, 95, 128, 1);
+    CHECK(same_px(a, b), "filter reuse");
+    fc_image_free(a);
+    a = fc_image_resample_card_filter(src, f);
+    CHECK(same_px(a, b), "filter reuse twice");
+    fc_image_free(a);
+    fc_image_free(b);
+    CHECK(fc_card_filter_is(f, 400, 560, 95, 128) && !fc_card_filter_is(f, 400, 560, 95, 127) &&
+          !fc_card_filter_is(f, 200, 280, 95, 128) && !fc_card_filter_is(NULL, 400, 560, 95, 128), "keys");
+    fc_image_free(src);
+    src = opaque_noise(200, 280);
+    CHECK(fc_image_resample_card_filter(src, f) == NULL && fc_image_resample_card_filter(NULL, f) == NULL &&
+          fc_image_resample_card_filter(src, NULL) == NULL, "size mismatch / NULL");
+    CHECK(fc_card_filter_new(0, 560, 95, 128) == NULL && fc_image_resample_card(src, 0, 5, 1) == NULL, "bad sizes");
+    fc_card_filter_free(f);
+    fc_card_filter_free(NULL);
+    /* not opaque: falls back to the premultiplied box */
+    src->px[1234] = FC_ARGB(128, 10, 20, 30);
+    a = fc_image_resample_card(src, 50, 70, 1);
+    b = fc_image_resample(src, 50, 70, 1);
+    CHECK(same_px(a, b), "non-opaque source -> box");
+    fc_image_free(a);
+    fc_image_free(b);
+    fc_image_free(src);
+}
+
+/* The shipped masters through the card set (clean, card resampler, finish) against the crisplab
+ * model (tests/card_golden.h, tools/crisplab/proto/make_golden.py): every sample within 1 LSB, the
+ * per-channel sums within npix/16. At h257 the resampler is the old box, bit for bit. */
+static void test_card_golden(void)
+{
+    static const char ranks[] = "A23456789TJQK", suits[] = "CDHS";
+    FcNativeAssets na;
+    FcCardSet *cs;
+    size_t i, k;
+    int worst = 0, bad = 0, n = 0, same = 0;
+    double sum_worst = 0;
+    fc_native_assets_init(&na, "res");
+    cs = fc_cardset_new(fc_native_asset_loader, &na);
+    if (!cs) {
+        printf("SKIP card golden: no assets in res/\n");
+        return;
+    }
+    for (i = 0; i < sizeof card_golden / sizeof card_golden[0]; i++) {
+        const CardGolden *g = &card_golden[i];
+        Card c = (Card)((strchr(ranks, g->card[0]) - ranks) * 4 + (strchr(suits, g->card[1]) - suits));
+        const FcImage *s;
+        long sum[4] = { 0, 0, 0, 0 }, tol = (long)g->cw * g->ch / 16;
+        int x, y, ch;
+        fc_cardset_set_size(cs, g->cw, g->ch, 32, 320, 1);
+        s = fc_cardset_card(cs, c);
+        CHECK(s && s->w == g->cw && s->h == g->ch, "%s h%d: sprite", g->card, g->ch);
+        if (!s)
+            continue;
+        for (y = 0; y < s->h; y++)
+            for (x = 0; x < s->w; x++)
+                for (ch = 0; ch < 4; ch++)
+                    sum[ch] += (s->px[y * s->stride + x] >> (8 * ch)) & 255;
+        for (ch = 0; ch < 4; ch++) {
+            double e = (double)labs(sum[ch] - g->sum[ch]) / ((double)g->cw * g->ch);
+            sum_worst = e > sum_worst ? e : sum_worst;
+            CHECK(labs(sum[ch] - g->sum[ch]) <= tol, "%s h%d channel %d: sum %ld, model %ld (tolerance %ld)",
+                  g->card, g->ch, ch, sum[ch], g->sum[ch], tol);
+        }
+        for (k = 0; k < sizeof g->s / sizeof g->s[0]; k++) {
+            uint32_t p = s->px[g->s[k].y * s->stride + g->s[k].x], q = g->s[k].argb;
+            int d = 0;
+            for (ch = 0; ch < 32; ch += 8) {
+                int e = abs((int)((p >> ch) & 255) - (int)((q >> ch) & 255));
+                d = e > d ? e : d;
+            }
+            worst = d > worst ? d : worst;
+            if (d > 1) {
+                bad++;
+                printf("  %s h%d (%d,%d): %08x, model %08x\n", g->card, g->ch, g->s[k].x, g->s[k].y, p, q);
+            }
+            n++;
+        }
+    }
+    CHECK(bad == 0, "%d of %d samples more than 1 LSB from the model", bad, n);
+    printf("card golden: %d sprites, %d samples, worst %d LSB; sums off by <= %.4f LSB/pixel\n",
+           (int)(sizeof card_golden / sizeof card_golden[0]), n, worst, sum_worst);
+
+    /* h257 (1080p): the card resampler is the v1.1 box, bit for bit, on the real masters */
+    for (i = 0; i < 4; i++) {
+        static const char *codes[4] = { "AS", "TC", "QH", "KS" };
+        Card c = (Card)((strchr(ranks, codes[i][0]) - ranks) * 4 + (strchr(suits, codes[i][1]) - suits));
+        size_t len;
+        const void *data = fc_native_asset_loader(FC_ASSET_CARD0 + c, &len, &na);
+        FcImage *m = data ? fc_image_decode_png(data, len) : NULL, *o, *a, *b;
+        if (!m)
+            continue;
+        o = solid(m->w, m->h, FC_RGB(255, 255, 255));   /* opaque, as the card set's masters */
+        fc_blit(o, m, 0, 0);
+        a = fc_image_resample_card(o, 190, 257, 1);
+        b = fc_image_resample(o, 190, 257, 1);
+        same += same_px(a, b);
+        fc_image_free(a);
+        fc_image_free(b);
+        fc_image_free(o);
+        fc_image_free(m);
+    }
+    CHECK(same == 4, "h257: %d of 4 masters equal the box", same);
+    fc_cardset_free(cs);
+    fc_native_assets_free(&na);
 }
 
 static void test_compositing(void)
@@ -418,6 +716,8 @@ int main(void)
     test_box_values();
     test_alpha_edges();
     test_premul_invariant();
+    test_card_filter();
+    test_card_golden();
     test_compositing();
     test_shapes();
     test_card_shape();

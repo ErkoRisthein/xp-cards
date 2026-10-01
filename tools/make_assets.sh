@@ -9,8 +9,12 @@
 #   cursor  res/icon/make_cursor.py -> res/downarrow.cur
 #   cards   res/cards-svg/<R><S>.svg -> res/cards/<R><S>.png (400x560 RGBA; docs/card-art.md §2, slow:
 #           zopfli). The SVGs themselves come from the RevK generator URL in res/cards-src/ and are
-#           kept unmodified; the rank-index stroke is thickened here from the generator's 80 to
-#           $INDEX_STROKE (default 115, closer to XP's bold index and readable at small sizes).
+#           kept unmodified; tools/edit_card_svg.py edits a copy before rasterising (docs/DESIGN.md
+#           "Crispness decisions"): the rank-index stroke goes from the generator's 80 to
+#           $INDEX_STROKE (default 130, closer to XP's bold index and readable at small sizes), and the
+#           court-art linework (stroke #44F) becomes $COURT_MULT x wider (default 1.6) and
+#           $COURT_COLOUR (default #223, dark navy), the court picture frame $COURT_COLOUR at
+#           $COURT_FRAME_W units (default 1.5). The blue fills stay.
 #   check   structure checks of the .ico/.cur and PNG sizes/formats
 #
 # Needs: rsvg-convert (librsvg), Python 3 with Pillow ($PYTHON, default python3) and, for PNG
@@ -20,7 +24,10 @@ set -eu
 cd "$(dirname "$0")/.."
 PYTHON=${PYTHON:-python3}
 OXIPNG_PYTHON=${OXIPNG_PYTHON:-$PYTHON}
-INDEX_STROKE=${INDEX_STROKE:-115}
+INDEX_STROKE=${INDEX_STROKE:-130}
+COURT_MULT=${COURT_MULT:-1.6}
+COURT_COLOUR=${COURT_COLOUR:-#223}
+COURT_FRAME_W=${COURT_FRAME_W:-1.5}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fcassets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
@@ -54,7 +61,8 @@ cursor() { "$PYTHON" res/icon/make_cursor.py res/downarrow.cur >/dev/null; echo 
 cards() {
     for f in res/cards-svg/??.svg; do
         n=$(basename "$f" .svg)
-        sed "s/stroke-width=\"80\"/stroke-width=\"$INDEX_STROKE\"/g" "$f" > "$TMP/$n.svg"
+        "$PYTHON" tools/edit_card_svg.py "$f" "$TMP/$n.svg" "$INDEX_STROKE" "$COURT_MULT" "$COURT_COLOUR" \
+            "$COURT_FRAME_W"
         rsvg-convert -h 560 "$TMP/$n.svg" -o "$TMP/$n.png"
         optimise "$TMP/$n.png" "res/cards/$n.png" 15
         printf '%s ' "$n"

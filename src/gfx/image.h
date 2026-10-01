@@ -32,6 +32,25 @@ FcImage *fc_image_decode_png(const void *data, size_t len);
  * (bilinear / nearest mip, for live window resizing), 1 = best. */
 FcImage *fc_image_resample(const FcImage *src, int w, int h, int quality);
 
+/* The card-master resampler (docs/DESIGN.md "Crispness decisions"). For strong downscales it keeps
+ * thin strokes dark and edges crisp: with t = clamp((src_h / h - 2) / 2, 0, 1) (full strength for
+ * h <= src_h / 4, i.e. ch <= 140 from the 560-px masters), it box-averages v^g with g = 1 - 0.4 t (a
+ * dark bias, "stem darkening"), applies a 3-tap sharpen [-a/4, 1 + a/2, -a/4] with a = 0.2 t along x
+ * then y, each sample clamped to the range of its three inputs (no halos), and maps back with
+ * v^(1/g). A flat colour stays exactly the same. For t < 0.1 (h >= 255 from 560) the result is
+ * exactly fc_image_resample(src, w, h, 1).
+ * src must be opaque (alpha 255 everywhere, as the card set's cleaned masters are); a source that is
+ * not is resampled with fc_image_resample(src, w, h, 1) instead. The output is opaque.
+ * The per-size part (LUTs from pow(), filter taps) is an FcCardFilter, built once per size; the
+ * per-card part is integer only. */
+typedef struct FcCardFilter FcCardFilter;
+FcCardFilter *fc_card_filter_new(int src_w, int src_h, int w, int h);   /* NULL if out of memory */
+void          fc_card_filter_free(FcCardFilter *f);
+int           fc_card_filter_is(const FcCardFilter *f, int src_w, int src_h, int w, int h);
+FcImage      *fc_image_resample_card_filter(const FcImage *src, const FcCardFilter *f); /* src: f's src size */
+/* One-off: quality 1 builds a filter for this call; quality 0 is fc_image_resample(src, w, h, 0). */
+FcImage      *fc_image_resample_card(const FcImage *src, int w, int h, int quality);
+
 /* Drawing into dst (all clip to dst bounds). */
 void fc_fill_rect(FcImage *dst, int x, int y, int w, int h, uint32_t argb);       /* opaque copy */
 void fc_blit(FcImage *dst, const FcImage *src, int dx, int dy);                   /* src-over */

@@ -326,6 +326,215 @@ FcImage *fc_image_resample(const FcImage *src, int w, int h, int quality)
     return dst;
 }
 
+/* ---- card masters: dark-biased box + clamped 3-tap sharpen ---------------------------------------
+ * docs/DESIGN.md "Crispness decisions"; the numpy model is tools/crisplab (candidate
+ * 'art+darkbias+sharpen+clamp'), which this code matches within 1 LSB.
+ *
+ * Per size (floating point, once): f = src_h / h, t = clamp((f - 2) / 2, 0, 1), g = 1 - 0.4 t,
+ * a = 0.2 t; t < 0.1 is plain fc_image_resample. LUTs: fwd[v] = 65535 (v/255)^g (uint16) and
+ * inv[j] = 255 ((16 j + 8)/65535)^(1/g) (4096 entries, at most 0.12 LSB off), so a flat colour maps
+ * to itself. Per card (integer only):
+ *   1. the exact-area box (taps_build quality 1, 16.16 weights summing to 65536) on fwd[v]: vertical
+ *      pass into uint32 sums (<= 65535 * 65536 < 2^32), rounded to 16 bits, then horizontal;
+ *   2. [-k1, k0, -k1] / 4096 (k1 = round(a/4 * 4096), k0 = 4096 + 2 k1) along x, then along y on
+ *      that result, clamp-to-edge; each sample is clamped to the [min, max] of the three it was
+ *      computed from, which removes the overshoot halos of a plain sharpen and keeps every value in
+ *      0..65535 (uint16 rows; int32 sums below 2^29);
+ *   3. inv[v >> 4] per channel; alpha 255.
+ * The y pass runs on a 3-row ring of x-sharpened rows, so the card is streamed row by row. */
+
+#define CARD_T_MIN   0.1     /* below this ramp value (h >= 255 from 560): plain box */
+#define CARD_G_DROP  0.4     /* g = 1 - 0.4 t */
+#define CARD_SHARPEN 0.2     /* a = 0.2 t */
+
+struct FcCardFilter {
+    int      sw, sh, w, h;
+    int      box;            /* 1: fc_image_resample(src, w, h, 1), nothing below is set */
+    int32_t  k0, k1;         /* sharpen weights, 4.12 */
+    Taps     tx, ty;
+    uint16_t fwd[256];
+    uint8_t  inv[4096];
+};
+
+FcCardFilter *fc_card_filter_new(int src_w, int src_h, int w, int h)
+{
+    FcCardFilter *f;
+    double t, g, a;
+    int i;
+    if (src_w <= 0 || src_h <= 0 || w <= 0 || h <= 0)
+        return NULL;
+    f = (FcCardFilter *)calloc(1, sizeof *f);
+    if (!f)
+        return NULL;
+    f->sw = src_w;
+    f->sh = src_h;
+    f->w = w;
+    f->h = h;
+    t = ((double)src_h / h - 2.0) / 2.0;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    if (t < CARD_T_MIN) {
+        f->box = 1;
+        return f;
+    }
+    g = 1.0 - CARD_G_DROP * t;
+    a = CARD_SHARPEN * t;
+    f->k1 = (int32_t)floor(a / 4 * 4096 + 0.5);
+    f->k0 = 4096 + 2 * f->k1;
+    for (i = 0; i < 256; i++)
+        f->fwd[i] = (uint16_t)floor(65535.0 * pow(i / 255.0, g) + 0.5);
+    for (i = 0; i < 4096; i++)
+        f->inv[i] = (uint8_t)floor(255.0 * pow((16.0 * i + 8) / 65535.0, 1.0 / g) + 0.5);
+    if (!taps_build(&f->tx, src_w, w, 1) || !taps_build(&f->ty, src_h, h, 1)) {
+        fc_card_filter_free(f);
+        return NULL;
+    }
+    return f;
+}
+
+void fc_card_filter_free(FcCardFilter *f)
+{
+    if (f) {
+        taps_free(&f->tx);
+        taps_free(&f->ty);
+        free(f);
+    }
+}
+
+int fc_card_filter_is(const FcCardFilter *f, int src_w, int src_h, int w, int h)
+{
+    return f && f->sw == src_w && f->sh == src_h && f->w == w && f->h == h;
+}
+
+/* [-k1, k0, -k1] / 4096 on (l, c, r), clamped to their [min, max]. The sum is negative beside a dark
+ * edge (c = 0, l or r > 0); >> of a negative int32 is implementation-defined in C99 and arithmetic in
+ * GCC, Clang and MSVC, so it stays negative, below min >= 0, and the clamp gives min (a logical shift
+ * would give a large value and clamp to max instead). Flat runs (most of a card is white) return at
+ * once. */
+static inline uint32_t sharpen3(int32_t l, int32_t c, int32_t r, int32_t k0, int32_t k1)
+{
+    int32_t v, lo, hi;
+    if (l == c && r == c)
+        return (uint32_t)c;
+    v = (k0 * c - k1 * (l + r) + 2048) >> 12;
+    lo = l < r ? l : r;
+    hi = l < r ? r : l;
+    if (c < lo) lo = c;
+    if (c > hi) hi = c;
+    return (uint32_t)(v < lo ? lo : (v > hi ? hi : v));
+}
+
+FcImage *fc_image_resample_card_filter(const FcImage *src, const FcCardFilter *f)
+{
+    FcImage *dst;
+    uint32_t *acc, opaque = 0xffffffffu;
+    uint16_t *row, *line, *ring;
+    int sw, w, h, x, y, i, n3;
+    if (!src || !f || src->w != f->sw || src->h != f->sh)
+        return NULL;
+    if (f->box)
+        return fc_image_resample(src, f->w, f->h, 1);
+    sw = src->w;
+    w = f->w;
+    h = f->h;
+    n3 = 3 * w;
+    dst = fc_image_new(w, h);
+    acc = (uint32_t *)malloc(sizeof(uint32_t) * 3 * (size_t)sw);
+    row = (uint16_t *)malloc(sizeof(uint16_t) * 3 * (size_t)sw);
+    line = (uint16_t *)malloc(sizeof(uint16_t) * 4 * (size_t)n3);   /* box row + the 3-row ring */
+    if (!dst || !acc || !row || !line) {
+        fc_image_free(dst);
+        free(acc);
+        free(row);
+        free(line);
+        return NULL;
+    }
+    ring = line + n3;
+    for (y = 0; y <= h; y++) {
+        if (y < h) {
+            const uint32_t *wy = f->ty.w + f->ty.off[y];
+            uint16_t *u = ring + (size_t)(y % 3) * n3;
+            int n = f->ty.n[y];
+            /* box, vertical: power-space sums of the source rows */
+            memset(acc, 0, sizeof(uint32_t) * 3 * (size_t)sw);
+            for (i = 0; i < n; i++) {
+                const uint32_t *sp = src->px + (size_t)(f->ty.start[y] + i) * src->stride;
+                uint32_t wt = wy[i], *a = acc;
+                if (!wt)
+                    continue;
+                for (x = 0; x < sw; x++, a += 3) {
+                    uint32_t p = sp[x];
+                    opaque &= p;
+                    a[0] += f->fwd[p & 255] * wt;
+                    a[1] += f->fwd[(p >> 8) & 255] * wt;
+                    a[2] += f->fwd[(p >> 16) & 255] * wt;
+                }
+            }
+            for (x = 0; x < 3 * sw; x++)
+                row[x] = (uint16_t)((acc[x] + 32768u) >> 16);
+            /* box, horizontal */
+            for (x = 0; x < w; x++) {
+                const uint32_t *wx = f->tx.w + f->tx.off[x];
+                const uint16_t *r = row + 3 * f->tx.start[x];
+                uint32_t s0 = 0, s1 = 0, s2 = 0;
+                int m = f->tx.n[x];
+                for (i = 0; i < m; i++, r += 3) {
+                    uint32_t wt = wx[i];
+                    s0 += r[0] * wt;
+                    s1 += r[1] * wt;
+                    s2 += r[2] * wt;
+                }
+                line[3 * x] = (uint16_t)((s0 + 32768u) >> 16);
+                line[3 * x + 1] = (uint16_t)((s1 + 32768u) >> 16);
+                line[3 * x + 2] = (uint16_t)((s2 + 32768u) >> 16);
+            }
+            /* sharpen along x into the ring (channels interleaved: neighbours are 3 apart) */
+            for (x = 0; x < 3; x++) {
+                u[x] = (uint16_t)sharpen3(line[x], line[x], line[w > 1 ? x + 3 : x], f->k0, f->k1);
+                u[n3 - 3 + x] = (uint16_t)sharpen3(line[w > 1 ? n3 - 6 + x : x], line[n3 - 3 + x],
+                                                   line[n3 - 3 + x], f->k0, f->k1);
+            }
+            for (x = 3; x < n3 - 3; x++)
+                u[x] = (uint16_t)sharpen3(line[x - 3], line[x], line[x + 3], f->k0, f->k1);
+        }
+        /* sharpen along y and convert output row y - 1 (rows y - 2 .. y, clamped to the image) */
+        if (y > 0) {
+            int oy = y - 1;
+            const uint16_t *up = ring + (size_t)((oy > 0 ? oy - 1 : 0) % 3) * n3;
+            const uint16_t *mid = ring + (size_t)(oy % 3) * n3;
+            const uint16_t *dn = ring + (size_t)((oy + 1 < h ? oy + 1 : oy) % 3) * n3;
+            uint32_t *out = dst->px + (size_t)oy * dst->stride;
+            for (x = 0; x < w; x++, up += 3, mid += 3, dn += 3)
+                out[x] = 0xff000000u |
+                         (uint32_t)f->inv[sharpen3(up[2], mid[2], dn[2], f->k0, f->k1) >> 4] << 16 |
+                         (uint32_t)f->inv[sharpen3(up[1], mid[1], dn[1], f->k0, f->k1) >> 4] << 8 |
+                         f->inv[sharpen3(up[0], mid[0], dn[0], f->k0, f->k1) >> 4];
+        }
+    }
+    free(acc);
+    free(row);
+    free(line);
+    if ((opaque >> 24) != 255) {
+        /* not a card master: a power of a premultiplied value is not premultiplied */
+        fc_image_free(dst);
+        return fc_image_resample(src, w, h, 1);
+    }
+    return dst;
+}
+
+FcImage *fc_image_resample_card(const FcImage *src, int w, int h, int quality)
+{
+    FcCardFilter *f;
+    FcImage *dst;
+    if (!src || w <= 0 || h <= 0)
+        return NULL;
+    if (quality <= 0)
+        return fc_image_resample(src, w, h, quality);
+    f = fc_card_filter_new(src->w, src->h, w, h);
+    dst = f ? fc_image_resample_card_filter(src, f) : NULL;
+    fc_card_filter_free(f);
+    return dst;
+}
+
 /* ---- drawing ---------------------------------------------------------------------------------- */
 
 /* Clip a w x h rectangle at (*x,*y) against dst; adjusts source offsets *sx,*sy. 0 if empty. */

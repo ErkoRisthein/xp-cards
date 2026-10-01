@@ -1,0 +1,31 @@
+[
+ {
+  "name": "current",
+  "note": "v1.1 as shipped: box (area) filter, index 115, courts as generated (the lab defaults)"
+ },
+ {
+  "name": "art+darkbias+sharpen",
+  "note": "finalist C (FINALISTS.md): new art + box in v^g, g = 1 - 0.4 t, + 3-tap sharpen a = 0.2 t",
+  "space_gamma": 0.6,
+  "tone_ramp": [2.0, 4.0],
+  "sharpen": {"mode": "sep", "sigma": 0, "amount": 0.2, "ramp": [2.0, 4.0]},
+  "index_stroke": 130,
+  "court_mult": 1.6,
+  "court_colour": "#223",
+  "court_frame_w": 1.5,
+  "court_frame_colour": "#223"
+ },
+ {
+  "name": "art+darkbias+sharpen+clamp",
+  "note": "v1.1.1 as shipped (fc_image_resample_card): finalist C + each sharpened sample clamped to the range of its 3 taps (no halos) + t < 0.1 treated as 0 (h257 = box)",
+  "space_gamma": 0.6,
+  "tone_ramp": [2.0, 4.0],
+  "sharpen": {"mode": "sep", "sigma": 0, "amount": 0.2, "ramp": [2.0, 4.0], "clamp": true},
+  "ramp_min": 0.1,
+  "index_stroke": 130,
+  "court_mult": 1.6,
+  "court_colour": "#223",
+  "court_frame_w": 1.5,
+  "court_frame_colour": "#223"
+ }
+]

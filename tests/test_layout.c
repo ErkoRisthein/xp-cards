@@ -511,7 +511,7 @@ static FcImage *ref_sprite(FcNativeAssets *na, Card c, int cw, int ch, int q)
     if (!m)
         return NULL;
     ref_clean_master(m);
-    s = fc_image_resample(m, cw, ch, q);
+    s = fc_image_resample_card(m, cw, ch, q);   /* q 1: the card resampler (test_image.c checks it) */
     fc_image_free(m);
     if (s)
         ref_card_finish(s, 0.0372 * ch, ch <= 300 ? 1.0 : ch / 300.0, FC_RGB(0, 0, 0), FC_RGB(255, 255, 255));
@@ -539,9 +539,9 @@ static const void *counting_loader(int id, size_t *len, void *ctx)
     return fc_native_asset_loader(id, len, &c->na);
 }
 
-/* Sprites equal the v1 pipeline at every size class; quality and size rules (a fast request at the
- * built size keeps the sprites); the big-size path never decodes a PNG for fast sprites; the bevel
- * ring cache. */
+/* Sprites equal the reference pipeline (v1 clean and finish around fc_image_resample_card) at every
+ * size class; quality and size rules (a fast request at the built size keeps the sprites); the
+ * big-size path never decodes a PNG for fast sprites; the bevel ring cache. */
 static void test_cardset_rules(const char *res)
 {
     static const int sizes[][3] = { { 71, 96, 1 }, { 191, 258, 1 }, { 213, 288, 0 }, { 300, 406, 1 }, { 430, 581, 1 } };
@@ -568,7 +568,7 @@ static void test_cardset_rules(const char *res)
             fc_image_free(r);
         }
     }
-    CHECK(bad == 0, "%d of %d sprites differ from the v1 pipeline", bad, n);
+    CHECK(bad == 0, "%d of %d sprites differ from the reference pipeline", bad, n);
 
     /* quality: fast at the same size keeps the best sprites, best again keeps them too */
     fc_cardset_set_size(cs, 191, 258, 32, 320, 1);
