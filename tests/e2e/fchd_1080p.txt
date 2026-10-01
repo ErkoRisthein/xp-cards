@@ -1,0 +1,68 @@
+# FreeCell HD end to end at full-HD size: game #1 in a 1904 x 996 client (a maximized window on a
+# 1920 x 1080 XP desktop), an animated move with autoplay, peek, undo/redo, maximize, the minimum
+# size, minimize/restore.  Needs a screen of at least 1920 x 1060: tests/e2e/run_fchd_e2e.sh runs it
+# in a Wine prefix in Retina mode (3600 x 2338 on this Mac).
+# Geometry at 1904 x 996 (height-limited, s = 996/372 = 2.677): board 1692 wide centred at x = 106,
+# cards 190 x 257, columns x = 125 334 543 752 961 1170 1379 1588, first card y = 284, step 50;
+# free cells x = 106 296 486 676, home cells x = 1038 1228 1418 1608.
+
+timeout 60000                             # start-up decode: seconds under Rosetta (x87 emulation)
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+info
+capture_window 39_first_run_window.bmp    # first run: ~85% of the work area height
+move_window 0 120
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+resize_client 1904 996
+assert_client_size 1904 996
+assert_menubar_text "Cards Left: 52"
+assert_pixel 105 600 007F00               # left margin of the centred board
+assert_pixel 106 0 000000                 # free cell 0 bevel (2 px at this scale)
+assert_pixel 107 1 000000
+capture 40_1904x996_game1.bmp
+capture_window 40_1904x996_game1_window.bmp
+
+click 1260 650                            # select 3D (column 6, y 534..790)
+capture 41_1904x996_selected.bmp
+click 200 128                             # -> free cell 0 (animated)
+click 1260 600                            # select 2C
+click 390 128                             # -> free cell 1; autoplay: AC, 2C, AS fly home
+assert_menubar_text "Cards Left: 49"
+capture 42_1904x996_autoplay.bmp
+capture_window 42_1904x996_autoplay_window.bmp
+rclick_down 430 350                       # peek at KC (column 2, second card)
+capture 43_1904x996_peek.bmp
+rclick_up 430 350
+vkey F10
+assert_menubar_text "Cards Left: 52"
+vkey Y ctrl
+assert_menubar_text "Cards Left: 49"
+capture 43_1904x996_redo.bmp
+
+maximize
+info
+assert_menubar_text "Cards Left: 49"
+capture 44_maximized.bmp
+capture_window 44_maximized_window.bmp
+restore
+assert_client_size 1904 996
+
+resize_client 316 186                     # the minimum client size (scale 0.5)
+assert_menubar_text "Cards Left: 49"
+capture 45_min.bmp
+capture_window 45_min_window.bmp
+minimize
+restore
+assert_running
+assert_client_size 316 186
+resize_client 640 480
+capture 46_640x480.bmp
+capture_window 46_640x480_window.bmp
+close Yes
+wait_exit 5000

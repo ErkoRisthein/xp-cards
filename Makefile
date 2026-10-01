@@ -4,6 +4,7 @@
 #   make test       build and run native unit tests
 #   make snapshots  render board snapshots to build/snapshots/*.png (native)
 #   make xpcheck    verify every import of the exe exists on Windows XP
+#   make e2e        end-to-end scenarios under Wine (tests/e2e/fchd_*.txt -> build/e2e/fchd)
 #   make clean
 
 WINCC    ?= i686-w64-mingw32-gcc
@@ -33,7 +34,7 @@ WIN_OBJ  := $(patsubst %.c,$(BUILD)/win/%.o,$(CORE_SRC) $(GFX_SRC) $(WIN_SRC)) $
 HOST_LIB_SRC := $(CORE_SRC) $(GFX_SRC)
 TESTS    := $(patsubst tests/%.c,$(BUILD)/host/%,$(filter-out tests/snapshots.c,$(wildcard tests/test_*.c)))
 
-.PHONY: all test snapshots xpcheck clean
+.PHONY: all test snapshots xpcheck e2e clean
 
 all: $(EXE)
 
@@ -61,6 +62,9 @@ snapshots: $(BUILD)/host/snapshots
 
 xpcheck: $(EXE)
 	$(PYTHON) tools/xp_imports_check.py $(EXE)
+
+e2e: $(EXE)
+	tests/e2e/run_fchd_e2e.sh $(BUILD)/e2e/fchd
 
 clean:
 	rm -rf $(BUILD)

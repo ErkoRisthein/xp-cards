@@ -13,14 +13,16 @@
  *   WM_MOUSEACTIVATE (HTCLIENT) -> fcs_mouse_activate(s)   (next left click / dblclick is swallowed)
  *   WM_CHAR          fcs_char(s, ch)
  *   WM_TIMER         fcs_timer(s, id)
- *   WM_COMMAND       fcs_command(s, FCS_CMD_NEW / SELECT / RESTART / UNDO / CHEAT); Statistics and
+ *   WM_COMMAND       fcs_command(s, FCS_CMD_NEW / SELECT / RESTART / UNDO / REDO / CHEAT); Statistics and
  *                    Options dialogs work on s->stats / s->opts directly (stats.h)
  *   WM_CLOSE         if (fcs_close(s)) DestroyWindow   (asks to resign, records the loss, saves options)
  *   WM_PAINT         draw s->board with fcs_view_state(s, ...) mapped onto FcView
  *
  * Deviations from XP (docs/DESIGN.md): unlimited undo (history of FcAction; a selecting click keeps it;
  * a pure deselect adds nothing; free cell -> free cell / home moves are undoable; cleared on every
- * deal, win and lose); the bugs of rules.md §11 are fixed (stale undo after a new deal, Select Game
+ * deal, win and lose); redo (an extra: Undo moves the undone action onto a redo stack, Redo replays it
+ * forwards with the same animation, including its autoplay steps; any newly committed action, deal,
+ * win or lose clears it); the bugs of rules.md §11 are fixed (stale undo after a new deal, Select Game
  * cancel now leaves the current game completely untouched and records no loss, no y < 9 miss quirk —
  * a miss is FCS_MISS, no DBLCLK repost, cheat win keeps the home piles consistent); the two texts with
  * missing spaces are fixed; two New Games in the same second give different numbers.
@@ -41,7 +43,7 @@ enum { FCS_CURSOR_ARROW = 0,             /* IDC_ARROW */
        FCS_CURSOR_WAIT = 3 };            /* IDC_WAIT: keyboard column peek / replay in progress */
 /* WM_COMMAND ids of the XP menu (resources.md) handled by fcs_command / posted via post_command. */
 enum { FCS_CMD_NEW = 102, FCS_CMD_SELECT = 103, FCS_CMD_RESTART = 107, FCS_CMD_CHEAT = 114,
-       FCS_CMD_UNDO = 115 };
+       FCS_CMD_UNDO = 115, FCS_CMD_REDO = 116 /* extra, not in XP */ };
 enum { FCS_TIMER_FLASH = 2, FCS_TIMER_PEEK = 3 };          /* XP timer ids; 400 ms and 300 ms */
 enum { FCS_MOVECOL_CANCEL = -1, FCS_MOVECOL_SINGLE = 0, FCS_MOVECOL_COLUMN = 1 };
 enum { FCS_CHEAT_NONE = 0, FCS_CHEAT_LOSE = 1, FCS_CHEAT_WIN = 2 };   /* Ignore / Retry / Abort */
@@ -83,7 +85,8 @@ typedef struct FcSessionUI {
     void (*invalidate)(void *ctx);                     /* board/view changed: repaint everything */
     void (*set_title)(void *ctx, const char *title);   /* "FreeCell Game #%d" after a deal */
     void (*cards_left_changed)(void *ctx, int n);      /* "Cards Left: %u" in the menu bar */
-    void (*menu_state)(void *ctx, int undo_enabled, int restart_enabled);
+    /* Game menu: Undo (115), Restart (107) and the extra Redo (116) enabled (1) or grayed (0). */
+    void (*menu_state)(void *ctx, int undo_enabled, int restart_enabled, int redo_enabled);
     /* Start (ms > 0) or kill (ms == 0) Win32 timer `id`; on WM_TIMER call fcs_timer(s, id). */
     void (*set_timer)(void *ctx, int id, int ms);
     void (*flash)(void *ctx, int invert);              /* FlashWindow(hwnd, invert) */
@@ -113,6 +116,8 @@ typedef struct FcSession {
     int       seeded;
     FcAction **hist;         /* undo history, oldest first */
     int       nhist, hist_cap;
+    FcAction **redo;         /* redo stack: undone actions, the next one to redo last */
+    int       nredo, redo_cap;
     FcStats   stats;
     FcOptions opts;
     FcStore   store;
@@ -133,7 +138,7 @@ typedef struct FcsViewState {
  * UI sets those initial states itself), loads options and runs the entpack.ini migration from store.
  * ui/store are copied; either may be NULL. */
 void fcs_init(FcSession *s, const FcSessionUI *ui, const FcStore *store);
-void fcs_free(FcSession *s);                     /* frees the undo history */
+void fcs_free(FcSession *s);                     /* frees the undo history and the redo stack */
 
 /* ---- Input. (col, pos) targets: top row col 0, pos 0..7 (0..3 free cells, 4..7 home cells);
  * tableau col 1..8, pos = card index (ignored for destinations; -1 for an empty column);
@@ -155,6 +160,7 @@ int  fcs_close(FcSession *s);                    /* 1 = OK to destroy the window
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
 int  fcs_undo_enabled(const FcSession *s);       /* history non-empty and the game active */
+int  fcs_redo_enabled(const FcSession *s);       /* redo stack non-empty and the game active */
 int  fcs_restart_enabled(const FcSession *s);
 void fcs_view_state(const FcSession *s, FcsViewState *v);
 /* Fixed texts: string-table ids 301..313 (307 with the missing space fixed), FCS_STR_* (YouLose text

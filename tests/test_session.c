@@ -134,7 +134,7 @@ typedef struct Fake {
     /* observations */
     int posted[8], nposted;
     uint32_t now;
-    int cards_left, undo_en, restart_en, nmenu;
+    int cards_left, undo_en, restart_en, redo_en, nmenu;
     char title[64];
     int timer[4];
     int nflash_on, nflash_off;
@@ -213,7 +213,11 @@ static void ui_cards_left(void *c, int n)
     f->cards_left = n;
     if (f->ncl < 64) f->cl_seq[f->ncl++] = n;
 }
-static void ui_menu(void *c, int u, int r) { Fake *f = c; f->undo_en = u; f->restart_en = r; f->nmenu++; }
+static void ui_menu(void *c, int u, int r, int rd)
+{
+    Fake *f = c;
+    f->undo_en = u; f->restart_en = r; f->redo_en = rd; f->nmenu++;
+}
 static void ui_timer(void *c, int id, int ms) { Fake *f = c; f->timer[id & 3] = ms; logf_(f, "timer%d=%d;", id, ms); }
 static void ui_flash(void *c, int on) { Fake *f = c; if (on) f->nflash_on++; else f->nflash_off++; }
 static void ui_post(void *c, int cmd) { Fake *f = c; if (f->nposted < 8) f->posted[f->nposted++] = cmd; logf_(f, "post%d;", cmd); }
@@ -1178,7 +1182,8 @@ static void test_random_playout(void)
             else if (what < 780) fcs_dblclick(&s, col, pos);
             else if (what < 880) fcs_char(&s, '0' + rand() % 10);
             else if (what < 910) { fcs_rbutton_down(&s, col, pos); fcs_rbutton_up(&s); }
-            else if (what < 960) fcs_command(&s, FCS_CMD_UNDO);
+            else if (what < 945) fcs_command(&s, FCS_CMD_UNDO);
+            else if (what < 960) fcs_command(&s, FCS_CMD_REDO);
             else if (what < 990) fcs_mouse_move(&s, col, pos, rand() % 2);
             else {
                 static const int cmds[4] = { FCS_CMD_NEW, FCS_CMD_SELECT, FCS_CMD_RESTART, FCS_CMD_CHEAT };
@@ -1196,6 +1201,7 @@ static void test_random_playout(void)
                 break;
             }
             CHECK_EQ(f.undo_en, fcs_undo_enabled(&s));
+            CHECK_EQ(f.redo_en, fcs_redo_enabled(&s));
             if (f.ntitle != ntitle) {           /* a new deal: new baseline */
                 ntitle = f.ntitle;
                 dealt = s.board;
@@ -1208,6 +1214,7 @@ static void test_random_playout(void)
             if (s.game_number == 0) {
                 frozen = 1;
                 CHECK_EQ(s.nhist, 0);
+                CHECK_EQ(s.nredo, 0);
             }
         }
         if (!frozen) {
@@ -1262,6 +1269,139 @@ static void test_undo_stress(void)
     }
 }
 
+/* Redo (extra): undo N then redo N gives back the identical boards, with the same animated steps;
+ * a selecting click keeps the redo stack, a new committed action / deal clears it; random undo/redo
+ * interleaving against snapshots. */
+static int legal_action(FcSession *s)           /* try random click pairs until one commits */
+{
+    for (int tries = 0; tries < 400 && s->game_number; tries++) {
+        int h = s->nhist;
+        fcs_click(s, 1 + rand() % 8, 0);
+        fcs_click(s, rand() % 9, 4 * (rand() % 2) + rand() % 4);
+        if (s->sel) fcs_click(s, FCS_MISS, 0);
+        if (s->nhist > h) return 1;
+        if (s->nhist < h) return -1;            /* history dropped (win / lose) */
+    }
+    return 0;
+}
+
+static void test_redo(void)
+{
+    FcSession s; Fake f;
+    fake_reset(&f, &s);
+    f.check_replay = 1;
+    FcSessionUI ui = fake_ui(&f);
+    fcs_init(&s, &ui, NULL);
+    s.opts.messages = 0;
+    srand(7);
+    start_game(&s, &f, 1);
+    CHECK_EQ(f.redo_en, 0);
+    FcBoard snaps[40];
+    int n = 0;
+    snaps[0] = s.board;
+    while (n < 24 && legal_action(&s) == 1) snaps[++n] = s.board;
+    CHECK(n >= 8);
+    CHECK(!fcs_redo_enabled(&s));
+    fcs_command(&s, FCS_CMD_REDO);              /* nothing to redo */
+    CHECK(board_eq(&s.board, &snaps[n]));
+
+    int back0 = f.nback;
+    for (int i = n; i > 0; i--) {
+        fcs_command(&s, FCS_CMD_UNDO);
+        CHECK(board_eq(&s.board, &snaps[i - 1]));
+        CHECK_EQ(f.redo_en, 1);
+        CHECK_EQ(s.nredo, n - i + 1);
+    }
+    CHECK_EQ(f.undo_en, 0);
+    int fwd0 = f.nfwd, cl0 = f.ncl;
+    for (int i = 1; i <= n; i++) {
+        fcs_command(&s, FCS_CMD_REDO);
+        CHECK(board_eq(&s.board, &snaps[i]));
+        CHECK_EQ(f.undo_en, 1);
+        CHECK_EQ(f.redo_en, i < n);
+    }
+    CHECK_EQ(f.nfwd - fwd0, f.nback - back0);   /* every undone step animated forward again */
+    CHECK_EQ(f.cards_left, s.board.cards_left);
+    CHECK(f.ncl >= cl0);
+    CHECK_EQ(s.nredo, 0);
+    CHECK_EQ(s.nhist, n);
+
+    /* partial: undo 3, redo 1; a selecting click and a pure deselect keep the redo stack */
+    for (int i = 0; i < 3; i++) fcs_command(&s, FCS_CMD_UNDO);
+    fcs_command(&s, FCS_CMD_REDO);
+    CHECK(board_eq(&s.board, &snaps[n - 2]));
+    CHECK_EQ(s.nredo, 2);
+    int col = 1;
+    while (col <= 8 && fc_last_index(&s.board, col) < 0) col++;
+    fcs_click(&s, col, 0);
+    CHECK_EQ(s.sel, 1);
+    CHECK(fcs_redo_enabled(&s));
+    FcBoard pre = s.board;
+    fcs_click(&s, col, 0);                      /* deselect (autoplay would be a new action) */
+    if (board_eq(&s.board, &pre)) CHECK_EQ(s.nredo, 2);
+    /* a redo after the selection works and drops the selection first */
+    fcs_click(&s, col, 0);
+    fcs_command(&s, FCS_CMD_REDO);
+    CHECK_EQ(s.sel, 0);
+    CHECK(board_eq(&s.board, &snaps[n - 1]));
+    CHECK_EQ(s.nredo, 1);
+
+    /* a newly committed action clears it */
+    fcs_command(&s, FCS_CMD_UNDO);
+    CHECK_EQ(s.nredo, 2);
+    int r = legal_action(&s);
+    CHECK(r != 0);
+    CHECK_EQ(s.nredo, 0);
+    CHECK_EQ(f.redo_en, 0);
+    FcBoard now = s.board;
+    fcs_command(&s, FCS_CMD_REDO);
+    CHECK(board_eq(&s.board, &now));
+
+    /* a deal clears it */
+    if (s.game_number) {
+        fcs_command(&s, FCS_CMD_UNDO);
+        CHECK_EQ(f.redo_en, 1);
+    }
+    start_game(&s, &f, 2);
+    CHECK_EQ(s.nredo, 0);
+    CHECK_EQ(f.redo_en, 0);
+    fcs_free(&s);
+
+    /* random undo/redo interleaving against snapshots */
+    for (int game = 0; game < 20; game++) {
+        fake_reset(&f, &s);
+        f.check_replay = 1;
+        ui = fake_ui(&f);
+        fcs_init(&s, &ui, NULL);
+        s.opts.messages = 0;
+        start_game(&s, &f, 100 + game * 7919 % 30000);
+        static FcBoard snap[1024], rsnap[1024];
+        int ns = 0, nr = 0;
+        snap[ns++] = s.board;
+        for (int k = 0; k < 400 && s.game_number; k++) {
+            int what = rand() % 10;
+            if (what < 3 && fcs_undo_enabled(&s)) {
+                fcs_command(&s, FCS_CMD_UNDO);
+                rsnap[nr++] = snap[--ns];
+                CHECK(board_eq(&s.board, &snap[ns - 1]));
+            } else if (what < 6 && fcs_redo_enabled(&s)) {
+                fcs_command(&s, FCS_CMD_REDO);
+                if (!s.game_number) break;      /* cannot happen: a redone action never ends the game */
+                snap[ns++] = rsnap[--nr];
+                CHECK(board_eq(&s.board, &snap[ns - 1]));
+            } else {
+                int res = legal_action(&s);
+                if (res == 1 && ns < 1024) { snap[ns++] = s.board; nr = 0; CHECK_EQ(s.nredo, 0); }
+                else if (res != 0) break;
+            }
+            CHECK_EQ(s.nredo, nr);
+            CHECK_EQ(f.redo_en, fcs_redo_enabled(&s));
+            CHECK_EQ(f.undo_en, fcs_undo_enabled(&s));
+        }
+        fcs_free(&s);
+    }
+}
+
 int main(void)
 {
     test_startup_and_deal();
@@ -1280,6 +1420,7 @@ int main(void)
     test_options();
     test_random_playout();
     test_undo_stress();
+    test_redo();
     printf("test_session: %d checks, %d failures\n", checks, fails);
     return fails != 0;
 }

@@ -1,0 +1,87 @@
+# FreeCell HD end to end: a quick WIN through the Ctrl+Shift+F10 cheat (Abort = win; it acts on the
+# next committed click), the big win king and the YouWin dialog, then a quick LOSS (Retry = lose) and
+# the YouLose dialog, and the statistics they write.  Run by tests/e2e/run_fchd_e2e.sh (make e2e).
+# The client is set to 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107,
+# first card y = 212, step 37, cards 142 x 192).
+
+timeout 60000                             # the cheat sends all 52 cards home, animated
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell won bin32 5
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+
+# ---- win -----------------------------------------------------------------------------------------------------------
+vkey F10 ctrl shift
+wait_dialog "User-Friendly User Interface"
+dialog_text
+dialog_click Abort
+assert_no_dialog
+click 84 400                              # select column 1 (6S)
+click 84 400                              # deselect: a committed click -> every card flies home
+wait_dialog "Game Over" 60000
+dialog_text
+assert_dialog_text "Congratulations, you win!"
+assert_dialog_text "[208] Button \"&Select game\" [x]"   # checked: the game came from Select Game
+assert_menubar_text "Cards Left: 0"
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell won 6
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell stype 1
+assert_menu 115 grayed
+assert_menu 116 grayed
+capture 30_win_client.bmp
+capture_window 30_win_window.bmp
+capture_dialog 30_win_dialog.bmp
+info
+dialog_click No
+assert_no_dialog
+capture 31_after_win.bmp
+click 84 400                              # the board is frozen after "No"
+assert_menubar_text "Cards Left: 0"
+vkey F10                                  # nothing to undo
+assert_menubar_text "Cards Left: 0"
+
+# ---- lose ----------------------------------------------------------------------------------------------------------
+command 103                               # no game in progress: no resign prompt
+wait_dialog "Game Number"
+dialog_set_text 203 2
+dialog_click OK
+assert_title "FreeCell Game #2"
+assert_menubar_text "Cards Left: 52"
+capture 32_game2_no_big_king.bmp
+vkey F10 ctrl shift
+wait_dialog "User-Friendly User Interface"
+dialog_click Retry
+click 84 400
+click 84 400
+wait_dialog "Game Over"
+dialog_text
+assert_dialog_text "Sorry, you lose. There are no more legal moves."
+assert_dialog_text "[205] Button \"&Same game\" [x]"
+capture_dialog 33_lose_dialog.bmp
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1
+dialog_click Yes                          # Same game: Restart #2 (no prompt, nothing recorded twice)
+assert_no_dialog
+assert_title "FreeCell Game #2"
+assert_menubar_text "Cards Left: 52"
+
+# statistics after one win (on top of the seeded 5) and one loss
+command 105
+wait_dialog "FreeCell Statistics"
+dialog_text
+assert_dialog_text "This session\t\t\t50%\n\twon:\t\t1 \n\tlost:\t\t1"
+assert_dialog_text "Total\t\t\t\t86%\n\twon:\t\t6 \n\tlost:\t\t1"
+dialog_click OK
+
+close Yes                                 # game #2 restarted: resign, but #2's loss is already recorded
+wait_exit 5000
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell won 6

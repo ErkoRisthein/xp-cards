@@ -1,0 +1,226 @@
+# End-to-end smoke test of FreeCell HD (build/FreeCellHD.exe) under Wine.
+#   make e2e        (or: tools/wine/run.sh -o build/e2e/fchd tests/e2e/fchd_smoke.txt)
+# Ids: docs/xp-reference/resources.md + res/resource.h (103 Select Game, edit 203; 105 Statistics;
+# 109 Options; 107 Restart; 115 Undo (F10); 116 Redo (Ctrl+Y, extra)).
+# At a 632x427 client the scale is exactly 1, so every coordinate is XP's (layout.md section 2):
+# columns x = 7 85 163 241 319 397 475 553 (71 wide), first card y = 106, step 18, card 71x96,
+# free cells x = 0 71 142 213, home cells x = 348 419 490 561, top row y 0..95.
+# Game #1 (rules.md section 1.3), columns top to bottom:
+#   1 JD KD 2S 4C 3S 6D 6S   2 2D KC KS 5C TD 8S 9C   3 9H 9S 9D TS 4S 8D 2H   4 JC 5S QD QH TH QS 6H
+#   5 5D AD JS 4H 8H 6C      6 7H QC AS AC 2C 3D      7 7C KH AH 4D JH 8C      8 5H 3H 3C 7S 7D TC
+
+timeout 60000                             # start-up decode: seconds under Rosetta (x87 emulation)
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+info
+assert_title FreeCell
+assert_menu 107 grayed                    # Restart, Undo and Redo start grayed
+assert_menu 115 grayed
+assert_menu 116 grayed
+assert_menubar_text "Cards Left: 0"
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed 1   # migration ran
+capture 00_startup.bmp
+capture_window 00_startup_window.bmp
+
+# ---- Select Game #1 through the dialog ----------------------------------------------------------------
+command 103
+wait_dialog "Game Number"
+dialog_text
+dialog_set_text 203 1
+dialog_click OK
+assert_no_dialog
+assert_title "FreeCell Game #1"
+assert_menubar_text "Cards Left: 52"
+assert_menu 107 enabled
+assert_menu 115 grayed
+assert_menu 116 grayed
+
+# ---- XP geometry at 632 x 427 -----------------------------------------------------------------------------
+resize_client 632 427
+assert_client_size 632 427
+assert_pixel 0 0 000000                   # free cell 0 bevel: black top-left
+assert_pixel 70 50 00FF00                 # ... green right edge
+assert_pixel 297 30 00FF00                # king frame: green left
+assert_pixel 334 30 000000                # ... black right
+assert_pixel 5 300 007F00                 # table green left of column 1
+capture 01_game1_632x427.bmp
+capture_window 01_game1_632x427_window.bmp
+
+# ---- selection = inverted card ---------------------------------------------------------------------------
+assert_pixel 11 264 FFFFFF                # white margin of 6S, bottom card of column 1 (y 214..309)
+click 42 262
+assert_pixel 11 264 000000
+capture 02_selected.bmp
+click 42 262                              # click it again: deselect
+assert_pixel 11 264 FFFFFF
+assert_menu 115 grayed                    # a pure deselect is not an action
+
+# illegal move with messages on: 6S onto 9C
+click 42 262
+click 120 300
+wait_dialog FreeCell
+assert_dialog_text "That move is not allowed."
+dialog_click OK
+assert_no_dialog
+assert_pixel 11 264 FFFFFF                # deselected after the message
+
+# ---- moves: 3D to free cell 0, then 2C to free cell 1 (autoplay sends AC, 2C, AS home) --------------
+click 430 250
+assert_pixel 401 246 000000               # 3D (column 6, y 196..291) selected
+click 35 48
+assert_pixel 4 50 FFFFFF                  # a card in free cell 0
+assert_pixel 401 285 007F00               # gone from column 6 (2C now ends at y 273)
+assert_menu 115 enabled
+assert_menubar_text "Cards Left: 52"
+capture 03_3D_to_freecell.bmp
+click 430 240
+click 106 48
+assert_menubar_text "Cards Left: 49"
+assert_title "FreeCell Game #1"
+capture 04_autoplay.bmp
+
+# ---- Undo (F10) / Redo (Ctrl+Y) ------------------------------------------------------------------------------
+vkey F10
+assert_menubar_text "Cards Left: 52"
+assert_menu 116 enabled
+capture 05_undo.bmp
+vkey F10
+assert_menu 115 grayed                    # back at the deal
+assert_pixel 4 50 007F00
+vkey Y ctrl
+vkey Y ctrl
+assert_menubar_text "Cards Left: 49"
+assert_menu 116 grayed
+assert_menu 115 enabled
+capture 06_redo.bmp
+
+# ---- an empty column and the Move to Empty Column dialog ------------------------------------------------
+click 430 170                             # QC (column 6) -> free cell 1
+click 106 48
+click 430 150                             # 7H -> onto 8C (column 7): column 6 is empty now
+click 510 250
+click 42 262                              # 6S (column 1) -> onto 7H
+click 510 300
+capture 07_run_of_3.bmp
+click 510 280                             # select 6S (bottom of the run 8C 7H 6S), click the empty column
+click 430 200
+wait_dialog "Move to Empty Column..."
+dialog_text
+dialog_click Cancel                       # Cancel: nothing moves
+assert_no_dialog
+click 510 280
+click 430 200
+wait_dialog "Move to Empty Column..."
+capture_dialog 08_movecol_dialog.bmp
+dialog_click 201                          # Move column: 2 free cells -> 3 cards
+assert_no_dialog
+assert_pixel 401 192 FFFFFF               # 8C 7H 6S now in column 6 (6S at y 142..237)
+capture 08_movecol_done.bmp
+
+# ---- double-click sends the bottom card to the leftmost empty free cell --------------------------------
+dblclick 588 250                          # TC (column 8) -> free cell 2
+assert_pixel 146 50 FFFFFF
+capture 09_dblclick.bmp
+
+# ---- right-button peek at a covered card ---------------------------------------------------------------------
+capture 10_before_peek.bmp
+rclick_down 120 130                       # KC, second card of column 2
+capture 10_peek.bmp
+rclick_up 120 130
+capture 10_after_peek.bmp
+
+# ---- keyboard (rules.md section 4.7): free cells now hold 3D QC TC -------------------------------------------
+key 0                                     # nothing selected: the first free-cell card (3D)
+assert_pixel 4 50 000000
+key 0                                     # the next one (QC)
+assert_pixel 4 50 FFFFFF
+key 0                                     # TC
+key 0                                     # no more: nothing selected
+assert_pixel 146 50 FFFFFF
+key 3                                     # select column 3 (2H, y 214..309)
+assert_pixel 167 264 000000
+key 3                                     # again: every card of the column is shown in turn (300 ms each)
+wait 450
+capture 10_keyboard_column_peek.bmp
+wait 2500
+assert_pixel 167 264 FFFFFF               # ... then it deselects
+
+# ---- dialogs: Statistics, Options -------------------------------------------------------------------------------
+command 105
+wait_dialog "FreeCell Statistics"
+dialog_text
+assert_dialog_text "This session\t\t\t0%"
+capture_dialog 11_statistics.bmp
+dialog_click OK
+assert_no_dialog
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[209] Button \"Display &messages on illegal moves\" [x]"
+assert_dialog_text "[210] Button \"&Quick play (no animation)\" [ ]"
+capture_dialog 12_options.bmp
+dialog_click Cancel
+assert_no_dialog
+
+# ---- help and about -------------------------------------------------------------------------------------------------
+vkey F1
+wait_dialog *
+dialog_text
+capture_dialog 13_help.bmp
+dialog_click OK
+assert_no_dialog
+command 110                               # Search: no freecell.chm under Wine -> built-in text
+wait_dialog "How to Play FreeCell"
+dialog_click OK
+command 111                               # How to Use Help (NTHelp.chm)
+wait_dialog "How to Play FreeCell"
+dialog_click OK
+assert_no_dialog
+command 101
+wait_dialog *
+dialog_text
+capture_dialog 14_about.bmp
+dialog_click OK
+assert_no_dialog
+
+# ---- big window: 1904 x 996 and maximized --------------------------------------------------------------------
+resize_client 1904 996
+assert_client_size 1904 996
+assert_menubar_text "Cards Left: 49"
+capture 20_1904x996.bmp
+capture_window 20_1904x996_window.bmp
+maximize
+info
+capture 21_maximized.bmp
+capture_window 21_maximized_window.bmp
+restore
+resize_client 900 640
+move_window 100 120
+capture 22_900x640.bmp
+
+# ---- exit with the resign prompt: a loss is recorded, the placement saved -------------------------------------
+close Yes
+wait_exit 5000
+regdump HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell stype 0
+regdump "HKCU\Software\xp-cards\FreeCell HD"
+
+# ---- relaunch: the window comes back at the same size; maximized state is remembered too -----------------------
+# (maximized on the 3600 x 2338 Retina-mode screen the 404 x 547 sprites take 10+ s to build under Rosetta's
+# x87 emulation, hence the long timeout set at the top)
+launch ${REPO}/build/FreeCellHD.exe
+info
+assert_client_size 900 640
+assert_title FreeCell
+maximize
+close Yes                                 # no game in progress: no prompt
+wait_exit 5000
+launch ${REPO}/build/FreeCellHD.exe
+info
+restore
+assert_client_size 900 640
+close Yes
+wait_exit 5000
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell lost 1

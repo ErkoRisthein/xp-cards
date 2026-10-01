@@ -42,7 +42,8 @@ static void invalidate(FcSession *s) { if (UI(s, invalidate)) UI(s, invalidate)(
 
 static void update_menu(FcSession *s)
 {
-    if (UI(s, menu_state)) UI(s, menu_state)(UI(s, ctx), fcs_undo_enabled(s), fcs_restart_enabled(s));
+    if (UI(s, menu_state))
+        UI(s, menu_state)(UI(s, ctx), fcs_undo_enabled(s), fcs_restart_enabled(s), fcs_redo_enabled(s));
 }
 
 static void cards_left_changed(FcSession *s)
@@ -64,26 +65,35 @@ static void clear_selection(FcSession *s)
     s->sel_col = s->sel_pos = -1;
 }
 
-static void hist_clear(FcSession *s)
+static void stack_clear(FcAction **st, int *n)
 {
-    for (int i = 0; i < s->nhist; i++) free(s->hist[i]);
-    s->nhist = 0;
+    for (int i = 0; i < *n; i++) free(st[i]);
+    *n = 0;
+}
+
+static void hist_clear(FcSession *s) { stack_clear(s->hist, &s->nhist); }
+static void redo_clear(FcSession *s) { stack_clear(s->redo, &s->nredo); }
+
+/* Push an owned (malloc'ed) action; on out of memory the stack is dropped (it can't stay consistent). */
+static void stack_push(FcAction ***st, int *n, int *cap, FcAction *a)
+{
+    if (*n == *cap) {
+        int c = *cap ? *cap * 2 : 64;
+        FcAction **h = realloc(*st, (size_t)c * sizeof *h);
+        if (!h) { stack_clear(*st, n); free(a); return; }
+        *st = h;
+        *cap = c;
+    }
+    (*st)[(*n)++] = a;
 }
 
 static void hist_push(FcSession *s, const FcAction *a)
 {
-    if (s->nhist == s->hist_cap) {
-        int cap = s->hist_cap ? s->hist_cap * 2 : 64;
-        FcAction **h = realloc(s->hist, (size_t)cap * sizeof *h);
-        if (!h) { hist_clear(s); return; }          /* out of memory: undo can't stay consistent */
-        s->hist = h;
-        s->hist_cap = cap;
-    }
     size_t sz = offsetof(FcAction, steps) + (size_t)a->nsteps * sizeof(FcStep);
     FcAction *c = malloc(sz);
     if (!c) { hist_clear(s); return; }
     memcpy(c, a, sz);
-    s->hist[s->nhist++] = c;
+    stack_push(&s->hist, &s->nhist, &s->hist_cap, c);
 }
 
 static int input_ok(const FcSession *s) { return !s->busy && !s->kbd_peek && s->game_number != 0; }
@@ -140,12 +150,17 @@ void fcs_free(FcSession *s)
     free(s->hist);
     s->hist = NULL;
     s->hist_cap = 0;
+    redo_clear(s);
+    free(s->redo);
+    s->redo = NULL;
+    s->redo_cap = 0;
 }
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
 
 int fcs_has_selection(const FcSession *s) { return s->sel; }
 int fcs_undo_enabled(const FcSession *s) { return s->nhist > 0 && s->in_progress && s->game_number != 0; }
+int fcs_redo_enabled(const FcSession *s) { return s->nredo > 0 && s->in_progress && s->game_number != 0; }
 int fcs_restart_enabled(const FcSession *s) { return s->dealt; }
 
 void fcs_view_state(const FcSession *s, FcsViewState *v)
@@ -164,6 +179,7 @@ void fcs_view_state(const FcSession *s, FcsViewState *v)
 static void win(FcSession *s)                    /* CommitMoves win path, §6.3 */
 {
     hist_clear(s);
+    redo_clear(s);
     s->in_progress = 0;
     s->cheat = 0;
     fc_stats_record_win(&s->stats, s->game_number);
@@ -193,6 +209,7 @@ static void check_no_moves(FcSession *s)         /* CheckNoMoves, §6.1 */
         }
     }
     hist_clear(s);
+    redo_clear(s);
     s->in_progress = 0;                          /* YouLose WM_INITDIALOG, §6.2 */
     fc_stats_record_loss(&s->stats, s->game_number);
     update_menu(s);
@@ -206,9 +223,8 @@ static void check_no_moves(FcSession *s)         /* CheckNoMoves, §6.1 */
 
 /* ---- Commit: replay the built action card by card (§4.2), record it, check win / no moves ------ */
 
-static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
+static void replay_forward(FcSession *s, const FcAction *a)    /* ReplayMove for each logged step */
 {
-    s->busy++;
     for (int i = 0; i < a->nsteps; i++) {
         const FcStep *st = &a->steps[i];
         if (UI(s, animate_step)) UI(s, animate_step)(UI(s, ctx), st, 1);
@@ -218,9 +234,18 @@ static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
         invalidate(s);
         if (s->board.cards_left != left) cards_left_changed(s);
     }
+}
+
+static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
+{
+    s->busy++;
+    replay_forward(s, a);
     s->board = *after;                           /* identical; keeps the replay honest */
     s->busy--;
-    if (a->nsteps > 0) hist_push(s, a);
+    if (a->nsteps > 0) {                         /* a new action: the undone future is gone */
+        hist_push(s, a);
+        redo_clear(s);
+    }
     update_menu(s);
     if (s->board.cards_left == 0) win(s);
     else check_no_moves(s);
@@ -480,6 +505,7 @@ static void deal(FcSession *s, int n)
     s->king = FCS_KING_RIGHT;
     s->big_king = 0;
     hist_clear(s);                                                 /* fixes XP's stale undo, §7.1 */
+    redo_clear(s);
     snprintf(title, sizeof title, fcs_string(303), n);
     if (UI(s, set_title)) UI(s, set_title)(UI(s, ctx), title);
     cards_left_changed(s);
@@ -533,9 +559,32 @@ static void undo(FcSession *s)                    /* §7.1, one history entry pe
     }
     fc_undo_action(&s->board, a);                  /* exact restore (no autoplay after undo) */
     s->busy--;
-    free(a);
+    stack_push(&s->redo, &s->nredo, &s->redo_cap, a);   /* now owned by the redo stack */
     invalidate(s);
     update_menu(s);
+}
+
+static void redo(FcSession *s)                    /* extra: re-apply the last undone action */
+{
+    if (!fcs_redo_enabled(s)) return;
+    stop_kbd_peek(s);
+    s->peek_col = s->peek_pos = -1;
+    clear_selection(s);
+    FcAction *a = s->redo[--s->nredo];
+    if (memcmp(&s->board, &a->before, sizeof s->board) != 0) {     /* stale (cannot happen): drop */
+        free(a);
+        redo_clear(s);
+        update_menu(s);
+        return;
+    }
+    s->busy++;
+    replay_forward(s, a);                          /* same steps, same animation as the original */
+    s->busy--;
+    stack_push(&s->hist, &s->nhist, &s->hist_cap, a);   /* back onto the undo history */
+    invalidate(s);
+    update_menu(s);
+    if (s->board.cards_left == 0) win(s);          /* as after the original commit */
+    else check_no_moves(s);
 }
 
 static void run_command(FcSession *s, int cmd)
@@ -546,6 +595,9 @@ static void run_command(FcSession *s, int cmd)
         break;
     case FCS_CMD_UNDO:
         undo(s);
+        break;
+    case FCS_CMD_REDO:
+        redo(s);
         break;
     case FCS_CMD_CHEAT: {                         /* Ctrl+Shift+F10, §10 */
         int r = UI(s, cheat_prompt) ? UI(s, cheat_prompt)(UI(s, ctx)) : FCS_CHEAT_NONE;

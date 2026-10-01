@@ -1,6 +1,6 @@
 /*
  * FreeCell HD — Win32 resources. Menus, accelerators, dialogs, strings and ids replicate XP
- * FreeCell (docs/xp-reference/resources.md) except: no context help ("?" / DS_CONTEXTHELP, we
+ * FreeCell (docs/xp-reference/resources.md) except: the extra Game > Redo (Ctrl+Y), no context help ("?" / DS_CONTEXTHELP, we
  * cannot ship freecell.hlp), the missing spaces in "lose. There" and "cards. You" are fixed, and the
  * stray '%' in the statistics strings 319-321 is removed (same on-screen text as XP's wsprintf).
  * Build: windres -I res -I src -O coff -o res.o res/freecell.rc  (files are relative to res/)
@@ -27,6 +27,7 @@ BEGIN
         MENUITEM "&Options...\tF5",         IDM_OPTIONS
         MENUITEM SEPARATOR
         MENUITEM "&Undo\tF10",              IDM_UNDO, GRAYED
+        MENUITEM "&Redo\tCtrl+Y",           IDM_REDO, GRAYED       /* extra */
         MENUITEM SEPARATOR
         MENUITEM "E&xit",                   IDM_EXIT
     END
@@ -49,6 +50,7 @@ BEGIN
     VK_F4,  IDM_STATISTICS,   VIRTKEY
     VK_F5,  IDM_OPTIONS,      VIRTKEY
     VK_F10, IDM_UNDO,         VIRTKEY
+    "Y",    IDM_REDO,         VIRTKEY, CONTROL                  /* extra */
     VK_F10, IDM_CHEAT,        VIRTKEY, SHIFT, CONTROL
 END
 

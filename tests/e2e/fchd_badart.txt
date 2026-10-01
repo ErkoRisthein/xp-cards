@@ -1,0 +1,10 @@
+# FreeCell HD end to end: an exe whose card art cannot be decoded shows a message and exits cleanly
+# (exit code 1, no crash). tests/e2e/run_fchd_e2e.sh writes the broken copy to ${OUT}.
+
+timeout 60000                             # start-up decode: seconds under Rosetta (x87 emulation)
+launch ${OUT}/FreeCellHD_badart.exe
+wait_dialog FreeCell
+dialog_text
+assert_dialog_text "could not load its card images"
+dialog_click OK
+wait_exit 10000

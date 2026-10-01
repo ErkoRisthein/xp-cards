@@ -19,6 +19,7 @@
 #define IDM_HELPHOWTO       111     /* Help > How to Use Help */
 #define IDM_CHEAT           114     /* Ctrl+Shift+F10 only: "User-Friendly User Interface" */
 #define IDM_UNDO            115     /* Game > Undo (F10, initially grayed) */
+#define IDM_REDO            116     /* Game > Redo (Ctrl+Y, initially grayed); extra, not in XP */
 
 /* Dialog control ids (resources.md §5) */
 #define IDC_MOVECOLUMN      201     /* MoveCol: "Move &column" (default) */
