@@ -56,3 +56,10 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 ## 4. Beyond XP
 - Windows 10/11: per-monitor high-DPI awareness, optional 64-bit build.
 - VMs/emulators (VirtualBox, 86Box): check performance and scaling there.
+
+## 2b. UX batch after Solitaire extras (decided 2026-10-01, all opt-in, defaults = XP)
+- Solitaire: safe auto-moves to the foundations (FreeCell's autoplay rule adapted to Klondike).
+- Solitaire: click-click mode (click a card, then its destination) alongside dragging.
+- FreeCell: single-click to move (best destination) and drag-and-drop (engine drag code from Solitaire).
+- Both: Undo All (with confirmation), Ctrl+Z hold-to-repeat undo; Solitaire keys D (draw), C (card back), F4 (Statistics).
+- Source of ideas: docs/msc-feature-gap.md.
