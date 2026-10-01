@@ -71,3 +71,15 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 - "Large Print" card style (big indices, from the RevK generator's Large index option) — opt-in.
 - Richer New Game / Exit / saved-game prompts when save-on-exit is enabled (XP Yes/No stays default).
 - Solitaire: changing Draw/Scoring can apply to the next game instead of redealing (opt-in).
+
+## 2d. Motion polish (decided 2026-10-01)
+- Replace linear card flights with Material-style easing: standard easing cubic-bezier(0.2, 0, 0, 1)
+  for moves between piles, decelerate (0, 0, 0.2, 1) for cards arriving (deal, autoplay home),
+  accelerate (0.3, 0, 1, 1) for cards leaving the table; durations ~150–350 ms scaled by distance
+  (short hops snappy, long flights capped), frame-timed (engine animation driver), Quick play = none.
+  Applies to every existing motion (FreeCell moves/autoplay/undo/redo/finish, Solitaire auto-moves,
+  double-click, finish, hint). Default ON: it only changes the timing curve, not what happens.
+- New effects XP never had — behind one Options checkbox "Enhanced animations" (default off):
+  drag lift + soft shadow, slide-back of an illegal drop (eased), card turn-over flip, deal animation,
+  hint pulse instead of hard inversion blinks; anything MSC animates that fits the XP look.
+- Win animations stay exactly as XP (bouncing cards physics, FreeCell big king).
