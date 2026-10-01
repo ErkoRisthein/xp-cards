@@ -9,11 +9,25 @@ Primary target: a Windows XP machine at 1920x1080. Newer Windows and VMs come la
   comparison against XP FreeCell at 1x.
 - **Exit:** the user plays it on the real XP machine at 1080p, and the issues found are fixed.
 
-## 1. FreeCell polish + release pipeline
+v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Everything else is XP.
+
+## 1. FreeCell polish + release pipeline (v1.1)
 - Fixes from real-XP testing (theme metrics, fonts, performance on that hardware).
 - GitHub Actions: build the exe with mingw-w64, run native tests and the XP import check, (later)
   a Wine smoke test; publish versioned GitHub Releases so each iteration is one download away.
-- Candidate extras (only if wanted): redo, borderless full-screen, auto-finish.
+- Extras, each behind an option that defaults to XP behaviour/look:
+  - Timer & move counter in the menu bar next to "Cards Left" (off by default).
+  - Track won deal numbers (shown in Select Game and Statistics).
+  - Borderless full-screen mode.
+  - Supermove rule option: XP (f+1)(e+1) default, standard (f+1)·2^e optional.
+  - New Game range option: XP 1–32767 default, 1–1,000,000 optional.
+
+## 1b. Solver-based extras (v1.2)
+- Hint (built-in solver suggests a move; can warn when the deal is no longer winnable).
+- Auto-finish: Game menu "Finish" + shortcut, enabled only when the rest is a sure win; option to
+  trigger it automatically.
+- Drag-and-drop as an optional input mode (after Solitaire builds the drag code; XP click-click stays
+  the default).
 
 ## 2. Solitaire HD (Klondike, sol.exe)
 - Extract the shared card-game engine from FreeCell first: scaling layout primitives, sprite cache,
