@@ -85,6 +85,14 @@ tests/e2e/fchd_*.txt         Wine end-to-end scenarios
 tools/                       XP import checker, Wine end-to-end driver, asset scripts, crispness lab
 ```
 
+## Extras policy
+
+* Extra **commands** that act only when invoked (menu items, keys XP doesn't use: Hint H, Finish F6,
+  Undo All, Ctrl+Z, Ctrl+Y, F11, Solitaire D/C/F4) are always available — no option.
+* Anything that changes what normal input does or makes the game act on its own (click semantics,
+  drag, auto-moves, auto-turn, auto-finish, warnings, deal selection) is an **Options checkbox, off by
+  default**, so the default experience is exactly XP.
+
 ## Input model
 
 Click to select, click the destination (plus XP's double-click to a free cell, digit keys and
