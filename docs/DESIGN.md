@@ -111,6 +111,13 @@ Help ▸ Contents/Search open `freecell.chm` through `HtmlHelpW` loaded from `hh
 (XP ships `%windir%\Help\freecell.chm`); How to Use Help opens `NTHelp.chm`. If HtmlHelp is not
 available or fails, a built-in "How to play" message is shown. About uses `ShellAboutW` like XP.
 
+## Attribution
+
+Credit the card art only in unobtrusive places — never on the table or the cards (the Ace of Spades
+deliberately carries no link/text): the GitHub README, Help ▸ About, and the exe's version info.
+Wording: "Card faces: SVG playing cards by Adrian Kennard — https://cards.revk.uk (CC0)".
+Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
+
 ## Testing
 
 * `make test` — native unit tests of core + layout (deals vs Rosetta Code, capacity, run length,
