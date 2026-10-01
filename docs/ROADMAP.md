@@ -108,7 +108,7 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   res/common/cards via stacklab.py svg --layout XPLIKE in make_assets.sh, refresh tests/card_golden.h.
 
 ## Bugs / TODO
-- [fix in script, assets not yet regenerated] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
+- [FIXED with the XPLIKE regeneration] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
   top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
   clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
   res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.

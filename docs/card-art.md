@@ -171,3 +171,9 @@ AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers
      bit_depth_reduction=False, palette_reduction=False, grayscale_reduction=False,
      deflate=Deflaters.zopfli(15))`.
    - The contact sheet and preview come from `../research/art/sheets.py <art_dir> <tmp_dir>`.
+
+## Stacked-legibility layout (2026-10-02)
+The masters are generated with `tools/crisplab/stacklab.py svg --layout <XPLIKE>` (see
+`tools/crisplab/candidates/stack.json` and docs/ROADMAP.md 2e): rank glyph fitted inside the Solitaire
+strip (15/96 of the card) with `rank_unclip` (no flattened tops/bottoms), suit under the rank, pips raised
+to XP's positions and the court picture enlarged so every stacked strip shows rank + suit like XP.

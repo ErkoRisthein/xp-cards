@@ -1,0 +1,87 @@
+[
+  {
+    "name": "CURRENT",
+    "note": "v1.1.1 as shipped: the generator's layout",
+    "layout": {}
+  },
+  {
+    "name": "SPLIT",
+    "note": "the generator's splitindex (suit top-right), reproduced by the transformer",
+    "layout": {
+      "suit_mode": "split"
+    }
+  },
+  {
+    "name": "XPLIKE",
+    "note": "XP positioning: fitted bold rank, classic suit under it, raised pips, court picture enlarged so its pip shows",
+    "layout": {
+      "rank_scale": 0.72,
+      "rank_stroke": 165,
+      "rank_sx": 1.15,
+      "rank_bottom": 0.145,
+      "rank_cx": -95,
+      "suit_mode": "classic",
+      "suit_scale": 0.88,
+      "suit_gap": 2.5,
+      "pip_scale": 1.1,
+      "pip_top": 0.104,
+      "pip_xs": 0.94,
+      "court_top": 0.113,
+      "court_sx": 1.035,
+      "rank_unclip": true
+    }
+  },
+  {
+    "name": "XPLIKE_SPLIT",
+    "note": "fitted rank + full-size suit in the top-right corner + XP-raised pips; courts as generated",
+    "layout": {
+      "rank_scale": 0.72,
+      "rank_stroke": 165,
+      "rank_sx": 1.15,
+      "rank_bottom": 0.145,
+      "rank_cx": -95,
+      "suit_mode": "split",
+      "suit_scale": 1.0,
+      "suit_dx": 2,
+      "pip_scale": 1.06,
+      "pip_top": 0.108,
+      "pip_xs": 0.94
+    }
+  },
+  {
+    "name": "FIT_SPLIT",
+    "note": "fitted rank + full-size corner suit; pips lowered 4 units so no slivers show; courts as generated",
+    "layout": {
+      "rank_scale": 0.72,
+      "rank_stroke": 165,
+      "rank_sx": 1.15,
+      "rank_bottom": 0.145,
+      "rank_cx": -95,
+      "suit_mode": "split",
+      "suit_scale": 1.0,
+      "suit_dx": 2,
+      "pip_top": 0.162
+    }
+  },
+  {
+    "name": "XPLIKE_BOTH",
+    "note": "XPLIKE + an extra corner suit (classic index kept)",
+    "layout": {
+      "rank_scale": 0.72,
+      "rank_stroke": 165,
+      "rank_sx": 1.15,
+      "rank_bottom": 0.145,
+      "rank_cx": -95,
+      "suit_mode": "both",
+      "suit_scale": 0.88,
+      "suit_gap": 2.5,
+      "corner_scale": 0.88,
+      "suit_dx": 2,
+      "pip_scale": 1.1,
+      "pip_top": 0.104,
+      "pip_xs": 0.94,
+      "court_top": 0.113,
+      "court_sx": 1.035
+    }
+  }
+]
