@@ -63,3 +63,11 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 - FreeCell: single-click to move (best destination) and drag-and-drop (engine drag code from Solitaire).
 - Both (always available, no option — they only act when invoked): Undo All menu item (with confirmation), Ctrl+Z hold-to-repeat undo; Solitaire keys D (draw), C (card back), F4 (Statistics).
 - Source of ideas: docs/msc-feature-gap.md.
+
+## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in)
+- Solitaire: "No More Moves" detection (End Game / Return to Game).
+- Hint cycling: pressing H again shows the next-best move (FreeCell + Solitaire).
+- Solitaire statistics: top-5 high scores with dates; Vegas most won / most lost / current winnings.
+- "Large Print" card style (big indices, from the RevK generator's Large index option) — opt-in.
+- Richer New Game / Exit / saved-game prompts when save-on-exit is enabled (XP Yes/No stays default).
+- Solitaire: changing Draw/Scoring can apply to the next game instead of redealing (opt-in).
