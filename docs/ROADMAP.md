@@ -92,10 +92,10 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   sure win, a small XP-style push button appears on the table (MSC's "Solve"); clicking it = Game > Finish (F6). Players
   who prefer can ignore it and play the cards one by one.
 
-## 2e. Stack-legibility card layout (decided 2026-10-01; tools/crisplab/stacklab.py)
-- Ship FIT_SPLIT: rank fitted fully inside the Solitaire strip (15/96 of the card), suit symbol in the
-  top-right corner (generator's split index), pips at their normal height. Every stacked strip shows
-  rank AND suit for all 52 cards incl. aces and courts — better than XP (whose aces/courts show no
-  suit) and Win7 (which instead widened the face-up step 15 -> 23). Blind judge: 0 errors (XP 0 with
-  ~12 hesitations on courts; current design 48 suit failures). Regenerate res/common/cards via
-  stacklab.py svg --layout FIT_SPLIT in make_assets.sh, refresh tests/card_golden.h.
+## 2e. Stack-legibility card layout (decided 2026-10-01 by the user; tools/crisplab/stacklab.py)
+- Ship XPLIKE (lab variant "D"): closest to the XP cards. Rank fitted fully inside the Solitaire strip
+  (15/96 of the card; rank_scale .72, stroke 165, bottom .145), classic suit under the rank, pips raised
+  to XP's positions (pip_scale 1.1, pip_top .104, pip_xs .94) and the court picture enlarged
+  (court_top .113, court_sx 1.035) so pip tops / court art show in every strip like XP. Metrics: at or
+  above XP on every strip measure; buried aces show ~40% of their suit (XP: 0%). Regenerate
+  res/common/cards via stacklab.py svg --layout XPLIKE in make_assets.sh, refresh tests/card_golden.h.
