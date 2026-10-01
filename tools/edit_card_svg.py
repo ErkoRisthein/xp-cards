@@ -21,6 +21,9 @@ import sys
 
 def edit(svg, index_stroke, court_mult, court_colour, court_frame_w):
     svg = svg.replace('stroke-width="80"', 'stroke-width="%s"' % index_stroke)
+    # A thicker rank stroke reaches past the glyph symbol's viewBox, which clips by default and
+    # shaved ~1 px off the round tops/bottoms of 0, 3, 6, 8, 9, Q... Let the rank symbols overflow.
+    svg = re.sub(r'<symbol (id="V[^"]*")', r'<symbol overflow="visible" \1', svg)
 
     def tag(m):
         t = m.group(0)

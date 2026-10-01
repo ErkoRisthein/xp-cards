@@ -48,6 +48,13 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   "Deal Again?", Options / Select Card Back, menu graying, help and About, full screen, the remembered
   placement; Wine end-to-end scenarios (`tests/e2e/solhd_*.txt`).
 - The same fidelity process as FreeCell: reverse-engineer sol.exe and match XP pixel-for-pixel at 1x.
+- [x] Solitaire HD v1.1 extras (docs/DESIGN.md "Solitaire HD extras"): Game > Hint (H, fair: only
+  visible cards, heuristic ranking, FreeCell's flash), Game > Finish (F6, animated, one undo step),
+  Game > Statistics (F4, per Draw x Scoring mode: played/won/%/streaks/best time/best score, in
+  %APPDATA%); Options > Extras, all off by default: turn cards over automatically, single click moves a
+  card, finish automatically, deal only winnable games (XP seeds + the solver's precomputed table), save
+  game on exit / resume at start, warn when the game can't be won (background solver). With all of them
+  off the session is v1.0's (`make sol-xp-compare`).
 
 ## 3. Spider HD, then Hearts HD
 - Spider: rules + difficulty levels, hints, deal animation, on Solitaire's infrastructure.
@@ -61,7 +68,7 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 - Solitaire: safe auto-moves to the foundations (FreeCell's autoplay rule adapted to Klondike).
 - Solitaire: click-click mode (click a card, then its destination) alongside dragging.
 - FreeCell: single-click to move (best destination) and drag-and-drop (engine drag code from Solitaire).
-- Both (always available, no option — they only act when invoked): Undo All menu item (with confirmation), Ctrl+Z hold-to-repeat undo; Solitaire keys D (draw), C (card back), F4 (Statistics).
+- Both (always available, no option — they only act when invoked): Undo All menu item (with confirmation), Ctrl+Z hold-to-repeat undo; Solitaire keys D (draw), C (card back) (F4 Statistics: done in v1.1).
 - Source of ideas: docs/msc-feature-gap.md.
 
 ## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in)
@@ -99,3 +106,9 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   (court_top .113, court_sx 1.035) so pip tops / court art show in every strip like XP. Metrics: at or
   above XP on every strip measure; buried aces show ~40% of their suit (XP: 0%). Regenerate
   res/common/cards via stacklab.py svg --layout XPLIKE in make_assets.sh, refresh tests/card_golden.h.
+
+## Bugs / TODO
+- [fix in script, assets not yet regenerated] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
+  top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
+  clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
+  res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.
