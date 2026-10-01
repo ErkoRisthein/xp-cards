@@ -25,6 +25,10 @@ typedef struct FcView {
     int king;                 /* FC_KINGVIEW_* for the small king box */
     int big_king;             /* 1 = draw the big smiling win king */
     int no_game;              /* 1 = nothing dealt yet (startup): draw empty cells only */
+    int hint_col, hint_pos;   /* hint flash (extra), drawn inverted like a selection: hint_col 0 = the
+                                 top-row cell hint_pos (an empty cell inverts a card-shaped area);
+                                 1..8 = the cards from hint_pos to the end of that column, or, when the
+                                 column is empty, its first card slot; hint_col = -1 for none */
 } FcView;
 
 void fc_view_init(FcView *v);  /* nothing selected/peeked/hidden, king right, no big king */

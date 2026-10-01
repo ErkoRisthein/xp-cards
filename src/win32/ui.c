@@ -92,16 +92,26 @@ void center_dialog(HWND dlg, HWND owner)
     move_dialog(dlg, r, owner, "centred");
 }
 
+void modal_begin(App *a) { a->in_modal++; }
+
+/* A solver answer that arrived while the dialog was up is retried from the main message loop (the
+ * dialog may have been opened from inside a session call that is still running). */
+void modal_end(App *a)
+{
+    if (--a->in_modal == 0 && a->solve_ready && a->hwnd)
+        PostMessageW(a->hwnd, WM_APP_SOLVED, 0, 0);
+}
+
 static int msgbox(App *a, const WCHAR *text, const WCHAR *caption, UINT type, UINT beep)
 {
     int r;
     view_anim_idle(a);
     view_sync_now(a);
-    a->in_modal++;
+    modal_begin(a);
     if (beep != (UINT)-1)
         MessageBeep(beep);
     r = MessageBoxW(a->hwnd, text, caption, type);
-    a->in_modal--;
+    modal_end(a);
     return r;
 }
 
@@ -110,9 +120,9 @@ static INT_PTR run_dialog(App *a, const WCHAR *name, DLGPROC proc, LPARAM lp)
     INT_PTR r;
     view_anim_idle(a);
     view_sync_now(a);
-    a->in_modal++;
+    modal_begin(a);
     r = DialogBoxParamW(a->inst, name, a->hwnd, proc, lp);
-    a->in_modal--;
+    modal_end(a);
     return r;
 }
 
@@ -297,7 +307,7 @@ static INT_PTR CALLBACK stats_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 }
 
 /* Options (505, 0x10029F1): OK applies to memory; XP's three are saved on exit by fcs_close (XP), the
- * extras (the "Extras" group) right away in our own key. */
+ * extras (the "Extras" group, v1.1 and v1.2) right away in our own key. */
 static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 {
     FcOptions *o = &g_app.s.opts;
@@ -311,6 +321,8 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         set_check(d, IDC_SHOWTIME, x->show_time_moves);
         set_check(d, IDC_STDSUPERMOVE, x->standard_supermove);
         set_check(d, IDC_FULLRANGE, x->full_range);
+        set_check(d, IDC_WARNUNWINNABLE, x->warn_unwinnable);
+        set_check(d, IDC_AUTOFINISH, x->auto_finish);
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
@@ -321,6 +333,8 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             x->show_time_moves = checked(d, IDC_SHOWTIME);
             x->standard_supermove = checked(d, IDC_STDSUPERMOVE);
             x->full_range = checked(d, IDC_FULLRANGE);
+            x->warn_unwinnable = checked(d, IDC_WARNUNWINNABLE);
+            x->auto_finish = checked(d, IDC_AUTOFINISH);
             fc_extras_save(x, &g_app.app_store);
             EndDialog(d, 1);
             return TRUE;
@@ -339,17 +353,21 @@ void dlg_statistics(App *a)
 {
     if (dialogs_allowed(a))
         run_dialog(a, RES_DLG_STATS, stats_proc, 0);
+    solver_deliver(a);
 }
 
 void dlg_options(App *a)
 {
     if (dialogs_allowed(a) && run_dialog(a, MAKEINTRESOURCEW(IDD_OPTIONS), options_proc, 0) == 1) {
+        fcs_options_changed(&a->s);                   /* a search for the old rule is redone */
         DrawMenuBar(a->hwnd);                         /* "Moves" / "Time" shown or hidden */
         menubar_reset(a);
         menubar_draw(a);
         clock_update(a);
+        view_sync(a);
         view_refresh_cursor(a);                       /* the supermove rule changes the cursor */
     }
+    solver_deliver(a);
 }
 
 /* ---- session callbacks ------------------------------------------------------------------------------- */
@@ -514,6 +532,23 @@ static void cb_status_changed(void *ctx)
     clock_update(a);
 }
 
+/* v1.2: the background solver (solve.c) and the Hint / Finish menu items. */
+static void cb_solve_start(void *ctx, uint32_t id, const FcBoard *b, int standard)
+{
+    solver_request(ctx, id, b, standard);
+}
+
+static void cb_solve_cancel(void *ctx) { solver_cancel(ctx); }
+
+static void cb_assist_menu(void *ctx, int hint_enabled, int finish_enabled)
+{
+    App *a = ctx;
+    if (!a->menu)
+        return;
+    set_item(a, IDM_HINT, hint_enabled != 0, &a->menu_hint);       /* popup items: no DrawMenuBar */
+    set_item(a, IDM_FINISH, finish_enabled != 0, &a->menu_finish);
+}
+
 void ui_make(App *a, FcSessionUI *ui)
 {
     memset(ui, 0, sizeof *ui);
@@ -536,10 +571,14 @@ void ui_make(App *a, FcSessionUI *ui)
     ui->now_seed = cb_now_seed;
     ui->now_ms = cb_now_ms;
     ui->status_changed = cb_status_changed;
+    ui->solve_start = cb_solve_start;
+    ui->solve_cancel = cb_solve_cancel;
+    ui->assist_menu = cb_assist_menu;
 }
 
-/* The menu resource starts with Undo, Redo and Restart grayed (XP: Undo and Restart). */
+/* The menu resource starts with Undo, Redo, Restart, Hint and Finish grayed (XP: Undo and Restart). */
 void ui_menu_init(App *a)
 {
     a->menu_undo = a->menu_redo = a->menu_restart = 0;
+    a->menu_hint = a->menu_finish = 0;
 }

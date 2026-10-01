@@ -2,6 +2,7 @@
  * FreeCell HD — the XP FreeCell controller. Section numbers refer to docs/xp-reference/rules.md.
  */
 #include "session.h"
+#include "assist.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -30,6 +31,10 @@ const char *fcs_string(int id)
     case FCS_STR_YOUWIN: return "Congratulations, you win!\n \nDo you want to play again?";
     case FCS_STR_CHEAT_CAPTION: return "User-Friendly User Interface";
     case FCS_STR_CHEAT_TEXT: return "Choose Abort to Win,\nRetry to Lose,\nor Ignore to Cancel.";
+    case FCS_STR_HINT_NONE: return "No hint is available.";
+    case FCS_STR_HINT_LOST: return "There are no more winning moves.";
+    case FCS_STR_UNWINNABLE: return "This game can no longer be won. Use Undo to go back.";
+    case FCS_STR_UNWINNABLE_DEAL: return "This game cannot be won.";
     }
     return "";
 }
@@ -44,6 +49,8 @@ static void update_menu(FcSession *s)
 {
     if (UI(s, menu_state))
         UI(s, menu_state)(UI(s, ctx), fcs_undo_enabled(s), fcs_restart_enabled(s), fcs_redo_enabled(s));
+    if (UI(s, assist_menu))
+        UI(s, assist_menu)(UI(s, ctx), fcs_hint_enabled(s), fcs_finish_enabled(s));
 }
 
 static void cards_left_changed(FcSession *s)
@@ -212,6 +219,7 @@ void fcs_free(FcSession *s)
     s->redo = NULL;
     s->redo_cap = 0;
     fc_won_free(&s->won);
+    fcs_assist_free(s);
 }
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
@@ -230,12 +238,14 @@ void fcs_view_state(const FcSession *s, FcsViewState *v)
     v->king = s->king;
     v->big_king = s->big_king;
     v->no_game = !s->dealt;
+    fcs_assist_view(s, &v->hint_col, &v->hint_pos);
 }
 
 /* ---- Game over ------------------------------------------------------------------------------------ */
 
 static void win(FcSession *s)                    /* CommitMoves win path, §6.3 */
 {
+    fcs_assist_stop(s);
     hist_clear(s);
     redo_clear(s);
     s->in_progress = 0;
@@ -269,6 +279,7 @@ static void check_no_moves(FcSession *s)         /* CheckNoMoves, §6.1 */
             return;
         }
     }
+    fcs_assist_stop(s);
     hist_clear(s);
     redo_clear(s);
     s->in_progress = 0;                          /* YouLose WM_INITDIALOG, §6.2 */
@@ -299,6 +310,25 @@ static void replay_forward(FcSession *s, const FcAction *a)    /* ReplayMove for
     }
 }
 
+static void finish(FcSession *s, int counted);
+
+/* After a committed action or Redo that did not win (moved: it changed the board; before = the board
+ * before it). Finish automatically (extra) comes before CheckNoMoves: a sure win always has a move, so
+ * CheckNoMoves could only start its "one move left" flash for a game that is won at once (the cheat's
+ * "lose" still loses through CheckNoMoves). Otherwise CheckNoMoves, then, unless the game ended or a
+ * new one began meanwhile (deals), the warning's check of the new position. */
+static void after_commit(FcSession *s, int moved, const FcBoard *before)
+{
+    if (moved && s->extras.auto_finish && s->cheat != FCS_CHEAT_LOSE && fc_sure_win(&s->board, NULL, NULL)) {
+        finish(s, 0);                            /* like autoplay: not a move of its own */
+        return;
+    }
+    unsigned deals = s->as.deals;
+    check_no_moves(s);
+    if (moved && s->as.deals == deals && s->in_progress && s->game_number != 0)
+        fcs_assist_changed(s, FCS_AS_MOVE, before);
+}
+
 static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
 {
     int counted = a->nsteps > 0 && a->counted;
@@ -322,8 +352,12 @@ static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
         status_changed(s);
     }
     update_menu(s);
-    if (s->board.cards_left == 0) win(s);
-    else check_no_moves(s);
+    if (s->board.cards_left == 0) {
+        win(s);
+        return;
+    }
+    FcBoard before = a->before;                  /* a may be s->work, which finish() reuses */
+    after_commit(s, a->nsteps > 0, &before);
 }
 
 /* ---- Clicks ---------------------------------------------------------------------------------------- */
@@ -440,6 +474,7 @@ void fcs_click(FcSession *s, int col, int pos)
 {
     if (s->swallow_click) { s->swallow_click = 0; return; }       /* activation click, §4.6 */
     if (!input_ok(s)) return;
+    fcs_assist_input(s);
     do_click(s, col, pos);
 }
 
@@ -449,6 +484,7 @@ void fcs_dblclick(FcSession *s, int col, int pos)  /* §4.4; no XP repost quirk:
 {
     if (s->swallow_click) { s->swallow_click = 0; return; }
     if (!input_ok(s)) return;
+    fcs_assist_input(s);
     if (s->opts.dblclick && s->sel && s->sel_col >= 1 && col == s->sel_col) {
         int f = -1;
         for (int i = 3; i >= 0; i--)
@@ -472,7 +508,12 @@ void fcs_dblclick(FcSession *s, int col, int pos)  /* §4.4; no XP repost quirk:
 
 void fcs_char(FcSession *s, int ch)
 {
+    if (ch == 'h' || ch == 'H') {                                  /* extra: Hint */
+        fcs_assist_hint(s);
+        return;
+    }
     if (ch < '0' || ch > '9' || !input_ok(s)) return;
+    fcs_assist_input(s);
     const FcBoard *b = &s->board;
     if (ch == '9') {                                               /* selected card -> its home slot */
         if (!s->sel) return;
@@ -518,6 +559,7 @@ void fcs_char(FcSession *s, int ch)
 void fcs_rbutton_down(FcSession *s, int col, int pos)
 {
     if (!input_ok(s) || col < 1 || col > 8) return;
+    fcs_assist_input(s);
     if (pos >= 0 && pos < fc_last_index(&s->board, col)) {        /* covered cards only */
         s->peek_col = col;
         s->peek_pos = pos;
@@ -537,6 +579,7 @@ void fcs_rbutton_up(FcSession *s)
 int fcs_cursor(const FcSession *s, int col, int pos, int on_card)
 {
     if (s->kbd_peek || s->busy) return FCS_CURSOR_WAIT;
+    if (s->as.hint == FCS_HINT_WAIT) return FCS_CURSOR_APPSTARTING;
     if (!s->sel || col < 0 || col > 8) return FCS_CURSOR_ARROW;
     const FcBoard *b = &s->board;
     int mc;
@@ -578,6 +621,8 @@ void fcs_timer(FcSession *s, int id)
         if (++s->peek_pos < fc_last_index(&s->board, col)) { invalidate(s); return; }
         stop_kbd_peek(s);                                          /* bottom card reached */
         if (input_ok(s)) do_click(s, col, 0);                      /* XP posts a click: deselect */
+    } else if (id == FCS_TIMER_HINT || id == FCS_TIMER_HINT_WAIT) {
+        fcs_assist_timer(s, id);
     }
 }
 
@@ -604,6 +649,7 @@ static void deal(FcSession *s, int n)
     cards_left_changed(s);
     update_menu(s);
     invalidate(s);
+    fcs_assist_changed(s, FCS_AS_DEAL, NULL);
 }
 
 static void new_game(FcSession *s, int cmd)       /* common New/Select/Restart path, §7.2 */
@@ -659,6 +705,7 @@ static void undo(FcSession *s)                    /* §7.1, one history entry pe
     stack_push(&s->redo, &s->nredo, &s->redo_cap, a);   /* now owned by the redo stack */
     invalidate(s);
     update_menu(s);
+    fcs_assist_changed(s, FCS_AS_UNDO, NULL);
 }
 
 static void redo(FcSession *s)                    /* extra: re-apply the last undone action */
@@ -675,6 +722,7 @@ static void redo(FcSession *s)                    /* extra: re-apply the last un
         return;
     }
     int counted = a->counted;
+    FcBoard before = a->before;    /* a is freed by stack_push on out of memory, or if the game is lost */
     if (counted) clock_start(s);
     s->busy++;
     replay_forward(s, a);                          /* same steps, same animation as the original */
@@ -686,8 +734,33 @@ static void redo(FcSession *s)                    /* extra: re-apply the last un
     }
     invalidate(s);
     update_menu(s);
-    if (s->board.cards_left == 0) win(s);          /* as after the original commit */
-    else check_no_moves(s);
+    if (s->board.cards_left == 0) {                /* as after the original commit */
+        win(s);
+        return;
+    }
+    after_commit(s, 1, &before);
+}
+
+/* Extra (v1.2): every remaining card home as one action (fc_sure_win's moves, each followed by
+ * autoplay as any move), animated card by card, then the normal win. counted: Game > Finish is a
+ * move, the automatic finish is not (like autoplay). */
+static void finish(FcSession *s, int counted)
+{
+    FcSolveMove mv[52];
+    int n = 0;
+    if (!fcs_finish_enabled(s) || !fc_sure_win(&s->board, mv, &n) || n <= 0) return;
+    stop_kbd_peek(s);
+    s->peek_col = s->peek_pos = -1;
+    clear_selection(s);
+    FcBoard b = s->board;
+    FcAction *a = &s->work;
+    fc_action_begin(a, &s->board);
+    for (int i = 0; i < n; i++) {
+        fc_queue(&b, a, mv[i].src_col, mv[i].src_pos, 0, mv[i].dst_pos);
+        fc_autoplay(&b, a, 0);
+    }
+    a->counted = counted;
+    commit(s, a, &b);                              /* cards_left 0: the win flow */
 }
 
 static void run_command(FcSession *s, int cmd)
@@ -702,6 +775,12 @@ static void run_command(FcSession *s, int cmd)
     case FCS_CMD_REDO:
         redo(s);
         break;
+    case FCS_CMD_HINT:
+        fcs_assist_hint(s);
+        break;
+    case FCS_CMD_FINISH:
+        finish(s, 1);
+        break;
     case FCS_CMD_CHEAT: {                         /* Ctrl+Shift+F10, §10 */
         int r = UI(s, cheat_prompt) ? UI(s, cheat_prompt)(UI(s, ctx)) : FCS_CHEAT_NONE;
         s->cheat = r == FCS_CHEAT_WIN || r == FCS_CHEAT_LOSE ? r : FCS_CHEAT_NONE;
@@ -712,7 +791,9 @@ static void run_command(FcSession *s, int cmd)
 
 void fcs_command(FcSession *s, int cmd)
 {
-    if (!s->busy) run_command(s, cmd);
+    if (s->busy) return;
+    if (cmd != FCS_CMD_HINT) fcs_assist_input(s);
+    run_command(s, cmd);
 }
 
 int fcs_close(FcSession *s)                       /* WM_CLOSE, §7.2 */
@@ -723,6 +804,7 @@ int fcs_close(FcSession *s)                       /* WM_CLOSE, §7.2 */
         fc_stats_record_loss(&s->stats, s->game_number);
         s->in_progress = 0;
     }
+    fcs_assist_stop(s);
     stop_kbd_peek(s);
     fc_options_save(&s->opts, &s->store);
     return 1;

@@ -790,26 +790,51 @@ static int c_capture_dialog(int argc, WCHAR **argv)
     return d ? do_capture(d, argv[1], FCOP_CAPTURE_WINDOW) : 1;
 }
 
+/* The client pixel (x, y) as RRGGBB in *rgb (read inside the target). */
+static int read_pixel(long x, long y, long *rgb)
+{
+    T.ipc->arg[0] = x; T.ipc->arg[1] = y;
+    if (hook_op(T.hwnd, FCOP_GETPIXEL)) return 1;
+    COLORREF c = (COLORREF)T.ipc->result;
+    if (c == CLR_INVALID) return err(L"pixel (%ld,%ld) is outside the client area", x, y);
+    *rgb = (long)(GetRValue(c) << 16 | GetGValue(c) << 8 | GetBValue(c));
+    return 0;
+}
+
+static int pixel_near(long rgb, long want, long tol)
+{
+    for (int sh = 0; sh < 24; sh += 8)
+        if (labs(((rgb >> sh) & 255) - ((want >> sh) & 255)) > tol) return 0;
+    return 1;
+}
+
+/* pixel / assert_pixel <x> <y> [RRGGBB [tol]]; wait_pixel <x> <y> <RRGGBB> [tol] [ms] polls until the
+ * pixel matches (for timer-driven changes such as a flashing card). */
 static int c_pixel(int argc, WCHAR **argv)
 {
-    long x, y, want = -1, tol = 0;
+    long x, y, want = -1, tol = 0, rgb, ms = timeout_ms;
+    int poll = !wcscmp(argv[0], L"wait_pixel");
     if (want_int(argv[1], &x, argv[0]) || want_int(argv[2], &y, argv[0]) || ensure_hook()) return 1;
     if (argc > 3) {
         WCHAR *end;
         want = wcstol(argv[3][0] == L'#' ? argv[3] + 1 : argv[3], &end, 16);
         if (*end) return err(L"expected RRGGBB, got '%ls'", argv[3]);
         if (argc > 4 && want_int(argv[4], &tol, argv[0])) return 1;
+        if (argc > 5 && want_int(argv[5], &ms, argv[0])) return 1;
     }
-    T.ipc->arg[0] = x; T.ipc->arg[1] = y;
-    if (hook_op(T.hwnd, FCOP_GETPIXEL)) return 1;
-    COLORREF c = (COLORREF)T.ipc->result;
-    if (c == CLR_INVALID) return err(L"pixel (%ld,%ld) is outside the client area", x, y);
-    long rgb = (long)(GetRValue(c) << 16 | GetGValue(c) << 8 | GetBValue(c));
+    DWORD t0 = GetTickCount();
+    if (read_pixel(x, y, &rgb)) return 1;
     if (want < 0) { say(L"pixel %ld,%ld = %06lX", x, y, rgb); return 0; }
-    for (int sh = 0; sh < 24; sh += 8)
-        if (labs(((rgb >> sh) & 255) - ((want >> sh) & 255)) > tol)
-            return err(L"pixel %ld,%ld = %06lX, expected %06lX", x, y, rgb, want);
-    say(L"ok: pixel %ld,%ld = %06lX", x, y, rgb);
+    while (poll && !pixel_near(rgb, want, tol) && (long)(GetTickCount() - t0) < ms) {
+        Sleep(5);
+        if (read_pixel(x, y, &rgb)) return 1;
+    }
+    if (!pixel_near(rgb, want, tol)) {
+        if (poll) return err(L"pixel %ld,%ld = %06lX, expected %06lX within %ld ms", x, y, rgb, want, ms);
+        return err(L"pixel %ld,%ld = %06lX, expected %06lX", x, y, rgb, want);
+    }
+    if (poll) say(L"ok: pixel %ld,%ld = %06lX after %lu ms", x, y, rgb, (unsigned long)(GetTickCount() - t0));
+    else say(L"ok: pixel %ld,%ld = %06lX", x, y, rgb);
     return 0;
 }
 
@@ -1166,6 +1191,7 @@ static const struct cmd {
     {L"capture_method", 1, 1, c_capture_method, L"dc|print  client capture via GetDC+BitBlt (default) or PrintWindow"},
     {L"pixel", 2, 2, c_pixel, L"<x> <y>  print the client pixel colour RRGGBB"},
     {L"assert_pixel", 3, 4, c_pixel, L"<x> <y> <RRGGBB> [tolerance]"},
+    {L"wait_pixel", 3, 5, c_pixel, L"<x> <y> <RRGGBB> [tolerance] [ms]  poll until the pixel matches (default: timeout)"},
     {L"menu_state", 1, 1, c_menu_state, L"<id>  print a menu item's text and state"},
     {L"assert_menu", 2, 2, c_menu_state, L"<id> enabled|grayed|checked|unchecked"},
     {L"menubar_text", 0, 0, c_menubar_text, L"print text the app draws into its menu bar (e.g. Cards Left)"},

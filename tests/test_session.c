@@ -244,7 +244,7 @@ static FcSessionUI fake_ui(Fake *f)
 {
     FcSessionUI u = { f, ui_message, ui_resign, ui_movecol, ui_gamenum, ui_win, ui_lose, ui_cheat,
                       ui_anim, ui_inval, ui_title, ui_cards_left, ui_menu, ui_timer, ui_flash, ui_post,
-                      ui_now, ui_now_ms, ui_status };
+                      ui_now, ui_now_ms, ui_status, NULL, NULL, NULL };
     return u;
 }
 

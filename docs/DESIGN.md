@@ -19,8 +19,16 @@ Reference material (reverse-engineered from the XP binaries in this repo):
    format, same options, king behaviour, cursors, right-click peek, keyboard digits, cheat.
 2. Extras (the only intentional behaviour changes):
    * The board **scales with the window** (see Layout). Window is freely resizable/maximizable.
-   * **Unlimited undo** (each undo step = one user action + its autoplay, as XP's single undo).
+   * **Unlimited undo** (each undo step = one user action + its autoplay, as XP's single undo) and
+     **redo** (Ctrl+Y).
    * **Window size/position/maximized state remembered** between runs.
+   * v1.1, each behind an option (Options > Extras) that defaults to XP: time and move counter in the
+     menu bar, the standard supermove rule (f+1)·2^e, New Game from all 1..1,000,000 deals; plus
+     borderless full screen (Game > Full Screen, F11 / Alt+Enter) and the won-deals record (Select Game,
+     Statistics).
+   * v1.2, on the solver (see "Hint, warning and Finish"): **Game > Hint** (H) and **Game > Finish**
+     (F6, enabled only on a sure win) are new menu items that change nothing until used; the options
+     **"Warn when the game can't be won"** and **"Finish automatically"** are off by default.
 3. Fix XP bugs listed in rules.md §11 instead of replicating them. Also fix the missing spaces in
    "lose.There" and "cards.You", and drop the stray `%` in the statistics strings (render what XP
    shows on screen).
@@ -51,11 +59,16 @@ src/core/session.{h,c}   XP controller/state machine (selection, clicks, keyboar
                          new/select/restart flow, win/lose, stats bookkeeping) — platform-independent,
                          talks to the UI through a callback table
 src/core/stats.{h,c}     statistics/options model + XP percentage/streak math (storage via callbacks)
+src/core/solver.{h,c}    solver for Hint / "no longer winnable" / auto-finish (ROADMAP 1b): session
+                         actions, weighted best-first search, sure-win test
+src/core/assist.{h,c}    v1.2 state machines on the solver: Hint, the unwinnable warning, the solution
+                         cache (Finish itself is a session action in session.c)
 src/gfx/image.{h,c}      premultiplied BGRA images, PNG decode (stb_image), HQ resampling, compositing
 src/gfx/cardset.{h,c}    card/king sprites at the current size (lazy HQ rescale, outline, inversion)
 src/gfx/layout.{h,c}     scalable geometry + hit testing
 src/gfx/render.{h,c}     draws the board into an image (used by Win32 and by native snapshot tests)
-src/win32/*.c            WinMain, window proc, menus, dialogs, registry, cursors, animation, help
+src/win32/*.c            WinMain, window proc, menus, dialogs, registry, cursors, animation, help, the
+                         solver's worker thread (solve.c)
 res/                     .rc, resource.h, manifest, icon, cursor, card PNGs, king PNGs
 tests/                   native unit tests + snapshot renderer
 tools/                   XP import checker, Wine end-to-end driver
@@ -146,6 +159,90 @@ of the dark bias alone, the art change alone and v1.1.
   h96) and the same from h255 up (`tools/crisplab/FINALISTS.md` §6). On an XP-era CPU (roughly 15-25x
   slower) that is about 0.3 s instead of 0.2 s at h96, and sprites are built lazily per card.
 
+## Solver
+
+`src/core/solver.{h,c}` (v1.2; used by Hint, the warning and Finish, below). Platform independent,
+integer only, no globals.
+
+* **Moves are session actions.** A solver move is one click pair as `fcs_click` plays it: the user's
+  part through the same game.c primitives the session calls (`fc_queue`, `fc_supermove` or
+  `fc_move_cards_std` per the supermove option, `fc_move_run_via_free_cells` for XP's "Move column"),
+  then `fc_autoplay`. Each `FcSolveMove` carries the two clicks (source and destination `(col,pos)`) and
+  whether the "Move to Empty Column..." dialog appears and how to answer it (table in `solver.h`). A
+  fresh deal, which XP never autoplays, also offers the bare select-and-click-again move. Left out are
+  only actions that cannot change the position up to free-cell and column order (free cell to free
+  cell, a lone card or a whole column into an empty column), so an exhausted search proves that no
+  sequence of session actions wins.
+* **Search:** weighted best-first, priority `6 g + h` (g = actions), a bucket queue (newest first among
+  equals). `h` = 4 per card not home + 12 per column card above a lower card of its column (4 if it
+  rests on its natural parent) + 2 per card covering the next card a home pile needs + 12 per occupied
+  free cell - 8 per empty column (weights tuned on all 32000 deals). States are canonical 60-byte
+  strings (free cells sorted, columns ordered by their deepest card, home piles by size), kept in a
+  fixed pool of 80-byte nodes with an open-addressing hash table (load <= 1/2), allocated once per
+  solver: the default budget of 100000 nodes is 8.7 MiB, the maximum 360000 is 31.5 MiB. Moves are
+  stored by card identity, so the path is resolved to clicks by replaying it on the real board. A
+  cancel flag is read before every expansion. Results are deterministic and identical on 32-bit
+  Windows (the i686 build of `tests/solver_bench.c` under Wine matches the native run deal by deal).
+* **Sure win** (`fc_sure_win`, for auto-finish): moving any card that can go home, autoplay safety
+  ignored, empties the board; returns the moves (lowest card first, each followed by autoplay).
+
+Deals 1..32000, XP rule, default budget (`make solver-bench`, Apple M3 Pro, -O2, one thread):
+31997 solved, deal 11982 proven unsolvable (61643 positions, the whole reachable set), 2 gave up
+(8044 and 10692 need 115k and 217k nodes). Time median 0.49 ms, p95 3.1 ms, p99 9.2 ms, max 125 ms
+(a gave-up deal); nodes median 1046, p95 5348, p99 13832; solutions median 44 actions (max 70);
+about 0.5 us per node. The standard supermove rule gives the same counts. The search is integer code,
+so assuming the Athlon XP is 20x slower (conservative), Hint answers in ~10 ms typically, 99.35% of
+deals within ~0.2 s, 99.97% within ~1 s, and gives up after ~2 s.
+
+## Hint, warning and Finish (v1.2)
+
+The state machines are platform independent (`src/core/assist.c`, Finish in `session.c`) and unit
+tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thread and the drawing.
+
+* **One background search at a time, for the current position.** The session asks the UI to solve a
+  copy of the board (`solve_start(id, board, rule)`), and the answer comes back through
+  `fcs_solve_done(id, ...)`. Every change of position (move, Undo, Redo, deal, win/loss) replaces or
+  drops the request, so an answer with an older id is ignored. Hint and the warning share it: a hint
+  asked while the warning's search for that position runs waits for it.
+* **Cache.** The last solution (the board before each of its moves) and the last 8 positions proven
+  unwinnable are kept, per supermove rule. On the cached solution the hint is its next move, at once,
+  as long as the player follows it (also after Undo back onto it, or Restart). A move from an
+  unwinnable position is unwinnable without a search (were it winnable, so would the one before be).
+* **Hint** (Game > Hint, the H key as WM_CHAR 'h' / 'H'; XP's OnChar only knows '0'-'9'): the selection
+  is dropped (no autoplay), the search runs (cursor IDC_APPSTARTING; input still works and cancels it),
+  then the move is flashed: its source card(s) inverted twice, then its destination twice, 200 ms per
+  step (on, off, on, off for each, 1.6 s in all), timer driven, the board untouched. Inverted means
+  what a selection looks like; a column run shows all the cards that move; an empty free cell, home
+  cell or column shows an inverted card-shaped area (any card sprite's alpha as the mask). Any click,
+  digit key or command ends the flash. Unwinnable: "There are no more winning moves."; the search gave
+  up (node budget) or took over 5 s: "No hint is available." (XP's information message box).
+* **Warning** (option "Warn when the game can't be won", registry `WarnUnwinnable`): the deal and every
+  position after a committed move, Undo or Redo is checked. When a committed move or Redo leads to a
+  position proven unwinnable: "This game can no longer be won. Use Undo to go back." — once; it re-arms
+  only when a position is found winnable again (through Undo) or on a new game. If the deal itself was
+  proven unwinnable (XP's -1, #11982), the first move says "This game cannot be won." instead. A search
+  that gives up proves nothing and says nothing.
+* **Finish** (Game > Finish, F6; XP's keys are F1-F5, F10, Shift+F1, Ctrl+Shift+F10, the v1.1 extras
+  F11, Alt+Enter, Ctrl+Y; the mnemonic is "i" because "F" is Full Screen): enabled when `fc_sure_win`
+  holds (re-evaluated whenever the menu state is). It plays `fc_sure_win`'s moves, each followed by
+  autoplay, as **one action** (one undo step, one move on the counter), animated card by card like any
+  move (none with Quick play), and the commit ends in the normal win. **"Finish automatically"**
+  (`AutoFinish`) runs it right after any committed move or Redo that leaves a sure win; then it is not
+  counted as a move (like autoplay). It comes before XP's no-moves check (a sure win always has a move),
+  so a position with one legal move left does not start the "one move left" window flash just before
+  the win; with the cheat's "lose" armed the move still loses.
+* **Win32** (`src/win32/solve.c`): one worker thread (CreateThread on first use,
+  THREAD_PRIORITY_BELOW_NORMAL so the UI and card flights come first on a single core) owns the solver
+  (fc_solver_new once, 8.7 MiB). A request replaces a job not yet started and sets the running job's
+  cancel flag; the job holds its own board copy and only posts its result back (WM_APP_SOLVED). The
+  result is handed to the session only when no session call is running and no modal dialog is up (a
+  modal loop dispatches posted messages); until then it is held and retried after the next input or
+  when the dialog closes. WM_DESTROY cancels and joins the thread.
+* Measured (the exe under Wine on the M3): game #1's hint in 1 ms (1062 positions); #11982 proven
+  unwinnable in 116 ms (61643 positions; natively 92 ms, 1.5 us per position as the larger table misses
+  the cache). At the solver section's 20x the Athlon XP needs about 2 s for that proof, in the
+  background; the e2e line of #31364 needed a single search (the moves follow its cached solution).
+
 ## Persistence
 
 * Statistics and options: **the same registry key and format as XP**
@@ -155,6 +252,8 @@ of the dark bias alone, the art change alone and v1.1.
 * Window placement (extra): `HKCU\Software\xp-cards\FreeCell HD`, value `WindowPlacement`
   (REG_BINARY WINDOWPLACEMENT). First run: centred, sized to ~75% of the work area height with the
   board's aspect.
+* The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
+  `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2).
 
 ## Help
 
@@ -176,6 +275,26 @@ Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
   keyboard, cheat; random-playout invariants), and of the image code: the card resampler against a
   float reference and against golden values from the crispness lab's model (`tests/card_golden.h`,
   regenerated by `tools/crisplab/proto/make_golden.py` when the masters or the resampler change).
+* `make test` also runs `tests/test_solver.c`: 300 deals (XP rule) and 100 (standard rule) solved and
+  replayed through `fcs_click` with scripted MoveCol answers to a win; the solver's move set compared
+  with every click pair the session accepts from 160 positions; deal 11982 and constructed dead
+  positions proven unsolvable and cross-checked by independent exhaustive searches (one using the
+  session itself as the move oracle); mid-game solves; sure win; budget, cancel, determinism.
+* `make solver-bench` — the full 1..32000 sweep (BENCH_ARGS, e.g. `"1 1000 -std -n 50000 -v"`), every
+  solution replayed through the session.
+* `make test` runs `tests/test_assist.c` too: the v1.2 state machines with a fake UI and a synchronous
+  solver stub (requests are answered by the real solver, or with a scripted status, as the worker's
+  posted message would): hint request, wait cursor, the eight flash steps and their cells, following
+  hints to a win on one search, the cache across Restart, cancel by input / new game, the 5-s limit,
+  gave up / cancelled / no solver, answers while busy or stale; the warning once, derived without a
+  search, re-armed through Undo, again after Redo, the unwinnable deal, rule changes; Finish grayed
+  until the sure win of #31364 (the solver's line), one counted action of single-card flights, Finish
+  automatically (not counted), the registry values. `tests/test_layout.c` checks the hint drawing
+  (a card as a selection, both cancel out, runs, empty cells and columns, clipped renders).
+* `tests/e2e/fchd_v12.txt` (Wine): the hint on game #1 captured mid-flash (source, then destination,
+  polled with the driver's `wait_pixel`), the next hint after following it, the warning, the unwinnable
+  deal, Finish by hand and automatically on #31364 via the solver's embedded click line, the options'
+  registry values across a restart.
 * `make snapshots` — native renders of the board to PNG at several window sizes/states for review.
 * `make xpcheck` — verifies every import of the exe exists on Windows XP SP2.
 * `tools/wine/` — end-to-end driver run under Wine (launch, click, capture the client area).

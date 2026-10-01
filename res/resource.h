@@ -21,6 +21,8 @@
 #define IDM_UNDO            115     /* Game > Undo (F10, initially grayed) */
 #define IDM_REDO            116     /* Game > Redo (Ctrl+Y, initially grayed); extra, not in XP */
 #define IDM_FULLSCREEN      117     /* Game > Full Screen (F11, Alt+Enter; Esc leaves); extra */
+#define IDM_HINT            118     /* Game > Hint (key H, WM_CHAR); extra (v1.2) */
+#define IDM_FINISH          119     /* Game > Finish (F6, enabled on a sure win); extra (v1.2) */
 
 /* Dialog control ids (resources.md §5) */
 #define IDC_MOVECOLUMN      201     /* MoveCol: "Move &column" (default) */
@@ -42,6 +44,9 @@
 #define IDC_FULLRANGE       223     /* Options: "&New Game picks from all 1,000,000 games" */
 #define IDC_WONBEFORE       224     /* GameNum: "You have won this game before." / empty */
 #define IDC_STATS_WONDEALS  225     /* Stats: "Different games won: %u" */
+/* Extra controls (v1.2) */
+#define IDC_WARNUNWINNABLE  226     /* Options: "&Warn when the game can't be won" */
+#define IDC_AUTOFINISH      227     /* Options: "Finish &automatically" */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif

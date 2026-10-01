@@ -240,6 +240,7 @@ static void after_input(App *a)
     view_anim_idle(a);                                /* the session call is over: no flight follows */
     view_sync(a);
     view_refresh_cursor(a);
+    solver_deliver(a);                                /* a solver answer held meanwhile */
 }
 
 static void on_click(App *a, LPARAM lp, int dbl)
@@ -268,6 +269,7 @@ static void on_command(App *a, int id)
 {
     switch (id) {
     case IDM_NEWGAME: case IDM_SELECTGAME: case IDM_RESTART: case IDM_UNDO: case IDM_REDO: case IDM_CHEAT:
+    case IDM_HINT: case IDM_FINISH:
         if (a->in_modal)
             return;
         fcs_command(&a->s, id);                       /* IDM_* == FCS_CMD_* */
@@ -320,6 +322,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         a->sync_posted = 0;
         if (a->dirty)
             view_sync(a);
+        return 0;
+    case WM_APP_SOLVED:
+        solver_received(a, lp);
         return 0;
 
     case WM_GETMINMAXINFO: {
@@ -450,8 +455,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             clock_update(a);
             return 0;
         }
-        if (wp == FCS_TIMER_PEEK && a->in_modal)
-            return 0;                                 /* the column peek waits for the dialog */
+        if ((wp == FCS_TIMER_PEEK || wp == FCS_TIMER_HINT_WAIT) && a->in_modal)
+            return 0;                                 /* the column peek / hint time limit wait for the dialog */
         fcs_timer(&a->s, (int)wp);
         after_input(a);
         return 0;
@@ -481,8 +486,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         view_anim_idle(a);
         KillTimer(h, FCS_TIMER_FLASH);
         KillTimer(h, FCS_TIMER_PEEK);
+        KillTimer(h, FCS_TIMER_HINT);
+        KillTimer(h, FCS_TIMER_HINT_WAIT);
         KillTimer(h, FC_TIMER_CLOCK);
         a->clock_timer = 0;
+        solver_shutdown(a);
         help_shutdown(a);
         PostQuitMessage(0);
         return 0;

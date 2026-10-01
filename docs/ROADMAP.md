@@ -22,12 +22,15 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   - Supermove rule option: XP (f+1)(e+1) default, standard (f+1)·2^e optional.
   - New Game range option: XP 1–32767 default, 1–1,000,000 optional.
 
-## 1b. Solver-based extras (v1.2)
-- Hint (built-in solver suggests a move; can warn when the deal is no longer winnable).
-- Auto-finish: Game menu "Finish" + shortcut, enabled only when the rest is a sure win; option to
-  trigger it automatically.
-- Drag-and-drop as an optional input mode (after Solitaire builds the drag code; XP click-click stays
-  the default).
+## 1b. Solver-based extras (v1.2) — done, except drag-and-drop
+- [x] Solver (`src/core/solver.c`): weighted best-first over session actions; 31997 of deals
+  1..32000 solved with the default budget, #11982 proven unwinnable.
+- [x] Hint: Game > Hint (H) flashes the move (source, then destination); cached along the solution.
+  Option "Warn when the game can't be won" (off by default).
+- [x] Auto-finish: Game > Finish (F6), enabled only when the rest is a sure win; option "Finish
+  automatically" (off by default).
+- [ ] Drag-and-drop as an optional input mode: waits for Solitaire, which builds the drag code (XP
+  click-click stays the default).
 
 ## 2. Solitaire HD (Klondike, sol.exe)
 - Extract the shared card-game engine from FreeCell first: scaling layout primitives, sprite cache,

@@ -46,7 +46,7 @@ The commands are listed below (`fcdrive.exe -h` has the full list with arguments
 | timing | `wait <ms>`, `sync`, `timeout <ms>` (default 10000), `settle <ms>` (delay after each input, default 100) |
 | window | `info`, `title`, `assert_title <t>`, `maximize`, `minimize`, `restore`, `resize_client <w> <h>`, `move_window <x> <y>`, `assert_client_size <w> <h>` |
 | input | `command <id>`, `click`, `dblclick`, `ldown`, `lup`, `move`, `rclick`, `rclick_down`, `rclick_up` (all `<x> <y>`), `key <chars>`, `vkey <F5\|ESC\|ENTER\|code> [shift] [ctrl] [alt]`, `mouse_activate <hittest> <mouse msg>` (sends `WM_MOUSEACTIVATE`, which posted input never causes) |
-| look | `capture <f.bmp>`, `capture_window <f.bmp>`, `capture_dialog <f.bmp>`, `capture_method dc\|print`, `pixel <x> <y>`, `assert_pixel <x> <y> <RRGGBB> [tol]` |
+| look | `capture <f.bmp>`, `capture_window <f.bmp>`, `capture_dialog <f.bmp>`, `capture_method dc\|print`, `pixel <x> <y>`, `assert_pixel <x> <y> <RRGGBB> [tol]`, `wait_pixel <x> <y> <RRGGBB> [tol] [ms]` (polls until it matches, e.g. a flashing card) |
 | menu | `menu_state <id>`, `assert_menu <id> enabled\|grayed\|checked\|unchecked`, `menubar_text`, `assert_menubar_text <s>`, `drawn_text` |
 | dialogs | `wait_dialog [title] [ms]`, `dialog_text`, `assert_dialog_text <s>`, `dialog_click <id\|caption>`, `dialog_set_text <id> <text>`, `dialog_check <id> <0\|1>`, `assert_no_dialog` |
 | registry | `regdump <key>`, `regset <key> <name> dword\|bin32\|binary\|sz <data>`, `regdel <key> [name]`, `assert_reg <key> <name> <value\|absent>` |

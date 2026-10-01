@@ -8,8 +8,10 @@
  *   storage.c  registry: statistics/options store (XP's key and format), the extras and the window
  *              placement (our own key), the won-deals file (%APPDATA%)
  *   help.c     Help > Contents / Search / How to Use Help (HtmlHelp, built-in fallback) and About
+ *   solve.c    the background solver for Hint and the unwinnable warning (v1.2): one worker thread
  *
- * One window, one thread: everything lives in the global g_app.
+ * One window, one UI thread: everything lives in the global g_app. The solver's worker thread only
+ * sees its own copies of boards (solve.c).
  */
 #ifndef FC_WIN32_APP_H
 #define FC_WIN32_APP_H
@@ -26,6 +28,9 @@
 
 #define FC_CLASS_NAME   L"FreeCellHD"
 #define WM_APP_SYNC     (WM_APP + 1)     /* deferred "session state changed": render the difference */
+#define WM_APP_SOLVED   (WM_APP + 2)     /* a solver job finished (lParam = the job; 0 = retry delivery) */
+
+struct SolveJob;
 #define FC_TIMER_CLOCK  10               /* extra: once-a-second refresh of "Time: m:ss" in the menu bar */
 
 typedef struct App {
@@ -66,7 +71,7 @@ typedef struct App {
     FcBoard    anim_board;
 
     /* cursors */
-    HCURSOR    cur_arrow, cur_down, cur_up, cur_wait, cursor;
+    HCURSOR    cur_arrow, cur_down, cur_up, cur_wait, cur_busy, cursor;   /* busy: IDC_APPSTARTING */
     int        rcapture;        /* right button captured for a peek */
 
     /* "Cards Left: N" in the menu bar */
@@ -74,6 +79,7 @@ typedef struct App {
     int        cards_left;
     int        cl_prev_left;    /* left edge of the last drawn text (to erase a longer old one) */
     int        menu_undo, menu_redo, menu_restart;   /* -1 = unknown */
+    int        menu_hint, menu_finish;
 
     int        in_modal;        /* > 0 while one of our modal dialogs / message boxes is up */
     int        anim_period;     /* timeBeginPeriod(1) is in effect (cards are flying) */
@@ -84,6 +90,9 @@ typedef struct App {
     int        fullscreen;      /* borderless, covering the monitor (the menu bar stays) */
     WINDOWPLACEMENT fs_prev;    /* placement before full screen: restored on leaving, saved on exit */
     LONG       fs_style;        /* window style before full screen */
+
+    /* v1.2: a finished solver job waiting until no session call or dialog is in progress */
+    struct SolveJob *solve_ready;
 
     /* help */
     HMODULE    hh;
@@ -125,6 +134,8 @@ void   ui_menu_init(App *a);
 void   dlg_statistics(App *a);
 void   dlg_options(App *a);
 void   center_dialog(HWND dlg, HWND owner);
+void   modal_begin(App *a);                          /* a modal dialog / message box opens ... */
+void   modal_end(App *a);                            /* ... and closes (then a held solver job is retried) */
 void   clamp_to_work_area(HWND near_wnd, RECT *r);
 int    to_wide(const char *s, WCHAR *out, int n);
 int    load_wstr(App *a, UINT id, WCHAR *out, int n, const WCHAR *fallback);
@@ -140,6 +151,13 @@ void   placement_save_wp(const WINDOWPLACEMENT *wp);
 
 /* main.c */
 void   fullscreen_set(App *a, int on);
+
+/* solve.c */
+void   solver_request(App *a, uint32_t id, const FcBoard *b, int standard);
+void   solver_cancel(App *a);
+void   solver_received(App *a, LPARAM lp);           /* WM_APP_SOLVED */
+void   solver_deliver(App *a);                       /* hand a held job to the session when it can take it */
+void   solver_shutdown(App *a);                      /* WM_DESTROY: stop and join the worker */
 
 /* help.c */
 void   help_contents(App *a);

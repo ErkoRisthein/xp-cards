@@ -3,6 +3,8 @@
 #   make            build build/FreeCellHD.exe (32-bit, Windows XP SP2+)
 #   make release    build/FreeCellHD.exe linked stripped (-s), then the XP import check
 #   make test       build and run native unit tests
+#   make solver-bench  solve deals 1..32000 natively (-O2, no sanitizers), replay every solution through
+#                   the session, print counts/percentiles (BENCH_ARGS, e.g. "1 1000 -std -n 50000 -v")
 #   make snapshots  render board snapshots to build/snapshots/*.png (native)
 #   make xpcheck    verify every import of the exe exists on Windows XP
 #   make e2e        end-to-end scenarios under Wine (tests/e2e/fchd_*.txt -> build/e2e/fchd)
@@ -55,7 +57,7 @@ WIN_OBJ  := $(patsubst %.c,$(BUILD)/win/%.o,$(CORE_SRC) $(GFX_SRC) $(WIN_SRC)) $
 HOST_LIB_SRC := $(CORE_SRC) $(GFX_SRC)
 TESTS    := $(patsubst tests/%.c,$(BUILD)/host/%,$(filter-out tests/snapshots.c,$(wildcard tests/test_*.c)))
 
-.PHONY: all release test snapshots xpcheck e2e deploy clean
+.PHONY: all release test solver-bench snapshots xpcheck e2e deploy clean
 
 all: $(EXE)
 
@@ -82,6 +84,17 @@ $(BUILD)/host/%: tests/%.c $(HOST_LIB_SRC) $(wildcard src/*/*.h tests/*.h)
 
 test: $(TESTS)
 	@set -e; for t in $(TESTS); do echo "== $$t"; $$t; done
+
+# The solver benchmark is timed, so it is built without the sanitizers.
+BENCHCFLAGS := -std=c99 -O2 -Wall -Wextra -Wno-unused-parameter -Isrc
+BENCH_ARGS ?= 1 32000
+
+$(BUILD)/bench/solver_bench: tests/solver_bench.c tests/solver_replay.h $(CORE_SRC) $(wildcard src/core/*.h)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(BENCHCFLAGS) -o $@ tests/solver_bench.c $(CORE_SRC)
+
+solver-bench: $(BUILD)/bench/solver_bench
+	$(BUILD)/bench/solver_bench $(BENCH_ARGS)
 
 snapshots: $(BUILD)/host/snapshots
 	@mkdir -p $(BUILD)/snapshots

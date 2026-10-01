@@ -47,12 +47,14 @@ typedef struct FcOptions {
 
 /* Extras (not in XP), all off by default so the game behaves as XP. They live in our own store
  * (HKCU\Software\xp-cards\FreeCell HD, REG_DWORD values ShowTimeMoves StandardSupermove
- * FullRangeDeals FullScreen), never in XP's key. */
+ * FullRangeDeals FullScreen WarnUnwinnable AutoFinish), never in XP's key. */
 typedef struct FcExtras {
     int show_time_moves;     /* "Show time and moves" in the menu bar */
     int standard_supermove;  /* "Standard multi-card moves": (f+1)*2^e instead of XP's (f+1)(e+1) */
     int full_range;          /* "New Game picks from all 1,000,000 games" instead of XP's 1..32767 */
     int full_screen;         /* window state (Game > Full Screen), remembered with the placement */
+    int warn_unwinnable;     /* "Warn when the game can't be won" (v1.2) */
+    int auto_finish;         /* "Finish automatically" (v1.2) */
 } FcExtras;
 
 /* ---- Statistics --------------------------------------------------------------------------------- */

@@ -173,6 +173,8 @@ void fc_extras_load(FcExtras *x, const FcStore *store)
     x->standard_supermove = store_get(store, "StandardSupermove", 0) != 0;
     x->full_range = store_get(store, "FullRangeDeals", 0) != 0;
     x->full_screen = store_get(store, "FullScreen", 0) != 0;
+    x->warn_unwinnable = store_get(store, "WarnUnwinnable", 0) != 0;
+    x->auto_finish = store_get(store, "AutoFinish", 0) != 0;
 }
 
 void fc_extras_save(const FcExtras *x, const FcStore *store)
@@ -182,5 +184,7 @@ void fc_extras_save(const FcExtras *x, const FcStore *store)
     store_set(store, "StandardSupermove", x->standard_supermove != 0);
     store_set(store, "FullRangeDeals", x->full_range != 0);
     store_set(store, "FullScreen", x->full_screen != 0);
+    store_set(store, "WarnUnwinnable", x->warn_unwinnable != 0);
+    store_set(store, "AutoFinish", x->auto_finish != 0);
     if (store->flush) store->flush(store->ctx);
 }

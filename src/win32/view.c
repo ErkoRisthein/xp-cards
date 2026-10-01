@@ -161,15 +161,19 @@ int view_init(App *a)
     a->cur_arrow = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
     a->cur_up = LoadCursorW(NULL, (LPCWSTR)IDC_UPARROW);
     a->cur_wait = LoadCursorW(NULL, (LPCWSTR)IDC_WAIT);
+    a->cur_busy = LoadCursorW(NULL, (LPCWSTR)IDC_APPSTARTING);
     a->cur_down = LoadCursorW(a->inst, RES_CUR_DOWNARROW);
     if (!a->cur_up)
         a->cur_up = a->cur_arrow;
+    if (!a->cur_busy)
+        a->cur_busy = a->cur_wait;
     if (!a->cur_down)
         a->cur_down = a->cur_arrow;
     a->cursor = a->cur_arrow;
     a->hide_col = a->hide_pos = -1;
     a->cl_prev_left = INT_MAX;
     a->menu_undo = a->menu_redo = a->menu_restart = -1;
+    a->menu_hint = a->menu_finish = -1;
     a->quality = -1;
     green_brush = CreateSolidBrush(RGB(0, 127, 0));
     menubar_font_update(a);
@@ -266,6 +270,8 @@ static void view_state(App *a, FcView *v)
     v->no_game = vs.no_game;
     v->hide_col = a->hide_col;
     v->hide_pos = a->hide_pos;
+    v->hint_col = vs.hint_col;
+    v->hint_pos = vs.hint_pos;
 }
 
 typedef struct Dirty {
@@ -309,6 +315,10 @@ static void diff(App *a, const FcBoard *b, const FcView *v, Dirty *d)
     if (v->hide_col != ov->hide_col || v->hide_pos != ov->hide_pos) {
         mark(d, ov->hide_col, ov->hide_pos);
         mark(d, v->hide_col, v->hide_pos);
+    }
+    if (v->hint_col != ov->hint_col || v->hint_pos != ov->hint_pos) {
+        mark(d, ov->hint_col, ov->hint_pos);
+        mark(d, v->hint_col, v->hint_pos);
     }
 }
 
@@ -632,6 +642,7 @@ static HCURSOR cursor_for(App *a, int c)
     case FCS_CURSOR_DOWNARROW: return a->cur_down;
     case FCS_CURSOR_UPARROW: return a->cur_up;
     case FCS_CURSOR_WAIT: return a->cur_wait;
+    case FCS_CURSOR_APPSTARTING: return a->cur_busy;
     default: return a->cur_arrow;
     }
 }
@@ -661,7 +672,7 @@ void view_refresh_cursor(App *a)
     if (!a->have_layout)
         return;
     if (!mouse_over(a, &p)) {                         /* for the next WM_SETCURSOR */
-        a->cursor = a->s.busy || a->s.kbd_peek ? a->cur_wait : a->cur_arrow;
+        a->cursor = cursor_for(a, fcs_cursor(&a->s, FCS_MISS, -1, 0));   /* wait / app starting / arrow */
         return;
     }
     a->cursor = cursor_for(a, cursor_at(a, p.x, p.y, 0));

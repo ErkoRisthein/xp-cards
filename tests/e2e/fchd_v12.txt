@@ -1,0 +1,306 @@
+# FreeCell HD v1.2 extras end to end (the solver): Hint (key H) on game #1 - the source card flashes
+# inverted twice, then the destination (here an empty free cell) twice, captured mid-flash, with nothing
+# moved or selected afterwards; following the hint, the next one comes at once (the cached solution).
+# The unwinnable warning (Options > Extras): game #1 made unwinnable in three moves warns once, a fourth
+# move does not, Undo back to a winnable position and Redo warns again; the deal #11982 "cannot be
+# won"; Hint there says "There are no more winning moves.". Finish (F6) is grayed until the position is
+# a sure win, reached without the cheat by playing the solver's line for game #31364 (generated
+# natively with src/core/solver.c and embedded below; the first 21 moves, no MoveCol dialog); Finish
+# by hand is one move, "Finish automatically" finishes right after the 21st move and is not a move.
+# The two Options and their registry values survive a restart.  Run by tests/e2e/run_fchd_e2e.sh.
+# The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card
+# y = 212, step 37, cards 142 x 192; free cells x = 0 142 284 426, home cells x = 696 838 980 1122,
+# y 0..191). Clicks: a column at (x + 71, 220), a top-row cell at its centre (x + 71, 96).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+menu_state 118
+assert_menu 118 grayed                    # Hint: no game yet
+menu_state 119
+assert_menu 119 grayed                    # Finish
+
+# ---- Options: the two new check boxes, off by default ------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[226] Button \"&Warn when the game can't be won\" [ ]"
+assert_dialog_text "[227] Button \"Finish &automatically\" [ ]"
+capture_dialog 60_options_v12.bmp
+dialog_check 221 1                        # Show time and moves: the move counter is checked below
+dialog_click OK
+assert_no_dialog
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" WarnUnwinnable 0
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" AutoFinish 0
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell WarnUnwinnable absent
+
+# ---- Hint on game #1: 3D (column 6) to free cell 1 ------------------------------------------------------
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+assert_menu 118 enabled
+assert_menu 119 grayed                    # not a sure win
+assert_pixel 930 547 FFFFFF               # 3D, white near its right edge
+assert_pixel 71 96 007F00                 # free cell 1, empty
+key h
+wait_pixel 930 547 000000 40 3000         # the source flashes inverted ...
+capture 61_hint_source.bmp
+assert_pixel 71 96 007F00
+wait_pixel 930 547 FFFFFF 0 3000          # ... off ...
+wait_pixel 930 547 000000 40 3000         # ... on again ...
+wait_pixel 71 96 FF80FF 40 3000           # ... then the destination: the empty cell inverted, card-shaped
+capture 62_hint_destination.bmp
+assert_pixel 930 547 FFFFFF
+wait_pixel 71 96 007F00 0 3000
+wait_pixel 71 96 FF80FF 40 3000           # twice
+wait_pixel 71 96 007F00 0 3000
+wait 400
+assert_pixel 930 547 FFFFFF               # over: nothing selected, nothing moved
+assert_pixel 71 96 007F00
+assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 52"
+capture 63_hint_over.bmp
+click 866 220                             # follow it: 3D -> free cell 1
+click 71 96
+assert_menubar_text "Moves: 1"
+key H                                     # the next hint at once: 2C (column 6) -> free cell 2
+wait_pixel 805 470 000000 40 3000
+wait_pixel 213 96 FF80FF 40 3000
+click 241 220                             # a click ends the flash (and selects column 2)
+assert_pixel 213 96 007F00
+assert_pixel 805 470 FFFFFF
+click 241 220                             # deselect
+
+# ---- the unwinnable warning ---------------------------------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 226 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" WarnUnwinnable 1
+command 107                               # Restart game #1 (resign)
+wait_dialog "FreeCell"
+dialog_click Yes
+assert_title "FreeCell Game #1"
+assert_no_dialog
+click 241 220                             # column 2's bottom three cards to the free cells:
+click 71 96                               # 9C
+click 241 220
+click 213 96                              # 8S (still winnable: no message)
+wait 500
+assert_no_dialog
+click 241 220
+click 355 96                              # TD: no longer winnable
+wait_dialog "FreeCell" 10000
+dialog_text
+assert_dialog_text "This game can no longer be won. Use Undo to go back."
+capture_dialog 64_warning.bmp
+capture_window 64_warning_window.bmp
+dialog_click OK
+assert_no_dialog
+key h                                     # Hint here: known at once
+wait_dialog "FreeCell" 10000
+assert_dialog_text "There are no more winning moves."
+capture_dialog 65_hint_no_more.bmp
+dialog_click OK
+click 85 220                              # one more move (column 1 -> free cell 4): no second warning
+click 497 96
+wait 1000
+assert_no_dialog
+assert_menubar_text "Moves: 4"
+vkey F10                                  # Undo: still unwinnable, quiet
+wait 500
+assert_no_dialog
+vkey F10                                  # Undo: winnable again (the warning re-arms)
+wait 1000
+assert_no_dialog
+vkey Y ctrl                               # Redo into the unwinnable position: warned again
+wait_dialog "FreeCell" 10000
+assert_dialog_text "This game can no longer be won. Use Undo to go back."
+dialog_click OK
+assert_no_dialog
+
+# the deal itself cannot be won (#11982): Hint waits for the deal's search (61643 positions) and says
+# so (which counts as this game's warning); after Restart the deal is known at once, and the first move
+# says "This game cannot be won." (no "Use Undo": it never could)
+command 103
+wait_dialog "FreeCell"                    # resign #1
+dialog_click Yes
+wait_dialog "Game Number"
+dialog_set_text 203 11982
+dialog_click OK
+assert_title "FreeCell Game #11982"
+key h
+wait_dialog "FreeCell" 30000
+assert_dialog_text "There are no more winning moves."
+dialog_click OK
+assert_no_dialog
+command 107                               # Restart #11982
+wait_dialog "FreeCell"
+dialog_click Yes
+assert_title "FreeCell Game #11982"
+assert_no_dialog
+click 85 220                              # column 1 -> free cell 1
+click 71 96
+wait_dialog "FreeCell" 10000
+assert_dialog_text "This game cannot be won."
+capture_dialog 65_cannot_be_won.bmp
+dialog_click OK
+assert_no_dialog
+
+# ---- Finish by hand: game #31364, the solver's line up to a sure win (the warning stays quiet) ----------
+command 103
+wait_dialog "FreeCell"                    # resign #11982
+dialog_click Yes
+wait_dialog "Game Number"
+dialog_set_text 203 31364
+dialog_click OK
+assert_title "FreeCell Game #31364"
+assert_menu 119 grayed
+click 553 220
+click 71 96                               #  1: 3D column 4 -> free cell 1
+click 553 220
+click 213 96                              #  2: JD column 4 -> free cell 2
+click 1178 220
+click 85 220                              #  3: 5C column 8 -> column 1
+click 1178 220
+click 85 220                              #  4: 4H column 8 -> column 1
+click 553 220
+click 1022 220                            #  5: 4C column 4 -> column 7
+click 1022 220
+click 553 220                             #  6: 5D column 7 -> column 4 (with 4C)
+click 397 220
+click 1022 220                            #  7: TD column 3 -> column 7
+click 71 96
+click 553 220                             #  8: 3D free cell 1 -> column 4
+click 397 220
+click 241 220                             #  9: 7H column 3 -> column 2
+click 397 220
+click 767 96                              # 10: 3H column 3 -> home 1
+click 710 220
+click 909 96                              # 11: 3C column 5 -> home 2
+click 241 220
+click 710 220                             # 12: 8C column 2 -> column 5
+click 241 220
+click 71 96                               # 13: 5S column 2 -> free cell 1
+click 241 220
+click 355 96                              # 14: 4S column 2 -> free cell 3
+click 355 96
+click 553 220                             # 15: 4S free cell 3 -> column 4
+click 85 220
+click 767 96                              # 16: 4H column 1 -> home 1
+click 866 220
+click 355 96                              # 17: TH column 6 -> free cell 3
+click 866 220
+click 767 96                              # 18: 5H column 6 -> home 1
+click 85 220
+click 553 220                             # 19: JS column 1 -> column 4
+click 710 220
+click 1178 220                            # 20: 9D column 5 -> column 8
+assert_menu 119 grayed
+click 1022 220
+click 85 220                              # 21: JC column 7 -> column 1: the rest is a sure win
+assert_menu 119 enabled
+assert_menubar_text "Moves: 21"
+assert_menubar_text "Cards Left: 20"
+capture 66_sure_win.bmp
+vkey F10                                  # Undo: not any more
+assert_menu 119 grayed
+vkey Y ctrl                               # Redo: again
+assert_menu 119 enabled
+assert_no_dialog
+vkey F6                                   # Finish: every card flies home, then the win
+wait_dialog "Game Over" 60000
+assert_dialog_text "Congratulations, you win!"
+assert_menubar_text "Moves: 22"           # Finish counts as one move
+assert_menubar_text "Cards Left: 0"
+capture 67_finished.bmp
+assert_menu 119 grayed
+dialog_click No
+assert_no_dialog
+
+# ---- Finish automatically ------------------------------------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 227 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" AutoFinish 1
+command 103                               # no game in progress: no prompt
+wait_dialog "Game Number"
+dialog_set_text 203 31364
+dialog_click OK
+assert_title "FreeCell Game #31364"
+click 553 220
+click 71 96
+click 553 220
+click 213 96
+click 1178 220
+click 85 220
+click 1178 220
+click 85 220
+click 553 220
+click 1022 220
+click 1022 220
+click 553 220
+click 397 220
+click 1022 220
+click 71 96
+click 553 220
+click 397 220
+click 241 220
+click 397 220
+click 767 96
+click 710 220
+click 909 96
+click 241 220
+click 710 220
+click 241 220
+click 71 96
+click 241 220
+click 355 96
+click 355 96
+click 553 220
+click 85 220
+click 767 96
+click 866 220
+click 355 96
+click 866 220
+click 767 96
+click 85 220
+click 553 220
+click 710 220
+click 1178 220
+assert_no_dialog
+assert_menubar_text "Moves: 20    Time: 0:"   # no finish yet
+assert_menubar_text "Cards Left: 22"
+click 1022 220
+click 85 220                              # 21: the sure win finishes by itself
+wait_dialog "Game Over" 60000
+assert_dialog_text "Congratulations, you win!"
+assert_menubar_text "Moves: 21"           # the automatic finish is not a move
+assert_menubar_text "Cards Left: 0"
+dialog_click No
+assert_no_dialog
+
+# ---- the options survive a restart -----------------------------------------------------------------------
+close Yes
+wait_exit 5000
+launch ${REPO}/build/FreeCellHD.exe
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[226] Button \"&Warn when the game can't be won\" [x]"
+assert_dialog_text "[227] Button \"Finish &automatically\" [x]"
+dialog_check 226 0
+dialog_check 227 0
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" WarnUnwinnable 0
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" AutoFinish 0
+close Yes
+wait_exit 5000
+regdel HKCU\Software\xp-cards             # leave the extras off for the scenarios that follow

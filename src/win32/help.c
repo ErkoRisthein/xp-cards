@@ -27,8 +27,11 @@ static const WCHAR how_to_play[] =
     L"column or a single card.\n\n"
     L"Cards no longer needed on the table go home automatically. Hold the right mouse button on a "
     L"covered card to see it.\n\n"
-    L"Keyboard: 1-8 select or move to a column, 0 a free cell, 9 home. F2 New Game, F3 Select "
-    L"Game, F10 Undo, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it).";
+    L"Hint (H) flashes a card to move, then where it goes. When the rest is a sure win, Finish (F6) "
+    L"sends every card home. Options can warn when the game can no longer be won, and finish "
+    L"automatically.\n\n"
+    L"Keyboard: 1-8 select or move to a column, 0 a free cell, 9 home. H Hint, F6 Finish, F2 New "
+    L"Game, F3 Select Game, F10 Undo, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it).";
 
 static HtmlHelpW_fn get_html_help(App *a)
 {
@@ -43,9 +46,9 @@ static HtmlHelpW_fn get_html_help(App *a)
 
 static void builtin_help(App *a)
 {
-    a->in_modal++;
+    modal_begin(a);
     MessageBoxW(a->hwnd, how_to_play, L"How to Play FreeCell", MB_OK | MB_ICONINFORMATION);
-    a->in_modal--;
+    modal_end(a);
 }
 
 /* name without a path: HtmlHelp's own search (Windows\Help); then %windir%\Help\name explicitly. */
@@ -92,7 +95,7 @@ void help_about(App *a)
     if (a->in_modal)
         return;
     icon = LoadIconW(a->inst, MAKEINTRESOURCEW(IDI_FREECELL));
-    a->in_modal++;
+    modal_begin(a);
     /* "title#first line". The other text sits in a static control below the copyright line that
      * holds two lines of about 270 px (180 x 20 DLU) on XP; anything longer is clipped, so the art
      * credit is condensed (Tahoma 8: 230 and 247 px). The full wording is in the version info. */
@@ -105,7 +108,7 @@ void help_about(App *a)
                         L"Card faces by Adrian Kennard: cards.revk.uk (CC0)";
         ShellAboutW(a->hwnd, title, other, icon);
     }
-    a->in_modal--;
+    modal_end(a);
 }
 
 /* Close help windows before exit. hhctrl.ocx is not unloaded: its worker thread may still run, and

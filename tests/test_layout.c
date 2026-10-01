@@ -324,7 +324,7 @@ static void test_render_rect(FcCardSet *cs)
     b.board[0][2] = 13;
     b.board[0][5] = 24;
     for (si = 0; si < sizeof sizes / sizeof sizes[0]; si++)
-        for (variant = 0; variant < 4; variant++) {
+        for (variant = 0; variant < 6; variant++) {
             int W = sizes[si][0], H = sizes[si][1], t, bad = 0;
             FcImage *full = fc_image_new(W, H), *part = fc_image_new(W, H);
             fc_layout_compute(&l, W, H);
@@ -333,6 +333,8 @@ static void test_render_rect(FcCardSet *cs)
             if (variant == 1) { v.sel_col = 2; v.sel_pos = 18; v.peek_col = 1; v.peek_pos = 2; v.king = FC_KINGVIEW_LEFT; }
             if (variant == 2) { v.sel_col = 0; v.sel_pos = 2; v.hide_col = 8; v.hide_pos = 4; v.big_king = 1; v.king = FC_KINGVIEW_BLANK; }
             if (variant == 3) { v.no_game = 1; v.hide_col = 0; v.hide_pos = 5; }
+            if (variant == 4) { v.hint_col = 2; v.hint_pos = 15; v.sel_col = 2; v.sel_pos = 18; }
+            if (variant == 5) { v.hint_col = 0; v.hint_pos = 3; }
             fc_render_board(full, &l, &b, &v, cs);
             for (t = 0; t < 12; t++) {
                 FcRect r;
@@ -384,6 +386,72 @@ static void test_render_rect(FcCardSet *cs)
             fc_image_free(full);
             fc_image_free(part);
         }
+}
+
+/* The hint flash (extra): a card is drawn inverted like a selection (both together cancel out), a run
+ * from its first card on, an empty cell or column as an inverted card-shaped area. */
+static void test_render_hint(FcCardSet *cs)
+{
+    const int W = 632, H = 427;
+    FcImage *a = fc_image_new(W, H), *b = fc_image_new(W, H);
+    FcBoard bd;
+    FcView v, w;
+    FcLayout l;
+    int last;
+    clear(&bd);
+    fill_col(&bd, 1, 7);
+    fill_col(&bd, 5, 3);
+    bd.board[0][0] = 51;
+    last = fc_last_index(&bd, 1);
+    fc_layout_compute(&l, W, H);
+    fc_render_prepare(cs, &l, 1);
+#define SAME(msg) CHECK(memcmp(a->px, b->px, sizeof(uint32_t) * (size_t)W * H) == 0, msg)
+    fc_view_init(&v); v.hint_col = 1; v.hint_pos = last;
+    fc_view_init(&w); w.sel_col = 1; w.sel_pos = last;
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &bd, &w, cs);
+    SAME("hint on the exposed card = selection");
+    fc_view_init(&v); v.hint_col = 0; v.hint_pos = 0;
+    fc_view_init(&w); w.sel_col = 0; w.sel_pos = 0;
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &bd, &w, cs);
+    SAME("hint on a free-cell card = selection");
+    v.sel_col = 0; v.sel_pos = 0;
+    fc_view_init(&w);
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &bd, &w, cs);
+    SAME("hint and selection cancel out");
+    /* a run: every card from hint_pos on is inverted (the exposed one fully) */
+    fc_view_init(&v); v.hint_col = 1; v.hint_pos = 3;
+    fc_view_init(&w);
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &bd, &w, cs);
+    {
+        FcRect r2 = fc_layout_card_rect(&l, &bd, 1, 2), r3 = fc_layout_card_rect(&l, &bd, 1, 3);
+        int x = r3.x + r3.w / 2, y3 = r3.y + 4, y2 = r2.y + 4;
+        uint32_t p = a->px[y3 * W + x], q = b->px[y3 * W + x];
+        CHECK((p & 0xffffff) == (~q & 0xffffff), "run card 3 inverted %08x / %08x", p, q);
+        CHECK(a->px[y2 * W + x] == b->px[y2 * W + x], "card above the run untouched");
+    }
+    /* an empty free cell: the card shape inverted, the corner outside it untouched */
+    fc_view_init(&v); v.hint_col = 0; v.hint_pos = 1;
+    fc_render_board(a, &l, &bd, &v, cs);
+    CHECK(a->px[48 * W + 106] == FC_RGB(255, 128, 255), "empty cell inverted %08x", a->px[48 * W + 106]);
+    CHECK(a->px[50 * W + 71] == FC_RGB(255, 255, 255), "its bevel inverted %08x", a->px[50 * W + 71]);
+    CHECK(a->px[0 * W + 71] == b->px[0 * W + 71], "the corner is not");
+    /* an empty column: its first card slot */
+    fc_view_init(&v); v.hint_col = 3; v.hint_pos = -1;
+    fc_render_board(a, &l, &bd, &v, cs);
+    CHECK(a->px[(l.col_y0 + 40) * W + l.col_x[3] + 35] == FC_RGB(255, 128, 255), "empty column inverted");
+    CHECK(a->px[(l.col_y0 + l.ch + 4) * W + l.col_x[3] + 35] == FC_TABLE_GREEN, "below the slot");
+    /* nothing before a deal */
+    v.no_game = 1;
+    v.hint_col = 0; v.hint_pos = 1;
+    fc_render_board(a, &l, &bd, &v, cs);
+    CHECK(a->px[48 * W + 106] == FC_TABLE_GREEN, "no hint without a game");
+#undef SAME
+    fc_image_free(a);
+    fc_image_free(b);
 }
 
 static void test_cardset(FcCardSet *cs)
@@ -688,6 +756,7 @@ int main(void)
     if (cs) {
         test_cardset(cs);
         test_render_rect(cs);
+        test_render_hint(cs);
         test_bevel_cache_render(cs);
         test_cardset_rules(res ? res : "res");
         fc_cardset_free(cs);

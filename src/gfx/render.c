@@ -23,6 +23,7 @@ void fc_view_init(FcView *v)
     v->king = FC_KINGVIEW_RIGHT;
     v->big_king = 0;
     v->no_game = 0;
+    v->hint_col = v->hint_pos = -1;
 }
 
 void fc_render_prepare(FcCardSet *cs, const FcLayout *l, int quality)
@@ -132,6 +133,20 @@ static void card(Ctx *c, FcCardSet *cs, Card k, int x, int y, int inverted)
     sprite(c, fc_cardset_card(cs, k), x, y, inverted);
 }
 
+/* The hint on an empty cell or column: the card-shaped area at (x, y) inverted (any card's sprite has
+ * the card's shape). */
+static void invert_slot(Ctx *c, FcCardSet *cs, int x, int y)
+{
+    const FcImage *m = fc_cardset_card(cs, 0);
+    if (m && overlaps(&c->clip, x, y, m->w, m->h))
+        fc_invert_masked(&c->img, m, x - c->ox, y - c->oy);
+}
+
+static int hinted(const FcView *v, int col, int pos)
+{
+    return v->hint_col == col && (col == 0 ? v->hint_pos == pos : pos >= v->hint_pos);
+}
+
 static int last_index(const FcBoard *b, int col)
 {
     int i = FC_COLLEN - 1;
@@ -163,10 +178,13 @@ static void draw(Ctx *c, const FcLayout *l, const FcBoard *b, const FcView *v, F
             /* lifted off: a home pile shows the previous rank of its suit, a free cell is empty */
             k = (i >= 4 && fc_rank(k) > 0) ? k - 4 : FC_EMPTY;
         }
-        if (k == FC_EMPTY)
+        if (k == FC_EMPTY) {
             cell_bevel(c, cs, l, r, 0.0372 * l->ch, FC_BEVEL_DARK, FC_BEVEL_LIGHT);   /* card corner radius */
-        else
-            card(c, cs, k, r.x, r.y, v->sel_col == 0 && v->sel_pos == i);
+            if (game && hinted(v, 0, i))
+                invert_slot(c, cs, r.x, r.y);
+        } else {
+            card(c, cs, k, r.x, r.y, (v->sel_col == 0 && v->sel_pos == i) != hinted(v, 0, i));
+        }
     }
 
     if (!game)
@@ -175,15 +193,19 @@ static void draw(Ctx *c, const FcLayout *l, const FcBoard *b, const FcView *v, F
     /* columns, each top to bottom */
     for (col = 1; col <= 8; col++) {
         int n = last_index(b, col) + 1, step, x = l->col_x[col];
-        if (n == 0)
+        if (n == 0) {
+            if (v->hint_col == col)
+                invert_slot(c, cs, x, l->col_y0);
             continue;
+        }
         step = fc_layout_col_step(l, b, col);
         if (v->hide_col == col && v->hide_pos >= 0 && v->hide_pos < n)
             n = v->hide_pos;
         if (!overlaps(&c->clip, x, l->col_y0, l->cw, (n - 1) * step + l->ch))
             continue;
         for (i = 0; i < n; i++)
-            card(c, cs, b->board[col][i], x, l->col_y0 + i * step, v->sel_col == col && v->sel_pos == i);
+            card(c, cs, b->board[col][i], x, l->col_y0 + i * step,
+                 (v->sel_col == col && v->sel_pos == i) != hinted(v, col, i));
     }
 
     /* right-button / keyboard peek: the buried card drawn fully, in place, on top of its column */
@@ -194,7 +216,7 @@ static void draw(Ctx *c, const FcLayout *l, const FcBoard *b, const FcView *v, F
         if (v->peek_pos < n) {
             FcRect r = fc_layout_card_rect(l, b, v->peek_col, v->peek_pos);
             card(c, cs, b->board[v->peek_col][v->peek_pos], r.x, r.y,
-                 v->sel_col == v->peek_col && v->sel_pos == v->peek_pos);
+                 (v->sel_col == v->peek_col && v->sel_pos == v->peek_pos) != hinted(v, v->peek_col, v->peek_pos));
         }
     }
 

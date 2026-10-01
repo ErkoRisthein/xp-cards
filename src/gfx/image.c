@@ -602,6 +602,36 @@ static void blit(FcImage *dst, const FcImage *src, int dx, int dy, int inv)
 void fc_blit(FcImage *dst, const FcImage *src, int dx, int dy) { blit(dst, src, dx, dy, 0); }
 void fc_blit_inverted(FcImage *dst, const FcImage *src, int dx, int dy) { blit(dst, src, dx, dy, 1); }
 
+void fc_invert_masked(FcImage *dst, const FcImage *mask, int dx, int dy)
+{
+    int sx = 0, sy = 0, w, h, i, j, sh;
+    if (!dst || !mask)
+        return;
+    w = mask->w;
+    h = mask->h;
+    if (!clip(dst, &dx, &dy, &w, &h, &sx, &sy))
+        return;
+    for (j = 0; j < h; j++) {
+        const uint32_t *m = mask->px + (size_t)(sy + j) * mask->stride + sx;
+        uint32_t *d = dst->px + (size_t)(dy + j) * dst->stride + dx;
+        for (i = 0; i < w; i++) {
+            uint32_t a = m[i] >> 24, p = d[i], out;
+            if (a == 0)
+                continue;
+            if (a == 255) {
+                d[i] = (p & 0xff000000u) | (~p & 0x00ffffffu);
+                continue;
+            }
+            out = p & 0xff000000u;
+            for (sh = 0; sh < 24; sh += 8) {
+                uint32_t c = (p >> sh) & 255;
+                out |= ((c * (255 - a) + (255 - c) * a + 127) / 255) << sh;
+            }
+            d[i] = out;
+        }
+    }
+}
+
 void fc_copy_rect(FcImage *dst, int dx, int dy, const FcImage *src, int sx, int sy, int w, int h)
 {
     int j;

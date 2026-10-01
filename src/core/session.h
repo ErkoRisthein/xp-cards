@@ -32,11 +32,28 @@
  * clock starts at the first counted move after a deal and stops on win, loss or a new deal), the
  * standard supermove rule (f+1)*2^e, New Game from all 1..1000000 games, and the set of won deals
  * (always on; wondeals.h).
+ *
+ * v1.2 extras, built on the solver (solver.h; the state machines are in assist.c):
+ *   Hint (Game > Hint, key H): the solver runs in the background (the UI's solve_start / solve_cancel,
+ *     the answer comes back through fcs_solve_done); the move is shown by flashing its source card(s)
+ *     inverted twice, then its destination (card or empty cell) twice, FCS_HINT_STEP_MS per step, with
+ *     the board unchanged and nothing selected. Unwinnable: "There are no more winning moves."; no
+ *     answer (budget or FCS_HINT_TIMEOUT_MS): "No hint is available." The solution is cached, so later
+ *     hints along it (and back to it through Undo) are instant; proven-unwinnable positions too.
+ *   Unwinnable warning (extras.warn_unwinnable, off by default): after a deal, every committed move,
+ *     Undo and Redo the position is checked in the background; when a committed move (or Redo) leads
+ *     to a position proven unwinnable, an information message says so, once, until a position is found
+ *     winnable again (through Undo). A move from a proven-unwinnable position is unwinnable without a
+ *     search.
+ *   Finish (Game > Finish, F6): enabled when fc_sure_win; sends every card home as one undoable action
+ *     (one move; animated card by card unless Quick play), then the normal win. extras.auto_finish (off
+ *     by default) runs it after any committed move or Redo that leaves a sure win (not counted).
  */
 #ifndef FC_SESSION_H
 #define FC_SESSION_H
 
 #include "game.h"
+#include "solver.h"
 #include "stats.h"
 #include "wondeals.h"
 
@@ -47,16 +64,26 @@ enum { FCS_KING_RIGHT = 0, FCS_KING_LEFT = 1, FCS_KING_BLANK = 2 };   /* == FC_K
 enum { FCS_CURSOR_ARROW = 0,             /* IDC_ARROW */
        FCS_CURSOR_DOWNARROW = 1,         /* custom "DownArrow" cursor: legal tableau destination */
        FCS_CURSOR_UPARROW = 2,           /* IDC_UPARROW: legal free/home cell, any empty column */
-       FCS_CURSOR_WAIT = 3 };            /* IDC_WAIT: keyboard column peek / replay in progress */
+       FCS_CURSOR_WAIT = 3,              /* IDC_WAIT: keyboard column peek / replay in progress */
+       FCS_CURSOR_APPSTARTING = 4 };     /* IDC_APPSTARTING: a hint is being worked out (extra) */
 /* WM_COMMAND ids of the XP menu (resources.md) handled by fcs_command / posted via post_command. */
 enum { FCS_CMD_NEW = 102, FCS_CMD_SELECT = 103, FCS_CMD_RESTART = 107, FCS_CMD_CHEAT = 114,
-       FCS_CMD_UNDO = 115, FCS_CMD_REDO = 116 /* extra, not in XP */ };
-enum { FCS_TIMER_FLASH = 2, FCS_TIMER_PEEK = 3 };          /* XP timer ids; 400 ms and 300 ms */
+       FCS_CMD_UNDO = 115, FCS_CMD_REDO = 116 /* extra, not in XP */,
+       FCS_CMD_HINT = 118, FCS_CMD_FINISH = 119 /* extras (v1.2) */ };
+enum { FCS_TIMER_FLASH = 2, FCS_TIMER_PEEK = 3,            /* XP timer ids; 400 ms and 300 ms */
+       FCS_TIMER_HINT = 4, FCS_TIMER_HINT_WAIT = 5 };      /* extras: hint flash step, hint time limit */
+#define FCS_HINT_STEP_MS    200          /* one flash step (on or off); 8 steps */
+#define FCS_HINT_TIMEOUT_MS 5000         /* a hint search taking longer gives up */
 enum { FCS_MOVECOL_CANCEL = -1, FCS_MOVECOL_SINGLE = 0, FCS_MOVECOL_COLUMN = 1 };
 enum { FCS_CHEAT_NONE = 0, FCS_CHEAT_LOSE = 1, FCS_CHEAT_WIN = 2 };   /* Ignore / Retry / Abort */
 /* Extra text ids for fcs_string (XP dialog template / inline texts, not string-table entries). */
 enum { FCS_STR_YOULOSE = 1001, FCS_STR_YOUWIN = 1002, FCS_STR_CHEAT_CAPTION = 1003,
-       FCS_STR_CHEAT_TEXT = 1004 };
+       FCS_STR_CHEAT_TEXT = 1004,
+       /* extras (v1.2), shown through message() with these ids */
+       FCS_STR_HINT_NONE = 1005,         /* "No hint is available." */
+       FCS_STR_HINT_LOST = 1006,         /* "There are no more winning moves." */
+       FCS_STR_UNWINNABLE = 1007,        /* "This game can no longer be won. Use Undo to go back." */
+       FCS_STR_UNWINNABLE_DEAL = 1008 }; /* "This game cannot be won." (the deal itself) */
 
 /* ---- UI callbacks ---------------------------------------------------------------------------------
  * Any callback may be NULL (then: no-op; prompts take the default noted). All modal prompts are
@@ -106,7 +133,41 @@ typedef struct FcSessionUI {
     /* The move counter or the game clock changed (moved, reset, started, stopped): redraw "Moves" /
      * "Time" and start (fcs_clock_running) or stop the UI's once-a-second display refresh. */
     void (*status_changed)(void *ctx);
+    /* Extras (v1.2). Start solving a copy of *b in the background (fc_solve, supermove rule `standard`),
+     * tagged id; it replaces any earlier request (cancel that one). When it ends, the UI calls
+     * fcs_solve_done(s, id, ...) from the session's thread, outside every other session call (e.g. via
+     * PostMessage); the worker never touches the session. NULL = no solver (Hint answers "No hint is
+     * available.", no warnings). */
+    void (*solve_start)(void *ctx, uint32_t id, const FcBoard *b, int standard);
+    void (*solve_cancel)(void *ctx);                   /* the current request is no longer wanted */
+    /* Game menu: Hint (118) and Finish (119) enabled (1) or grayed (0). */
+    void (*assist_menu)(void *ctx, int hint_enabled, int finish_enabled);
 } FcSessionUI;
+
+/* Solver extras' state (assist.c); read-only for the UI. */
+#define FCS_LOST_RING 8
+enum { FCS_HINT_IDLE = 0, FCS_HINT_WAIT = 1, FCS_HINT_FLASH = 2 };
+typedef struct FcAssist {
+    uint32_t req_id;          /* the last solve request (0 = none yet) */
+    int      req_pending;     /* waiting for fcs_solve_done(req_id) */
+    int      req_std, req_cause;
+    FcBoard  req_board;
+    int      hint;            /* FCS_HINT_* */
+    int      hint_step;       /* flash step 0..7: 0, 2 source on; 4, 6 destination on */
+    FcSolveMove hint_move;
+    int      hint_src_col, hint_src_pos, hint_dst_col, hint_dst_pos;   /* FcsViewState hint_* */
+    int      warned;          /* the warning was shown: not again until a winnable position */
+    int      deal_lost;       /* this game's deal is proven unwinnable */
+    unsigned deals;           /* deal counter (a commit that started a new game stops there) */
+    /* cache: one solution (the boards before each move and the moves) and the last proven-unwinnable
+     * positions, each for a supermove rule */
+    int      sol_n, sol_std;
+    FcBoard *sol_boards;      /* sol_n + 1 boards (the last one is won) */
+    FcSolveMove *sol;
+    FcBoard  lost[FCS_LOST_RING];
+    int      lost_std[FCS_LOST_RING];
+    int      nlost, lost_next;
+} FcAssist;
 
 /* ---- Session state (read-only for the UI except opts, which the Options dialog edits) ---------- */
 typedef struct FcSession {
@@ -141,6 +202,7 @@ typedef struct FcSession {
     FcBlobIO  won_io;
     FcStore   store;
     FcSessionUI ui;
+    FcAssist  as;            /* v1.2 extras: hint, warning, solution cache */
     FcAction  work;          /* scratch action being built */
 } FcSession;
 
@@ -151,6 +213,10 @@ typedef struct FcsViewState {
     int king;                /* FCS_KING_* == FC_KINGVIEW_* */
     int big_king;
     int no_game;             /* nothing dealt yet (startup) */
+    /* hint flash (extra), drawn inverted: col 0 = top-row cell hint_pos (card or empty cell); col
+     * 1..8 = the cards from hint_pos to the end of the column, or the empty column's slot
+     * (hint_pos -1); hint_col -1 = none */
+    int hint_col, hint_pos;
 } FcsViewState;
 
 /* Initialise: empty board, no game (title "FreeCell", "Cards Left: 0", Restart and Undo grayed — the
@@ -165,7 +231,7 @@ void fcs_free(FcSession *s);                     /* frees the undo history and t
 int  fcs_has_selection(const FcSession *s);      /* 1 -> hit-test with FC_HIT_DEST, else FC_HIT_SOURCE */
 void fcs_click(FcSession *s, int col, int pos);
 void fcs_dblclick(FcSession *s, int col, int pos);
-void fcs_char(FcSession *s, int ch);             /* '0'..'9' (rules.md §4.7); others ignored */
+void fcs_char(FcSession *s, int ch);             /* '0'..'9' (rules.md §4.7); 'h' / 'H' Hint (extra) */
 void fcs_rbutton_down(FcSession *s, int col, int pos);
 void fcs_rbutton_up(FcSession *s);
 void fcs_mouse_activate(FcSession *s);
@@ -197,5 +263,16 @@ void     fcs_format_time(uint32_t ms, char *buf, size_t n);
 int      fcs_attach_won_deals(FcSession *s, const FcBlobIO *io);
 int      fcs_won_before(const FcSession *s, int game);
 uint32_t fcs_won_count(const FcSession *s);
+
+/* ---- Solver extras (v1.2, assist.c) ------------------------------------------------------------- */
+int  fcs_hint_enabled(const FcSession *s);        /* a game is in progress */
+int  fcs_finish_enabled(const FcSession *s);      /* ... and the rest is a sure win (fc_sure_win) */
+int  fcs_hint_waiting(const FcSession *s);        /* a hint is being worked out (APPSTARTING cursor) */
+/* A solve request ended (FC_SOLVE_*; moves/n as in FcSolveResult, copied here). Results for an older
+ * request are ignored. Returns 0 if the session is inside a call (busy): deliver it again later. */
+int  fcs_solve_done(FcSession *s, uint32_t id, int status, const FcSolveMove *moves, int n);
+/* After the Options dialog changed s->extras: a pending search for the old supermove rule is redone,
+ * one only the warning needed stops when the warning is turned off. */
+void fcs_options_changed(FcSession *s);
 
 #endif

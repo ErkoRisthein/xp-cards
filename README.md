@@ -37,9 +37,12 @@ The rules are XP's: the same deals for the same game numbers, the supermove limi
 | F2 | New game (a random deal from 1 to 32767, as in XP) |
 | F3 | Select game: 1 to 1,000,000, or the special deals -1 and -2 |
 | F4 | Statistics |
-| F5 | Options: messages on illegal moves, quick play (no animation), double-click to a free cell |
+| F5 | Options: messages on illegal moves, quick play (no animation), double-click to a free cell, and the extras below |
 | F10 | Undo |
 | Ctrl+Y | Redo (new) |
+| H | Hint (new): the card to move flashes twice, then the place it goes |
+| F6 | Finish (new): send every card home, once the rest is a sure win |
+| F11 or Alt+Enter | Full screen (new); Esc leaves it |
 | F1 | Help. Opens XP's `freecell.chm` when it is present, otherwise a built-in summary |
 | 1 to 8 | Select that column or move to it. Press it again on a selected column to show each of its cards in turn |
 | 0 | Select the next free-cell card, or move the selected card to a free cell |
@@ -59,10 +62,27 @@ XP's hidden Ctrl+Shift+F10 dialog is there too.
   No Microsoft bitmaps are used.
 - A few XP bugs are fixed instead of copied, for example a stale Undo after a new deal and two
   messages with missing spaces. `docs/xp-reference/rules.md` lists them.
+- Game > Full Screen shows the board without a window frame (the menu bar stays).
+- Select Game says when you have won a game before, and Statistics counts the different games won.
 
-Planned for v1.1, each behind an option that keeps XP behaviour by default: a timer and move counter,
-won-deal tracking, borderless full screen, the standard supermove rule, and new games up to 1,000,000.
-See [docs/ROADMAP.md](docs/ROADMAP.md) for these and for Solitaire, Spider and Hearts.
+## Extras
+
+Options > Extras has these, all off by default, so the game looks and plays like XP until you turn
+them on:
+
+- **Show time and moves** in the menu bar, next to "Cards Left".
+- **Standard multi-card moves**: (free cells + 1) x 2^(empty columns) instead of XP's limit.
+- **New Game picks from all 1,000,000 games** instead of XP's 1 to 32767.
+- **Warn when the game can't be won**: a built-in solver checks the position in the background
+  after every move and tells you, once, when the game can no longer be won, so you can undo.
+- **Finish automatically**: as soon as the rest is a sure win, every card goes home.
+
+The solver also drives two new Game menu items. **Hint** (H) shows a winning move: the card to move
+flashes twice, then its destination. If the game can no longer be won, it says so. Repeated hints are
+instant while you follow them. **Finish** (F6) is available once every remaining card can go home in
+order, and moves them there as one move.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: Solitaire, Spider and Hearts.
 
 ## Building
 
@@ -125,7 +145,7 @@ its owner enables them on the fork's Actions tab.
 
 | Path | Contents |
 |---|---|
-| `src/core` | rules, the XP game controller, statistics |
+| `src/core` | rules, the XP game controller, statistics, the solver and the hint / finish logic |
 | `src/gfx` | images, card sprites, scalable layout, board renderer |
 | `src/win32` | the Windows front end: window, menus, dialogs, registry, help |
 | `res` | resource script, card and king art, icon, cursor, manifest |

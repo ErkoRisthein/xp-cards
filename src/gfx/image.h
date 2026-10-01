@@ -56,6 +56,9 @@ void fc_fill_rect(FcImage *dst, int x, int y, int w, int h, uint32_t argb);     
 void fc_blit(FcImage *dst, const FcImage *src, int dx, int dy);                   /* src-over */
 void fc_blit_inverted(FcImage *dst, const FcImage *src, int dx, int dy);          /* src-over of (a - c) per channel */
 void fc_copy_rect(FcImage *dst, int dx, int dy, const FcImage *src, int sx, int sy, int w, int h); /* raw copy */
+/* Invert dst (opaque) where mask covers it: each colour channel c becomes 255 - c, blended by the
+ * mask's alpha (a card sprite: the card's rounded shape). */
+void fc_invert_masked(FcImage *dst, const FcImage *mask, int dx, int dy);
 /* Anti-aliased rounded-rectangle outline of thickness t (pixels, may be fractional), drawn inside the
  * rect (x,y,w,h) with outer corner radius r, src-over with colour argb (straight, will be premultiplied). */
 void fc_stroke_round_rect(FcImage *dst, double x, double y, double w, double h, double r, double t, uint32_t argb);
