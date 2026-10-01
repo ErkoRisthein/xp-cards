@@ -96,10 +96,15 @@ void help_about(App *a)
     /* "title#first line". The other text sits in a static control below the copyright line that
      * holds two lines of about 270 px (180 x 20 DLU) on XP; anything longer is clipped, so the art
      * credit is condensed (Tahoma 8: 230 and 247 px). The full wording is in the version info. */
-    ShellAboutW(a->hwnd, L"FreeCell HD#FreeCell HD",
-                L"A resizable re-creation of Windows XP FreeCell.\r\n"
-                L"Card faces by Adrian Kennard: cards.revk.uk (CC0)",
-                icon);
+    /* Both strings must be writable: XP's ShellAboutW splits the title by writing a NUL over the
+     * '#' in the caller's buffer, so a string literal (read-only .rdata) crashes it (Wine copies
+     * first, so this only shows on real XP). */
+    {
+        WCHAR title[] = L"FreeCell HD#FreeCell HD";
+        WCHAR other[] = L"A resizable re-creation of Windows XP FreeCell.\r\n"
+                        L"Card faces by Adrian Kennard: cards.revk.uk (CC0)";
+        ShellAboutW(a->hwnd, title, other, icon);
+    }
     a->in_modal--;
 }
 
