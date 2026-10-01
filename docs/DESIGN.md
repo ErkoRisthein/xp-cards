@@ -88,7 +88,9 @@ tools/                       XP import checker, Wine end-to-end driver, asset sc
 ## Extras policy
 
 * Extra **commands** that act only when invoked (menu items, keys XP doesn't use: Hint H, Finish F6,
-  Undo All, Ctrl+Z, Ctrl+Y, F11, Solitaire D/C/F4) are always available — no option.
+  Undo All, Ctrl+Z, Ctrl+Y, F11, Solitaire D/C/F4) are always available — no option. The same goes for
+  passive affordances that only appear when useful and can simply be ignored (the on-table Finish
+  button shown once the rest of the game is a sure win).
 * Anything that changes what normal input does or makes the game act on its own (click semantics,
   drag, auto-moves, auto-turn, auto-finish, warnings, deal selection) is an **Options checkbox, off by
   default**, so the default experience is exactly XP.
