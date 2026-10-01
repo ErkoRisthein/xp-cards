@@ -85,3 +85,9 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   drag lift + soft shadow, slide-back of an illegal drop (eased), card turn-over flip, deal animation,
   hint pulse instead of hard inversion blinks; anything MSC animates that fits the XP look.
 - Win animations stay exactly as XP (bouncing cards physics, FreeCell big king).
+- MSC reference (game_animation.tuningdata, MSC 4.27): auto-solve plays 0.3 s/card, speeding up to
+  0.1 s/card after 3 moves; card-move durations are hard-coded in its exe. Ours stays snappier
+  (≤160 ms flights, overlapping cascades).
+- Finish button (both games, opt-in "Show a Finish button"): when the rest is a sure win, a small
+  XP-style push button appears on the table (MSC's "Solve"); clicking it = Game > Finish (F6). Players
+  who prefer can ignore it and play the cards one by one.
