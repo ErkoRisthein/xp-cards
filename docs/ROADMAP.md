@@ -91,3 +91,11 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 - Finish button (both games, always on — no toggle, it can simply be ignored): when the rest is a
   sure win, a small XP-style push button appears on the table (MSC's "Solve"); clicking it = Game > Finish (F6). Players
   who prefer can ignore it and play the cards one by one.
+
+## 2e. Stack-legibility card layout (decided 2026-10-01; tools/crisplab/stacklab.py)
+- Ship FIT_SPLIT: rank fitted fully inside the Solitaire strip (15/96 of the card), suit symbol in the
+  top-right corner (generator's split index), pips at their normal height. Every stacked strip shows
+  rank AND suit for all 52 cards incl. aces and courts — better than XP (whose aces/courts show no
+  suit) and Win7 (which instead widened the face-up step 15 -> 23). Blind judge: 0 errors (XP 0 with
+  ~12 hesitations on courts; current design 48 suit failures). Regenerate res/common/cards via
+  stacklab.py svg --layout FIT_SPLIT in make_assets.sh, refresh tests/card_golden.h.
