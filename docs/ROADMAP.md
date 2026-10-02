@@ -134,3 +134,7 @@ docs/DESIGN.md "Motion (2d)".
   top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
   clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
   res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.
+- TODO (decided 2026-10-02): "Save game on exit, resume at start" must be silent (Win7's "Always save
+  game on exit" / "Always continue saved game"); the Windows 7 prompts move to their own opt-in checkbox
+  "As&k before saving or resuming" (AskSaveGame, default off) — gate in session.c (new game ~1258,
+  sol_exit_choice, sol_offer_resume), Options row after SaveGame, tests + solhd_extras/solhd_win7 e2e.
