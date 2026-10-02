@@ -1,6 +1,7 @@
 /*
  * Native asset loader for tests and snapshots (header-only): serves the engine's card faces
- * (CE_ASSET_CARD0 + c) from <res>/common/cards/<R><S>.png and FreeCell's kings (FC_ASSET_KING_*) from
+ * (CE_ASSET_CARD0 + c) from <res>/common/cards/<R><S>.png, the Large Print faces (CE_ASSET_LARGE0 + c)
+ * from <res>/common/cards-large/<R><S>.png and FreeCell's kings (FC_ASSET_KING_*) from
  * <res>/freecell/king/king_{right,left,smile}.png, as the exes' RCDATA resources do.
  */
 #ifndef FC_ASSETS_NATIVE_H
@@ -13,9 +14,9 @@
 
 typedef struct FcNativeAssets {
     char   dir[512];
-    void  *buf[55];   /* 0..51 cards, 52..54 kings */
-    size_t len[55];
-    int    tried[55];
+    void  *buf[107];  /* 0..51 cards, 52..54 kings, 55..106 Large Print cards */
+    size_t len[107];
+    int    tried[107];
 } FcNativeAssets;
 
 static void fc_native_assets_init(FcNativeAssets *a, const char *res_dir)
@@ -27,7 +28,7 @@ static void fc_native_assets_init(FcNativeAssets *a, const char *res_dir)
 static void fc_native_assets_free(FcNativeAssets *a)
 {
     int i;
-    for (i = 0; i < 55; i++)
+    for (i = 0; i < 107; i++)
         free(a->buf[i]);
     memset(a->buf, 0, sizeof a->buf);
 }
@@ -65,6 +66,10 @@ static const void *fc_native_asset_loader(int id, size_t *len, void *ctx)
         int c = id - CE_ASSET_CARD0;
         slot = c;
         snprintf(path, sizeof path, "%s/common/cards/%c%c.png", a->dir, ranks[c >> 2], suits[c & 3]);
+    } else if (id >= CE_ASSET_LARGE0 && id < CE_ASSET_LARGE0 + 52) {
+        int c = id - CE_ASSET_LARGE0;
+        slot = 55 + c;
+        snprintf(path, sizeof path, "%s/common/cards-large/%c%c.png", a->dir, ranks[c >> 2], suits[c & 3]);
     } else if (id >= CE_ASSET_GAME0 && id <= CE_ASSET_GAME0 + 2) {     /* FreeCell's FC_ASSET_KING_* */
         slot = 52 + id - CE_ASSET_GAME0;
         snprintf(path, sizeof path, "%s/freecell/king/%s.png", a->dir, kings[id - CE_ASSET_GAME0]);

@@ -117,6 +117,9 @@ void   view_free(App *a);
 void   view_resize(App *a, int w, int h);            /* WM_SIZE (w, h > 0) */
 void   view_exit_sizemove(App *a);
 void   view_cardset_ready(App *a);
+/* Options OK (2c): "Large print cards" changed: switch the card set's faces and lay out again with their
+ * column step (a full re-render); nothing when it did not change. */
+void   view_large_print(App *a);
 void   view_invalidate_all(App *a);                  /* layout unchanged, but repaint everything */
 void   view_sync(App *a);                            /* render what changed, invalidate it */
 void   view_sync_now(App *a);                        /* view_sync + UpdateWindow */

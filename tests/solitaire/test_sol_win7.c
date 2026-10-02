@@ -620,13 +620,69 @@ static void test_stats_file(void)
     mem_free(&mem);
 }
 
-/* ---- the prompts with "Save game on exit" -------------------------------------------------------------- */
+/* ---- the prompts with "Save game on exit" + "Ask before saving or resuming" -------------------------------- */
 
+/* "Save game on exit" with "Ask before saving or resuming" (the Windows 7 prompts), or neither */
 static void save_on(SolSession *s, int on)
 {
     SolExtras x = extras_of(s);
     x.save_game = on;
+    x.ask_save_game = on;
     sol_set_extras(s, &x);
+}
+
+/* the two options one by one */
+static void save_ask(SolSession *s, int save, int ask)
+{
+    SolExtras x = extras_of(s);
+    x.save_game = save;
+    x.ask_save_game = ask;
+    sol_set_extras(s, &x);
+}
+
+/* "Save game on exit" alone saves and resumes silently (Windows 7's "Always save game on exit" and "Always
+ * continue saved game"): Deal is XP's (a game in progress is lost), Exit saves, a resumed game goes on; "Ask
+ * before saving or resuming" alone does nothing. */
+static void test_silent_save(void)
+{
+    SolSession a, b;
+    Fake fa, fb;
+    Reg ra, rb;
+    Mem mem;
+    int m3 = sol_stats_mode(3, SOL_SCORING_STANDARD);
+    memset(&mem, 0, sizeof mem);
+    CeBlobIO io = mem_io(&mem);
+    for (int ask_only = 0; ask_only < 2; ask_only++) {
+        start(&a, &fa, &ra, 0x09, 5);
+        sol_attach_stats(&a, NULL);
+        save_ask(&a, !ask_only, ask_only);
+        sol_press(&a, SOL_STOCK, 0, 0);
+        CHECK(sol_game_started(&a));
+        fa.answer = SOL_ANS_KEEP;                           /* (never asked) */
+        fa.now = 606;
+        sol_command(&a, SOL_CMD_DEAL);                      /* XP's deal: the game in progress is lost */
+        CHECK_EQ(fa.nchoose, 0);
+        CHECK(a.seed == 606u && a.nhist == 0);
+        CHECK_EQ(a.stats.m[m3].streak, -1);
+        sol_press(&a, SOL_STOCK, 0, 0);
+        sol_press(&a, SOL_STOCK, 0, 0);
+        CHECK_EQ(sol_exit_choice(&a), ask_only ? SOL_ANS_EXIT_NOSAVE : SOL_ANS_EXIT_SAVE);
+        CHECK_EQ(fa.nchoose, 0);
+        if (!ask_only) {
+            CHECK(sol_game_save(&a, &io));
+            start(&b, &fb, &rb, 0x09, -1);
+            sol_attach_stats(&b, &a.stats);
+            save_ask(&b, 1, 0);
+            CHECK_EQ(sol_game_load(&b, &io), SOL_LOAD_OK);
+            fb.answer = SOL_ANS_NEW;                        /* (never asked) */
+            CHECK_EQ(sol_offer_resume(&b), 1);              /* continued silently */
+            CHECK_EQ(fb.nchoose, 0);
+            CHECK(b.seed == 606u && b.nhist == 2 && b.counted);
+            sol_free(&b);
+        }
+        sol_free(&a);
+    }
+    mem_free(&mem);
 }
 
 static void test_new_game_prompt(void)
@@ -951,6 +1007,7 @@ int main(void)
     test_stats_file();
     test_new_game_prompt();
     test_exit_and_resume();
+    test_silent_save();
     test_next_game_options();
     return test_summary("test_sol_win7");
 }

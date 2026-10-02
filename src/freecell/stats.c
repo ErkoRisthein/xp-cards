@@ -162,6 +162,7 @@ void fc_extras_load(FcExtras *x, const CeStore *store)
     x->single_click = ce_store_get(store, "SingleClick", 0) != 0;
     x->drag_drop = ce_store_get(store, "DragDrop", 0) != 0;
     x->enhanced_anim = ce_store_get(store, "EnhancedAnimations", 0) != 0;
+    x->large_print = ce_store_get(store, "LargePrint", 0) != 0;
 }
 
 void fc_extras_save(const FcExtras *x, const CeStore *store)
@@ -176,5 +177,6 @@ void fc_extras_save(const FcExtras *x, const CeStore *store)
     ce_store_set(store, "SingleClick", x->single_click != 0);
     ce_store_set(store, "DragDrop", x->drag_drop != 0);
     ce_store_set(store, "EnhancedAnimations", x->enhanced_anim != 0);
+    ce_store_set(store, "LargePrint", x->large_print != 0);
     if (store->flush) store->flush(store->ctx);
 }

@@ -28,6 +28,8 @@ enum { FC_KING_RIGHT = 0, FC_KING_LEFT = 1, FC_KING_SMILE = 2 };
 /* Decodes the kings, then the 52 card faces (NULL if a face is missing; a missing king is drawn as a
  * pixel-art placeholder). */
 FcCardSet *fc_cardset_new(CeAssetLoader loader, void *ctx);
+/* The same with the engine face set to start with (CE_FACES_*: the Large Print faces, extras.large_print). */
+FcCardSet *fc_cardset_new_faces(CeAssetLoader loader, void *ctx, int faces);
 void       fc_cardset_free(FcCardSet *cs);
 
 /* Set the card cell size (cw x ch) and king sizes. Scaled sprites are rebuilt lazily on next use.

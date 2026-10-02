@@ -19,6 +19,7 @@
 
 static const char *out_dir;
 static FcCardSet *cs;
+static int large_print;            /* the Large Print faces and step (from 23_ on) */
 
 static double now_ms(void)
 {
@@ -41,7 +42,7 @@ static CeImage *render(int w, int h, const FcBoard *b, const FcView *v, int qual
 {
     FcLayout l;
     CeImage *fb = ce_image_new(w, h);
-    fc_layout_compute(&l, w, h);
+    fc_layout_compute_ex(&l, w, h, large_print);
     fc_render_prepare(cs, &l, quality);
     fc_render_board(fb, &l, b, v, cs);
     return fb;
@@ -257,6 +258,40 @@ int main(int argc, char **argv)
             y += ch + 4;
         }
         save(fb, "22_card_sheet");
+        ce_image_free(fb);
+    }
+
+    /* "Large print cards" (2c): the Large Print faces with their column step round(21 ch / 96) */
+    if (!ce_cardset_set_faces(fc_cardset_cards(cs), CE_FACES_LARGE)) {
+        fprintf(stderr, "Large Print faces missing in %s\n", argv[1]);
+        return 1;
+    }
+    large_print = 1;
+    fc_view_init(&v);
+    shot("23_large_game1_632x427", 632, 427, &g1, &v);
+    shot("24_large_game1_1904x996", 1904, 996, &g1, &v);
+    shot("25_large_game1_800x540", 800, 540, &g1, &v);
+    v.sel_col = 1;
+    v.sel_pos = fc_last_index(&lng, 1);
+    shot("26_large_longcol_1904x996", 1904, 996, &lng, &v);
+    shot("27_large_longcol_632x427", 632, 427, &lng, &v);
+    fc_view_init(&v);
+    v.king = FC_KINGVIEW_LEFT;
+    shot("28_large_cells_632x427", 632, 427, &homes, &v);
+    {
+        static const int hs[] = { 48, 72, 96, 144, 200, 288 };
+        int y = 4, k, W = 14 * ((288 * 71 + 48) / 96 + 4);
+        fb = ce_image_new(W + 8, 4 + 6 * 4 + 48 + 72 + 96 + 144 + 200 + 288 + 8);
+        ce_fill_rect(fb, 0, 0, fb->w, fb->h, FC_TABLE_GREEN);
+        for (k = 0; k < 6; k++) {
+            int ch = hs[k], cw = (ch * 71 + 48) / 96, x = 4;
+            static const int show[] = { 0, 1, 2, 3, 26, 31, 39, 41, 44, 46, 49, 50, 51, 22 };
+            fc_cardset_set_size(cs, cw, ch, 32, 320, 1);
+            for (i = 0; i < 14; i++, x += cw + 4)
+                fc_render_card(fb, cs, show[i], x, y, i == 13);
+            y += ch + 4;
+        }
+        save(fb, "29_large_card_sheet");
         ce_image_free(fb);
     }
 

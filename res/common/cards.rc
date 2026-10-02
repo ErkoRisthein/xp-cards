@@ -3,6 +3,8 @@
  * resource script, compiled with -I res/common. Ids are the engine's asset ids (src/engine/cardset.h):
  * CE_ASSET_CARD0 (1000) + rank*4 + suit, rank A..K = 0..12, suit C D H S = 0..3. The PNGs are
  * 400x560 RGBA masters rendered from res/common/cards-svg (tools/make_assets.sh, res/LICENSE-ART.md).
+ * The Large Print faces (Options > Extras "Large print cards") follow: CE_ASSET_LARGE0 (1300) + card,
+ * res/common/cards-large (tools/make_assets.sh cards-large), decoded only when the option is on.
  */
 1000 RCDATA "cards/AC.png"  1001 RCDATA "cards/AD.png"  1002 RCDATA "cards/AH.png"  1003 RCDATA "cards/AS.png"
 1004 RCDATA "cards/2C.png"  1005 RCDATA "cards/2D.png"  1006 RCDATA "cards/2H.png"  1007 RCDATA "cards/2S.png"
@@ -17,3 +19,16 @@
 1040 RCDATA "cards/JC.png"  1041 RCDATA "cards/JD.png"  1042 RCDATA "cards/JH.png"  1043 RCDATA "cards/JS.png"
 1044 RCDATA "cards/QC.png"  1045 RCDATA "cards/QD.png"  1046 RCDATA "cards/QH.png"  1047 RCDATA "cards/QS.png"
 1048 RCDATA "cards/KC.png"  1049 RCDATA "cards/KD.png"  1050 RCDATA "cards/KH.png"  1051 RCDATA "cards/KS.png"
+1300 RCDATA "cards-large/AC.png"  1301 RCDATA "cards-large/AD.png"  1302 RCDATA "cards-large/AH.png"  1303 RCDATA "cards-large/AS.png"
+1304 RCDATA "cards-large/2C.png"  1305 RCDATA "cards-large/2D.png"  1306 RCDATA "cards-large/2H.png"  1307 RCDATA "cards-large/2S.png"
+1308 RCDATA "cards-large/3C.png"  1309 RCDATA "cards-large/3D.png"  1310 RCDATA "cards-large/3H.png"  1311 RCDATA "cards-large/3S.png"
+1312 RCDATA "cards-large/4C.png"  1313 RCDATA "cards-large/4D.png"  1314 RCDATA "cards-large/4H.png"  1315 RCDATA "cards-large/4S.png"
+1316 RCDATA "cards-large/5C.png"  1317 RCDATA "cards-large/5D.png"  1318 RCDATA "cards-large/5H.png"  1319 RCDATA "cards-large/5S.png"
+1320 RCDATA "cards-large/6C.png"  1321 RCDATA "cards-large/6D.png"  1322 RCDATA "cards-large/6H.png"  1323 RCDATA "cards-large/6S.png"
+1324 RCDATA "cards-large/7C.png"  1325 RCDATA "cards-large/7D.png"  1326 RCDATA "cards-large/7H.png"  1327 RCDATA "cards-large/7S.png"
+1328 RCDATA "cards-large/8C.png"  1329 RCDATA "cards-large/8D.png"  1330 RCDATA "cards-large/8H.png"  1331 RCDATA "cards-large/8S.png"
+1332 RCDATA "cards-large/9C.png"  1333 RCDATA "cards-large/9D.png"  1334 RCDATA "cards-large/9H.png"  1335 RCDATA "cards-large/9S.png"
+1336 RCDATA "cards-large/TC.png"  1337 RCDATA "cards-large/TD.png"  1338 RCDATA "cards-large/TH.png"  1339 RCDATA "cards-large/TS.png"
+1340 RCDATA "cards-large/JC.png"  1341 RCDATA "cards-large/JD.png"  1342 RCDATA "cards-large/JH.png"  1343 RCDATA "cards-large/JS.png"
+1344 RCDATA "cards-large/QC.png"  1345 RCDATA "cards-large/QD.png"  1346 RCDATA "cards-large/QH.png"  1347 RCDATA "cards-large/QS.png"
+1348 RCDATA "cards-large/KC.png"  1349 RCDATA "cards-large/KD.png"  1350 RCDATA "cards-large/KH.png"  1351 RCDATA "cards-large/KS.png"

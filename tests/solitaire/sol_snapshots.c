@@ -23,6 +23,7 @@
 static const char *out_dir, *xp_dir;
 static SolGfx *gfx;
 static SolNativeAssets assets;
+static int large_print;            /* the Large Print faces and face-up step (50_ on) */
 
 static double now_ms(void)
 {
@@ -71,7 +72,7 @@ static CeImage *render(int w, int h, int status_h, const SolBoard *b, const SolV
 {
     SolLayout l;
     CeImage *fb = ce_image_new(w, h);
-    sol_layout_compute(&l, w, h, status_h);
+    sol_layout_compute_ex(&l, w, h, status_h, large_print);
     sol_render_prepare(gfx, &l, 1);
     sol_render_board(fb, &l, b, v, gfx);
     status_strip(fb, &l);
@@ -513,6 +514,30 @@ int main(int argc, char **argv)
     /* 9. Sheets: the backs at three sizes + the dialog pictures; the empty-pile pictures */
     backs_sheet();
     markers_sheet();
+
+    /* 10. "Large print cards" (2c): the Large Print faces with their face-up step round(21 ch / 96) */
+    if (!ce_cardset_set_faces(sol_gfx_cards(gfx), CE_FACES_LARGE)) {
+        fprintf(stderr, "Large Print faces missing in %s\n", argv[1]);
+        return 1;
+    }
+    large_print = 1;
+    sol_view_init(&v);
+    shot("50_large_deal27694_585x384", 585, 384, &base, &v);
+    shot("51_large_deal27694_1904x996", 1904, 996, &base, &v);
+    {
+        int f2;
+        long_board(&b, &f2);
+        sol_view_init(&v);
+        v.waste_fan = f2;
+        shot("52_large_longcol_1904x996", 1904, 996, &b, &v);
+        shot("53_large_longcol_585x384", 585, 384, &b, &v);
+        shot("54_large_longcol_1264x669", 1264, 669, &b, &v);
+    }
+    sol_deal_board(&b, 28555, &rng);
+    draw_all(&b, 3, &fan);
+    sol_view_init(&v);
+    v.waste_fan = fan;
+    shot("55_large_draw3_fan_585x384", 585, 384, &b, &v);
 
     sol_gfx_free(gfx);
     sol_native_assets_free(&assets);

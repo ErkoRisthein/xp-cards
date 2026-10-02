@@ -1517,11 +1517,13 @@ static void test_extras_store(void)
     SolExtras x;
     sol_extras_load(&x, &st);
     CHECK(!x.auto_turn && !x.click_move && !x.auto_finish && !x.winnable_only && !x.save_game && !x.warn_unwinnable &&
-          !x.auto_home && !x.click_select && !x.no_more_moves && !x.next_game_options && !x.enhanced_anim);
+          !x.auto_home && !x.click_select && !x.no_more_moves && !x.next_game_options && !x.enhanced_anim &&
+          !x.ask_save_game && !x.large_print);
     x.auto_turn = 1;
     x.next_game_options = 1;
     x.save_game = 5;
     x.click_select = 1;
+    x.large_print = 7;
     sol_extras_save(&x, &st);
     CHECK_EQ(reg_find(&r, "AutoTurn") >= 0 ? r.val[reg_find(&r, "AutoTurn")].v : 99, 1);
     CHECK_EQ(r.val[reg_find(&r, "SaveGame")].v, 1);
@@ -1531,11 +1533,16 @@ static void test_extras_store(void)
     CHECK_EQ(r.val[reg_find(&r, "NoMoreMoves")].v, 0);         /* 2c */
     CHECK_EQ(r.val[reg_find(&r, "NextGameOptions")].v, 1);
     CHECK_EQ(r.val[reg_find(&r, "EnhancedAnimations")].v, 0);  /* 2d */
-    CHECK_EQ(r.n, 11);
+    CHECK_EQ(r.val[reg_find(&r, "AskSaveGame")].v, 0);         /* 2c, the Windows 7 prompts */
+    CHECK_EQ(r.val[reg_find(&r, "LargePrint")].v, 1);          /* 2c, Large Print */
+    CHECK_EQ(r.n, 13);
     SolExtras y;
     sol_extras_load(&y, &st);
     CHECK(y.auto_turn && y.save_game && !y.click_move && !y.warn_unwinnable && !y.auto_home && y.click_select &&
-          !y.no_more_moves && y.next_game_options);
+          !y.no_more_moves && y.next_game_options && !y.ask_save_game && y.large_print == 1);
+    r.val[reg_find(&r, "AskSaveGame")].v = 1;
+    sol_extras_load(&y, &st);
+    CHECK(y.ask_save_game == 1);
     /* the session never writes them into XP's key */
     SolSession s;
     Fake f;

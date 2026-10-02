@@ -1111,6 +1111,19 @@ static int c_dialog_check(int argc, WCHAR **argv)
     return 0;
 }
 
+static int c_dialog_enabled(int argc, WCHAR **argv)
+{
+    long id, want;
+    HWND d = dialog_or_err();
+    if (!d || want_int(argv[1], &id, argv[0]) || want_int(argv[2], &want, argv[0])) return 1;
+    HWND c = GetDlgItem(d, (int)id);
+    if (!c) return err(L"dialog has no control %ld", id);
+    if ((IsWindowEnabled(c) != 0) != (want != 0))
+        return err(L"control %ld is %ls", id, IsWindowEnabled(c) ? L"enabled" : L"disabled");
+    say(L"ok: control %ld %ls", id, want ? L"enabled" : L"disabled");
+    return 0;
+}
+
 static int c_close(int argc, WCHAR **argv)
 {
     const WCHAR *answer = argc > 1 ? argv[1] : L"Yes";
@@ -1340,6 +1353,7 @@ static const struct cmd {
     {L"dialog_click", 1, 1, c_dialog_click, L"<id|caption>  press a dialog button"},
     {L"dialog_set_text", 2, 2, c_dialog_set_text, L"<ctrl id> <text>"},
     {L"dialog_check", 2, 2, c_dialog_check, L"<ctrl id> <0|1>  set a check box / radio button"},
+    {L"assert_dialog_enabled", 2, 2, c_dialog_enabled, L"<ctrl id> <0|1>  a dialog control is enabled (1) / grayed (0)"},
     {L"close", 0, 1, c_close, L"[answer|none]  WM_CLOSE, pressing <answer> (default Yes) in confirmations; No/Cancel expect the app to stay"},
     {L"kill", 0, 0, c_kill, L"terminate the target"},
     {L"wait_exit", 0, 1, c_wait_exit, L"[ms]  wait for the target to exit"},

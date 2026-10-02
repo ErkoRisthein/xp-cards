@@ -61,7 +61,8 @@ capture 83_flip_mid_turn.bmp                  # (120 ms a turn, 1.2 s at 10 x)
 async off
 sync
 capture 84_turned.bmp
-assert_pixel 1000 300 FFFFFF                  # col 6's new top card: face up
+assert_pixel 1052 360 FFFFFF                  # col 6's new top card (QD): face up (the white margin right of
+                                              # its court frame; (1000,300) is inside the XP-like art's larger picture)
 ldown 277 400                                 # 4S (col 2)
 move 400 500
 move 640 600

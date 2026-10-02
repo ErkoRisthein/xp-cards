@@ -71,23 +71,20 @@ XP's hidden Ctrl+Shift+F10 dialog is there too.
 
 ## Extras
 
-Options > Extras has these, all off by default, so the game looks and plays like XP until you turn
-them on:
+Options > Extras has these, all **off by default**, so the game looks and plays like XP until you turn
+them on (`HKCU\Software\xp-cards\FreeCell HD`):
 
-- **Show time and moves** in the menu bar, next to "Cards Left".
-- **Standard multi-card moves**: (free cells + 1) x 2^(empty columns) instead of XP's limit.
-- **New Game picks from all 1,000,000 games** instead of XP's 1 to 32767.
-- **Warn when the game can't be won**: a built-in solver checks the position in the background
-  after every move and tells you, once, when the game can no longer be won, so you can undo.
-- **Finish automatically**: as soon as the rest is a sure win, every card goes home.
-- **Single click moves a card**: a click sends the card to the best place: home when it is safe there,
-  else the first column it fits on, an empty column, home, a free cell. If there is none, the card
-  stays selected as in XP, and the next click puts it where you want.
-- **Drag and drop cards**: drag a card (or the run below the card you grab) to where it should go. The
-  drop is XP's move to that pile, with XP's supermove limit and "Move to Empty Column" choice; a move XP
-  would refuse slides back. Clicking works as before.
-- **Enhanced animations**: effects XP never had, all quick: dragged cards cast a soft shadow, a new
-  game's cards fly in from below the board, and the hint fades in and out instead of blinking.
+| Option | Default | What it does |
+|---|---|---|
+| **Show time and moves** | off | the time and the move count in the menu bar, next to "Cards Left" |
+| **Standard multi-card moves** | off | (free cells + 1) x 2^(empty columns) instead of XP's limit |
+| **New Game picks from all 1,000,000 games** | off | instead of XP's 1 to 32767 |
+| **Warn when the game can't be won** | off | a built-in solver checks the position in the background after every move and tells you, once, when the game can no longer be won, so you can undo |
+| **Finish automatically** | off | as soon as the rest is a sure win, every card goes home |
+| **Single click moves a card** | off | a click sends the card to the best place: home when it is safe there, else the first column it fits on, an empty column, home, a free cell; if there is none, the card stays selected as in XP and the next click puts it where you want |
+| **Drag and drop cards** | off | drag a card (or the run below the card you grab) to where it should go; the drop is XP's move to that pile, with XP's supermove limit and "Move to Empty Column" choice; a move XP would refuse slides back; clicking works as before |
+| **Enhanced animations** | off | effects XP never had, all quick: dragged cards cast a soft shadow, a new game's cards fly in from below the board, and the hint fades in and out instead of blinking |
+| **Large print cards** | off | a second card set with a much bigger rank and suit (Windows 7's Large Print deck), easier to read in a small window or from a distance; the columns spread a little more (21/96 of a card instead of XP's 18/96) so every covered card shows its whole rank and suit |
 
 The solver also drives two new Game menu items. **Hint** (H) shows a winning move: the card to move
 flashes twice, then its destination. If the game can no longer be won, it says so. Repeated hints are
@@ -96,9 +93,11 @@ moves ranked by how much they leave to do), and after the last one the first aga
 order, and moves them there as one move; while it is available a small **Finish** button sits on the
 table below the king (ignore it to play the cards yourself).
 
-Cards fly as in XP, only smoother: each flight eases in and out and never takes longer than XP's
-(160 ms at most), and the cards of an autoplay or a Finish overlap (the next one leaves while the
-previous one is still on its way), so a long cascade is over sooner. Quick play still flies nothing.
+Always on, because they only change timing or appear when useful: cards fly as in XP, only smoother (each
+flight eases in and out and never takes longer than XP's, 160 ms at most, and the cards of an autoplay or a
+Finish overlap, so a long cascade is over sooner; Quick play still flies nothing), and the Finish button
+on the table. Always available, because they act only when used: Hint (H, again for the next-best move),
+Finish (F6), Undo All, Ctrl+Z, Ctrl+Y, F11.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: Spider and Hearts.
 
@@ -144,38 +143,26 @@ One / Three x Standard / Vegas / None), and, as in Windows 7, the five best scor
 and the winnings so far. A game counts once you have made a move; a game you leave
 unfinished counts as lost, unless "Save game on exit" keeps it for the next start.
 
-**Options > Extras**, all off by default, so Solitaire HD plays exactly like XP until you turn them on
+**Options > Extras**, all **off by default**, so Solitaire HD plays exactly like XP until you turn them on
 (`HKCU\Software\xp-cards\Solitaire HD`):
 
-- **Turn cards over automatically**: a face-down card left on top of a column turns over by itself,
-  scoring the same 5 points as XP's click (Standard scoring).
-- **Single click moves a card**: a click that does not drag sends the card (and the cards on it) to
-  the best place: a foundation first, then a column. Dragging and double-clicking work as before.
-- **Finish automatically**: Finish runs by itself as soon as it can.
-- **Deal only winnable games**: Deal still uses XP's deals, but skips to the next one that the built-in
-  solver has proven winnable for the current draw and scoring (Vegas: its pass limit).
-- **Save game on exit, resume at start**: the game in progress, with its score, time and undo history,
-  is saved when you exit and comes back at the next start. With it, a game in progress gets Windows 7's
-  questions: Deal asks "Quit and Start a New Game / Restart This Game / Keep Playing", Exit asks "Exit
-  and Save My Game / Exit and Don't Save / Don't Exit", and the start asks "Continue Saved Game / Play
-  New Game".
-- **Warn when the game can't be won**: a solver checks the position in the background after every move
-  and tells you, once, when the game can no longer be won, so you can undo.
-- **Move cards home automatically**: after each move, every card that is safe on its foundation (an ace
-  or a two, or a card whose rank - 1 of the other colour is already home) flies there, as part of that
-  move (one Undo), scored as usual.
-- **Click to select, click to move**: click a card to select it (it turns inverted), then click where
-  it should go. Dragging still works. With "Single click moves a card" on too, a click moves a card that
-  has a place to go and selects one that has none.
-- **Tell me when there are no more moves**: when a whole pass through the stock (or the used-up stock)
-  offers nothing useful, Windows 7's question: End Game (counts as a loss, then "Deal Again?") or Return
-  to Game (and use Undo).
-- **Apply option changes to the next game**: changing Draw, Scoring or Timed game during a game asks
-  "Play New Game / Finish This Game" instead of XP's immediate new deal; the game you finish keeps its
-  own settings.
-- **Enhanced animations**: effects XP never had, all quick: dragged cards cast a soft shadow, a card
-  turns over with a flip, a new deal flies out of the stock, cards sent home with a double-click or the
-  right button fly there, and the hint fades in and out instead of blinking.
+| Option | Default | What it does |
+|---|---|---|
+| **Turn cards over automatically** | off | a face-down card left on top of a column turns over by itself, scoring the same 5 points as XP's click (Standard scoring) |
+| **Single click moves a card** | off | a click that does not drag sends the card (and the cards on it) to the best place: a foundation first, then a column; dragging and double-clicking work as before |
+| **Finish automatically** | off | Finish runs by itself as soon as it can |
+| **Deal only winnable games** | off | Deal still uses XP's deals, but skips to the next one that the built-in solver has proven winnable for the current draw and scoring (Vegas: its pass limit) |
+| **Save game on exit, resume at start** | off | the game in progress, with its score, time and undo history, is saved when you exit and comes back at the next start, without a question (Windows 7's "Always save game on exit" and "Always continue saved game") |
+| **Ask before saving or resuming** | off | only with "Save game on exit" (greyed without it): Windows 7's questions for a game in progress: Deal asks "Quit and Start a New Game / Restart This Game / Keep Playing", Exit asks "Exit and Save My Game / Exit and Don't Save / Don't Exit", and the start asks "Continue Saved Game / Play New Game" |
+| **Warn when the game can't be won** | off | a solver checks the position in the background after every move and tells you, once, when the game can no longer be won, so you can undo |
+| **Move cards home automatically** | off | after each move, every card that is safe on its foundation (an ace or a two, or a card whose rank - 1 of the other colour is already home) flies there, as part of that move (one Undo), scored as usual |
+| **Click to select, click to move** | off | click a card to select it (it turns inverted), then click where it should go; dragging still works; with "Single click moves a card" on too, a click moves a card that has a place to go and selects one that has none |
+| **Tell me when there are no more moves** | off | when a whole pass through the stock (or the used-up stock) offers nothing useful, Windows 7's question: End Game (counts as a loss, then "Deal Again?") or Return to Game (and use Undo) |
+| **Apply option changes to the next game** | off | changing Draw, Scoring or Timed game during a game asks "Play New Game / Finish This Game" instead of XP's immediate new deal; the game you finish keeps its own settings |
+| **Enhanced animations** | off | effects XP never had, all quick: dragged cards cast a soft shadow, a card turns over with a flip, a new deal flies out of the stock, cards sent home with a double-click or the right button fly there, and the hint fades in and out instead of blinking |
+| **Large print cards** | off | the Large Print card set (a much bigger rank and suit, as FreeCell HD's); face-up cards in a column are 21/96 of a card apart instead of XP's 15/96, so every covered card shows its whole rank and suit |
+
+Always on: the smoother card flights (eased, overlapping, never slower than XP's) and the Finish button.
 
 Statistics and the saved game are files in `%APPDATA%\xp-cards\Solitaire HD`.
 
@@ -260,8 +247,15 @@ the reference for the reverse engineering, and are not part of FreeCell HD or So
 
 ## Credits
 
-- Card faces: SVG playing cards by Adrian Kennard — https://cards.revk.uk (CC0)
-- King busts, program icon and cursor: made for this project and dedicated to the public domain (CC0).
+- **FreeCell** was created by Jim Horne at Microsoft (after Paul Alfille's 1978 game for the PLATO system),
+  **Windows Solitaire** by Wes Cherry at Microsoft. FreeCell HD and Solitaire HD are independent
+  re-implementations of their Windows XP versions, not affiliated with Microsoft.
+- Card faces (both card sets) and Solitaire's card backs: SVG playing cards by Adrian Kennard —
+  https://cards.revk.uk (CC0)
+- Rank index glyphs: outlines from the **Bitter** typeface (weight 800), © 2011 The Bitter Project Authors,
+  SIL Open Font License 1.1; the licence text is in
+  [tools/crisplab/candidates/OFL-Bitter.txt](tools/crisplab/candidates/OFL-Bitter.txt).
+- King busts, program icons and cursor: made for this project and dedicated to the public domain (CC0).
   The king is derived from the CC0 King of Spades above. Details are in [res/LICENSE-ART.md](res/LICENSE-ART.md).
 - [stb_image](https://github.com/nothings/stb) by Sean Barrett (public domain, or MIT)
 

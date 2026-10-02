@@ -53,6 +53,8 @@
 #define IDC_DRAGDROP        229     /* Options: "D&rag and drop cards" */
 /* Extra controls (2d) */
 #define IDC_ENHANCEDANIM    230     /* Options: "&Enhanced animations" */
+/* Extra controls (2c, Large Print) */
+#define IDC_LARGEPRINT      231     /* Options: "&Large print cards" */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif

@@ -2354,6 +2354,13 @@ static void test_extras_store(void)
     CHECK_EQ(rv(&r, "EnhancedAnimations"), 1);
     fc_extras_load(&y, &st);
     CHECK_EQ(y.single_click, 1); CHECK_EQ(y.drag_drop, 0); CHECK_EQ(y.enhanced_anim, 1);
+    CHECK_EQ(rv(&r, "LargePrint"), 0);          /* 2c, Large Print */
+    CHECK_EQ(y.large_print, 0);
+    x.large_print = 3;
+    fc_extras_save(&x, &st);
+    CHECK_EQ(rv(&r, "LargePrint"), 1);
+    fc_extras_load(&y, &st);
+    CHECK_EQ(y.large_print, 1);
     reg_set(&r, "StandardSupermove", 7);         /* any non-zero value is on */
     fc_extras_load(&y, &st);
     CHECK_EQ(y.standard_supermove, 1);

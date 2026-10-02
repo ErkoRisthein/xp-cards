@@ -24,6 +24,10 @@
  * kept as the source of the fast-quality sprites until its master is back, so a live resize never
  * decodes a PNG. Backs follow the same policy once decoded.
  *
+ * Face sets: the normal faces or the Large Print ones (assets 1300 + c). Only the set in use has masters;
+ * a switch drops the faces' sprites, masters and half-size copies, and the new set's masters are decoded
+ * as its sprites are built (a missing or broken Large Print master falls back to the normal face).
+ *
  * Also cached here: anti-aliased bevel rings (empty cells, frames; see ce_draw_ring in draw.h).
  */
 #include "cardset.h"
@@ -49,6 +53,7 @@ struct CeCardSet {
     CeAssetLoader loader;
     void         *ctx;
     int           nbacks;
+    int           faces;            /* CE_FACES_*: the face set in use */
     CeImage      *master[NSLOTS];
     CeImage      *mip[NSLOTS];      /* half-size masters: made when the masters are dropped, freed
                                        when a master is kept again */
@@ -63,9 +68,11 @@ struct CeCardSet {
     int           bevel_next;
 };
 
-static int asset_id(int slot)
+static int asset_id(const CeCardSet *cs, int slot)
 {
-    return slot < CE_NCARDS ? CE_ASSET_CARD0 + slot : CE_ASSET_BACK0 + (slot - CE_NCARDS);
+    if (slot >= CE_NCARDS)
+        return CE_ASSET_BACK0 + (slot - CE_NCARDS);
+    return (cs->faces == CE_FACES_LARGE ? CE_ASSET_LARGE0 : CE_ASSET_CARD0) + slot;
 }
 
 /* Make a master opaque along its edge: the art's own 1.67-px outline (and its AA rim) would otherwise
@@ -129,24 +136,69 @@ static uint32_t back_fill(const CeImage *m)
     return over_white(m->px[(size_t)(m->h / 2) * m->stride + x]);
 }
 
-static CeImage *load_master(CeCardSet *cs, int slot)
+static CeImage *decode_asset(CeCardSet *cs, int id)
 {
     size_t len = 0;
-    const void *data = cs->loader(asset_id(slot), &len, cs->ctx);
+    const void *data = cs->loader(id, &len, cs->ctx);
     CeImage *m = data ? ce_image_decode_png(data, len) : NULL;
     if (m && (m->w < 8 || m->h < 8)) {
         ce_image_free(m);
         m = NULL;
     }
+    return m;
+}
+
+static CeImage *load_master(CeCardSet *cs, int slot)
+{
+    CeImage *m = decode_asset(cs, asset_id(cs, slot));
+    if (!m && slot < CE_NCARDS && cs->faces != CE_FACES_NORMAL)
+        m = decode_asset(cs, CE_ASSET_CARD0 + slot);      /* a broken Large Print face: the normal one */
     if (m)
         clean_master(m, slot < CE_NCARDS ? CE_CARD_WHITE : back_fill(m));
     return m;
 }
 
-CeCardSet *ce_cardset_new(CeAssetLoader loader, void *ctx, int nbacks)
+/* Every face asset of a set is there (the loader returns its bytes; nothing is decoded). */
+static int faces_present(CeCardSet *cs, int faces)
+{
+    int i, base = faces == CE_FACES_LARGE ? CE_ASSET_LARGE0 : CE_ASSET_CARD0;
+    for (i = 0; i < CE_NCARDS; i++) {
+        size_t len = 0;
+        if (!cs->loader(base + i, &len, cs->ctx) || len == 0)
+            return 0;
+    }
+    return 1;
+}
+
+static void free_faces(CeCardSet *cs)
+{
+    int i;
+    for (i = 0; i < CE_NCARDS; i++) {
+        ce_image_free(cs->sprite[i]);
+        ce_image_free(cs->master[i]);
+        ce_image_free(cs->mip[i]);
+        cs->sprite[i] = cs->master[i] = cs->mip[i] = NULL;
+    }
+}
+
+/* Decode the 52 face masters of the set in use (the start-up: a missing face fails early). */
+static int decode_faces(CeCardSet *cs)
+{
+    int i;
+    for (i = 0; i < CE_NCARDS; i++) {
+        size_t len = 0;
+        if (cs->faces != CE_FACES_NORMAL && (!cs->loader(asset_id(cs, i), &len, cs->ctx) || len == 0))
+            return 0;                                   /* the Large Print set is incomplete */
+        cs->master[i] = load_master(cs, i);
+        if (!cs->master[i])
+            return 0;
+    }
+    return 1;
+}
+
+CeCardSet *ce_cardset_new_faces(CeAssetLoader loader, void *ctx, int nbacks, int faces)
 {
     CeCardSet *cs;
-    int i;
     if (!loader || nbacks < 0 || nbacks > CE_MAX_BACKS)
         return NULL;
     cs = (CeCardSet *)calloc(1, sizeof *cs);
@@ -157,14 +209,44 @@ CeCardSet *ce_cardset_new(CeAssetLoader loader, void *ctx, int nbacks)
     cs->nbacks = nbacks;
     cs->keep_masters = 1;
     cs->q = 1;
-    for (i = 0; i < CE_NCARDS; i++) {
-        cs->master[i] = load_master(cs, i);
-        if (!cs->master[i]) {
+    cs->faces = faces == CE_FACES_LARGE ? CE_FACES_LARGE : CE_FACES_NORMAL;
+    if (!decode_faces(cs)) {
+        free_faces(cs);
+        if (cs->faces == CE_FACES_NORMAL) {
+            ce_cardset_free(cs);
+            return NULL;
+        }
+        cs->faces = CE_FACES_NORMAL;                    /* no Large Print set: the normal one */
+        if (!decode_faces(cs)) {
             ce_cardset_free(cs);
             return NULL;
         }
     }
     return cs;
+}
+
+CeCardSet *ce_cardset_new(CeAssetLoader loader, void *ctx, int nbacks)
+{
+    return ce_cardset_new_faces(loader, ctx, nbacks, CE_FACES_NORMAL);
+}
+
+int ce_cardset_set_faces(CeCardSet *cs, int faces)
+{
+    if (!cs)
+        return 0;
+    faces = faces == CE_FACES_LARGE ? CE_FACES_LARGE : CE_FACES_NORMAL;
+    if (faces == cs->faces)
+        return 1;
+    if (!faces_present(cs, faces))
+        return 0;
+    free_faces(cs);                  /* sprites rebuilt, masters decoded card by card on demand */
+    cs->faces = faces;
+    return 1;
+}
+
+int ce_cardset_faces(const CeCardSet *cs)
+{
+    return cs ? cs->faces : CE_FACES_NORMAL;
 }
 
 static void drop_sprites(CeCardSet *cs)

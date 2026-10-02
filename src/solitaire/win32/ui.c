@@ -151,6 +151,8 @@ static const struct { int id; size_t off; } extra_boxes[] = {
     { IDC_NOMOREMOVES, offsetof(SolExtras, no_more_moves) },
     { IDC_NEXTGAMEOPTS, offsetof(SolExtras, next_game_options) },
     { IDC_ENHANCEDANIM, offsetof(SolExtras, enhanced_anim) },
+    { IDC_ASKSAVEGAME, offsetof(SolExtras, ask_save_game) },
+    { IDC_LARGEPRINT, offsetof(SolExtras, large_print) },
 };
 
 static int *extra_of(SolExtras *x, int k) { return (int *)((char *)x + extra_boxes[k].off); }
@@ -168,6 +170,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         place_dialog(d, "options");
         for (k = 0; k < (int)(sizeof extra_boxes / sizeof extra_boxes[0]); k++)
             set_check(d, extra_boxes[k].id, *extra_of(&op->x, k));
+        EnableWindow(GetDlgItem(d, IDC_ASKSAVEGAME), op->x.save_game);   /* only with Save game on exit */
         CheckRadioButton(d, IDC_STANDARD, IDC_NONE, IDC_STANDARD + o->scoring);
         CheckRadioButton(d, IDC_DRAWONE, IDC_DRAWTHREE, o->draw == 1 ? IDC_DRAWONE : IDC_DRAWTHREE);
         set_check(d, IDC_STATUSBAR, o->status_bar);
@@ -187,6 +190,9 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         case IDC_NONE:
             CheckRadioButton(d, IDC_STANDARD, IDC_NONE, LOWORD(wp));
             options_enable_cumulative(d, LOWORD(wp) == IDC_VEGAS);
+            return TRUE;
+        case IDC_SAVEGAME:                            /* 2c: "Ask before saving or resuming" goes with it */
+            EnableWindow(GetDlgItem(d, IDC_ASKSAVEGAME), checked(d, IDC_SAVEGAME));
             return TRUE;
         case IDOK:
             o->draw = checked(d, IDC_DRAWONE) ? 1 : 3;
@@ -212,7 +218,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 void dlg_options(App *a)
 {
     OptionsParam op;
-    int redeal;
+    int redeal, large_was = a->s.extras.large_print;
     if (!dialogs_allowed(a))
         return;
     op.o = *sol_dialog_options(&a->s);              /* 2c: the Options waiting for the next game, if any */
@@ -227,11 +233,14 @@ void dlg_options(App *a)
     sol_extras_save(&a->s.extras, &a->app_store);
     redeal = sol_apply_options(&a->s, &op.o);         /* writes Options; a new Draw / Timed / Scoring deals */
     ce_log("options: 0x%02x%s%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, "
-           "select %d, nomoves %d, nextgame %d, anim %d", (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "",
-           a->s.pending ? ", the new ones for the next game" : "", a->s.extras.auto_turn, a->s.extras.click_move,
-           a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game, a->s.extras.warn_unwinnable,
-           a->s.extras.auto_home, a->s.extras.click_select, a->s.extras.no_more_moves, a->s.extras.next_game_options,
-           a->s.extras.enhanced_anim);
+           "select %d, nomoves %d, nextgame %d, anim %d, ask %d, large %d", (unsigned)sol_options_pack(&a->s.opts),
+           redeal ? ", new deal" : "", a->s.pending ? ", the new ones for the next game" : "", a->s.extras.auto_turn,
+           a->s.extras.click_move, a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game,
+           a->s.extras.warn_unwinnable, a->s.extras.auto_home, a->s.extras.click_select, a->s.extras.no_more_moves,
+           a->s.extras.next_game_options, a->s.extras.enhanced_anim, a->s.extras.ask_save_game,
+           a->s.extras.large_print);
+    if (a->s.extras.large_print != large_was)
+        view_large_print(a);                          /* 2c: the faces and the face-up step, at once */
     if ((a->status != NULL) != (a->s.opts.status_bar != 0))
         status_show(a, a->s.opts.status_bar);         /* shows or hides it at once, the board re-laid out */
     status_update(a);
@@ -534,10 +543,11 @@ static const WCHAR how_to_play[] =
     L"and the deck is used up; the Finish button on the table does the same), F4 Statistics, C card "
     L"back, D draw.\n\n"
     L"Options > Extras (all off by default): turn cards over automatically, single click moves a card, "
-    L"finish automatically, deal only winnable games, save the game on exit (it then asks what to do with "
-    L"a game in progress at Deal, at Exit and when you start), warn when the game can't be won, move "
-    L"cards home automatically, click to select and click to move, tell me when there are no more moves, "
-    L"apply option changes to the next game, enhanced animations.\n\n"
+    L"finish automatically, deal only winnable games, save the game on exit and resume it at start (with "
+    L"\"Ask before saving or resuming\" it asks what to do with a game in progress at Deal, at Exit and when "
+    L"you start), warn when the game can't be won, move cards home automatically, click to select and click "
+    L"to move, tell me when there are no more moves, apply option changes to the next game, enhanced "
+    L"animations, large print cards (a much bigger rank and suit; columns spread a little more).\n\n"
     L"Press H again to see the next possible move. Game > Statistics also keeps your five best scores "
     L"with their dates and, for Vegas, the money won and lost.";
 

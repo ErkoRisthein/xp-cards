@@ -1,6 +1,7 @@
 /*
  * Solitaire HD — native asset loader for tests and snapshots (header-only): the engine's card faces
- * (CE_ASSET_CARD0 + c, <res>/common/cards/<R><S>.png, through tests/assets_native.h) and Solitaire's 12
+ * (CE_ASSET_CARD0 + c, <res>/common/cards/<R><S>.png, and the Large Print ones, CE_ASSET_LARGE0 + c, through
+ * tests/assets_native.h) and Solitaire's 12
  * backs (CE_ASSET_BACK0 + i, <res>/solitaire/backs/<54 + i>_<name>.png), as the exe's RCDATA resources.
  */
 #ifndef SOL_ASSETS_NATIVE_H
@@ -51,7 +52,7 @@ static const void *sol_native_asset_loader(int id, size_t *len, void *ctx)
         *len = a->len[i];
         return a->buf[i];
     }
-    if (id >= CE_ASSET_CARD0 && id < CE_ASSET_CARD0 + 52)
+    if ((id >= CE_ASSET_CARD0 && id < CE_ASSET_CARD0 + 52) || (id >= CE_ASSET_LARGE0 && id < CE_ASSET_LARGE0 + 52))
         return fc_native_asset_loader(id, len, &a->faces);
     *len = 0;
     return NULL;

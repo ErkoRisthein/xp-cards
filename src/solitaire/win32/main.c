@@ -14,8 +14,9 @@
  * and resumed at start-up. v1.2: Undo All, Ctrl+Z (Undo, repeating while held: an accelerator), D (draw),
  * C (Select Card Back); with their options, cards home automatically and click to select (the click
  * selects, the next press on a pile that takes the cards moves them: sol_click / sol_press). 2c: with
- * "Save game on exit" the Windows 7 questions at Exit (sol_exit_choice) and for a resumed game
- * (sol_offer_resume); the others come from inside the session (ui.choose).
+ * "Save game on exit" and "Ask before saving or resuming" the Windows 7 questions at Exit (sol_exit_choice)
+ * and for a resumed game (sol_offer_resume); the others come from inside the session (ui.choose); "Save
+ * game on exit" alone saves and resumes silently. "Large print cards": the Large Print faces (view.c).
  */
 #include "app.h"
 
@@ -109,7 +110,7 @@ static int resume_game(App *a)
         sol_game_clear(&io);                          /* resumed once: a crash later never resumes it again */
         ce_log("saved game resumed: seed %u, score %d, %d s, %d actions%s", a->s.seed, a->s.score,
                sol_seconds(&a->s), a->s.nhist, a->s.pending ? " (its own Options; the current ones next)" : "");
-        if (!sol_offer_resume(&a->s))                 /* 2c: "Saved Game Found" -> Play New Game (dealt) */
+        if (!sol_offer_resume(&a->s))                 /* 2c, with Ask: "Saved Game Found" -> Play New Game */
             ce_log("saved game not continued: new deal, seed %u", a->s.seed);
         return 1;
     case SOL_LOAD_DAMAGED:
@@ -345,9 +346,10 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             }
             sol_attach_stats(&a->s, &stats);
             a->menu_hint = a->menu_finish = -1;
-            ce_log("extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, select %d; "
-                   "statistics %s", x.auto_turn, x.click_move, x.auto_finish, x.winnable_only, x.save_game,
-                   x.warn_unwinnable, x.auto_home, x.click_select, r > 0 ? "loaded" : r < 0 ? "damaged" : "none");
+            ce_log("extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, select %d, "
+                   "ask %d, large %d; statistics %s", x.auto_turn, x.click_move, x.auto_finish, x.winnable_only,
+                   x.save_game, x.warn_unwinnable, x.auto_home, x.click_select, x.ask_save_game, x.large_print,
+                   r > 0 ? "loaded" : r < 0 ? "damaged" : "none");
         }
         if (a->s.opts.status_bar)
             a->status = CreateWindowExW(0, SOL_STATUS_CLASS, L"", WS_CHILD | WS_BORDER | WS_VISIBLE, 0, 0, 0,
@@ -534,7 +536,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         if (sol_dragging(&a->s))
             drag_cancel(a, 0, "exit");
-        choice = sol_exit_choice(&a->s);              /* 2c: "Exit Game" with Save game on exit */
+        choice = sol_exit_choice(&a->s);              /* 2c: "Exit Game" with Save game on exit + Ask */
         if (choice == SOL_ANS_DONT_EXIT) {
             ce_log("exit: Don't Exit");
             after_input(a);
@@ -684,7 +686,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
     /* Decode the 52 faces (the slow part of the start-up) with the window on screen; input waits. */
     SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_WAIT));
     t0 = ce_now_ms();
-    a->gfx = sol_gfx_new(ce_rcdata_loader, (void *)a->inst);
+    a->gfx = sol_gfx_new_faces(ce_rcdata_loader, (void *)a->inst,
+                               a->s.extras.large_print ? CE_FACES_LARGE : CE_FACES_NORMAL);
     ce_log("card set decode: %.1f ms", ce_now_ms() - t0);
     SetCursor(LoadCursorW(NULL, (LPCWSTR)IDC_ARROW));
     if (!a->gfx) {

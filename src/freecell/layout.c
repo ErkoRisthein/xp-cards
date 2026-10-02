@@ -8,6 +8,8 @@
 
 #include <math.h>
 
+#include "engine/cardset.h"
+
 #define XP_W     632   /* XP client width */
 #define XP_H_MIN 372   /* top row + 10-card column + margin: 106 + 9*18 + 96 + 8 */
 #define XP_H     427   /* XP default client height (Wine) */
@@ -23,6 +25,11 @@ static int last_index(const FcBoard *b, int col)
 }
 
 void fc_layout_compute(FcLayout *l, int client_w, int client_h)
+{
+    fc_layout_compute_ex(l, client_w, client_h, 0);
+}
+
+void fc_layout_compute_ex(FcLayout *l, int client_w, int client_h, int large_print)
 {
     double sw = client_w / (double)XP_W, sh = client_h / (double)XP_H_MIN, s = sw < sh ? sw : sh;
     int i, wb, bx, g, k, f;
@@ -52,7 +59,8 @@ void fc_layout_compute(FcLayout *l, int client_w, int client_h)
     for (k = 1; k <= 8; k++)
         l->col_x[k] = bx + g + (int)floor((k - 1) * (double)(wb - g) / 8.0);
     l->col_y0 = l->ch + iround(10 * s);
-    l->step = 9 * l->ch / 46;
+    l->large_print = large_print != 0;
+    l->step = l->large_print ? ce_large_print_step(l->ch) : 9 * l->ch / 46;
     l->step_min = iround(0.10 * l->ch);
     if (l->step_min < 1)
         l->step_min = 1;

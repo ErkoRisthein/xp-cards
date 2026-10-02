@@ -39,10 +39,15 @@ static int iround(double v) { return (int)floor(v + 0.5); }
 
 SolGfx *sol_gfx_new(CeAssetLoader loader, void *ctx)
 {
+    return sol_gfx_new_faces(loader, ctx, CE_FACES_NORMAL);
+}
+
+SolGfx *sol_gfx_new_faces(CeAssetLoader loader, void *ctx, int faces)
+{
     SolGfx *g = (SolGfx *)calloc(1, sizeof *g);
     if (!g)
         return NULL;
-    g->cards = ce_cardset_new(loader, ctx, SOL_NBACKS);
+    g->cards = ce_cardset_new_faces(loader, ctx, SOL_NBACKS, faces);
     if (!g->cards) {
         free(g);
         return NULL;

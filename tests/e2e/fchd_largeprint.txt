@@ -1,0 +1,76 @@
+# FreeCell HD "Large print cards" (docs/ROADMAP.md 2c, Options > Extras, LargePrint, off by default) end to
+# end: the option off by default and its registry value; turned on, every card is redrawn at once with the
+# Large Print faces (the index 1.45x, its suit beside the rank) and the column step becomes round(21 ch / 96)
+# so a stacked card shows its whole rank and suit; off again: XP's step 9 ch / 46 and the normal faces;
+# kept across a restart (the start-up decodes the Large Print set). Run by tests/e2e/run_fchd_e2e.sh.
+# The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card
+# y = 212, cards 142 x 192; step 37, with Large Print 42). Game #1, column 1: JD KD 2S 4C 3S 6D 6S. Pixels
+# (from a native render, tests/freecell/snapshots.c's code): KD's top frame line at (85, 249) normal /
+# (85, 254) Large Print; the index suits beside the ranks at x 61: JD's diamond (61, 232), KD's (61, 274),
+# 2S's spade (61, 316), white with the normal faces. Ids: 109 Options (231 LargePrint), 103 Select Game.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+assert_pixel 85 249 000000                    # XP's step: KD's top edge 37 below JD's
+assert_pixel 61 232 FFFFFF
+capture 90_large_off.bmp
+
+# ---- Options: off by default; on: the Large Print faces and step at once ------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[231] Button \"&Large print cards\" [ ]"
+dialog_check 231 1
+capture_dialog 91_options_large.bmp
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" LargePrint 1
+assert_reg HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell LargePrint absent   # never in XP's key
+assert_pixel 85 254 000000                    # KD 42 below JD: JD's whole index shows
+assert_pixel 85 249 FFFFFF
+assert_pixel 61 232 FF0000                    # the suits beside the ranks: JD, KD (red), 2S (black)
+assert_pixel 61 274 FF0000
+assert_pixel 61 316 000000
+assert_title "FreeCell Game #1"               # the same game, only redrawn
+capture 92_large_on.bmp
+
+# ---- off again, then on and kept across a restart ---------------------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+assert_dialog_text "[231] Button \"&Large print cards\" [x]"
+dialog_check 231 0
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" LargePrint 0
+assert_pixel 85 249 000000
+assert_pixel 61 232 FFFFFF
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 231 1
+dialog_click OK
+close Yes
+
+launch ${REPO}/build/FreeCellHD.exe
+assert_client_size 1264 854
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_pixel 85 254 000000
+assert_pixel 61 274 FF0000
+capture 93_large_at_start.bmp
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 231 0
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" LargePrint 0
+close Yes

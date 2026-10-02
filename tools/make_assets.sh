@@ -1,7 +1,7 @@
 #!/bin/sh
 # FreeCell HD and Solitaire HD — regenerate the generated art from its sources (run from anywhere).
 #
-#   tools/make_assets.sh [kings] [icon] [cursor] [cards] [backs] [solicon] [check]
+#   tools/make_assets.sh [kings] [icon] [cursor] [cards] [cards-large] [backs] [solicon] [check]
 #                                                              (default: kings icon cursor solicon check)
 #
 #   kings   res/common/cards-svg/KS.svg -> res/freecell/king/src/king_{right,left,smile}.svg (derive_kings.py)
@@ -16,6 +16,10 @@
 #           court-art linework (stroke #44F) becomes $COURT_MULT x wider (default 1.6) and
 #           $COURT_COLOUR (default #223, dark navy), the court picture frame $COURT_COLOUR at
 #           $COURT_FRAME_W units (default 1.5). The blue fills stay.
+#   cards-large  the same SVGs -> res/common/cards-large/<R><S>.png: the Large Print faces (Options > Extras
+#           "Large print cards" in both games; RCDATA 1300 + card), the same art laid out by
+#           $CARD_VARIANT_LARGE (default XPLIKE_BITTER_HYBRID_LARGE: the index 1.45x, its suit beside the rank;
+#           docs/card-art.md "Large Print")
 #   backs   res/solitaire/backs-src/<id>_<name>.svg -> res/solitaire/backs/<id>_<name>.png (Solitaire HD's 12
 #           backs, 400x560 RGB; slow: zopfli). The SVGs are the RevK generator's, kept unmodified;
 #           make_backs.py edits a copy (the pattern block scaled to a 5-unit inset, the Diamond lattice
@@ -38,7 +42,10 @@ COURT_FRAME_W=${COURT_FRAME_W:-1.5}
 # tools/crisplab/candidates/stack.json (default XPLIKE: XP-like index/pip positions); stacklab.py applies
 # the art edit above (index 130, courts 1.6x #223, frame 1.5) and then this layout.
 CARD_VARIANT=${CARD_VARIANT:-XPLIKE_BITTER_HYBRID}
-CARD_LAYOUT=$("$PYTHON" -c 'import json,sys; print(json.dumps(next(v["layout"] for v in json.load(open("tools/crisplab/candidates/stack.json")) if v["name"]==sys.argv[1])))' "$CARD_VARIANT")
+CARD_VARIANT_LARGE=${CARD_VARIANT_LARGE:-XPLIKE_BITTER_HYBRID_LARGE}
+variant_layout() {
+    "$PYTHON" -c 'import json,sys; print(json.dumps(next(v["layout"] for v in json.load(open("tools/crisplab/candidates/stack.json")) if v["name"]==sys.argv[1])))' "$1"
+}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fcassets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
@@ -71,16 +78,22 @@ cursor() { "$PYTHON" res/freecell/icon/make_cursor.py res/freecell/downarrow.cur
 backs()  { "$OXIPNG_PYTHON" res/solitaire/backs-src/make_backs.py res/solitaire/backs-src res/solitaire/backs; }
 solicon() { "$PYTHON" res/solitaire/icon/make_icon.py res/solitaire/icon res/solitaire/solitaire.ico; echo res/solitaire/solitaire.ico; }
 
-cards() {
+# render_faces <variant> <output dir>
+render_faces() {
+    layout=$(variant_layout "$1")
+    mkdir -p "$2"
     for f in res/common/cards-svg/??.svg; do
         n=$(basename "$f" .svg)
-        "$PYTHON" tools/crisplab/stacklab.py svg "$f" "$TMP/$n.svg" --layout "$CARD_LAYOUT"
+        "$PYTHON" tools/crisplab/stacklab.py svg "$f" "$TMP/$n.svg" --layout "$layout"
         rsvg-convert -h 560 "$TMP/$n.svg" -o "$TMP/$n.png"
-        optimise "$TMP/$n.png" "res/common/cards/$n.png" 15
+        optimise "$TMP/$n.png" "$2/$n.png" 15
         printf '%s ' "$n"
     done
     echo
 }
+
+cards()       { render_faces "$CARD_VARIANT" res/common/cards; }
+cards_large() { render_faces "$CARD_VARIANT_LARGE" res/common/cards-large; }
 
 check() {
     "$PYTHON" res/freecell/icon/check_icocur.py res/freecell/freecell.ico
@@ -92,11 +105,14 @@ from PIL import Image
 # the backs are opaque: oxipng may store them RGB or palette
 for pat, size, modes in (('res/freecell/king/king_*.png', (1024, 1024), ('RGBA',)),
                          ('res/common/cards/??.png', (400, 560), ('RGBA',)),
+                         ('res/common/cards-large/??.png', (400, 560), ('RGBA',)),
                          ('res/solitaire/backs/[0-9][0-9]_*.png', (400, 560), ('RGB', 'P'))):
     files = sorted(glob.glob(pat))
+    if '/cards' in pat and len(files) != 52:
+        raise SystemExit('%s: %d files, expected 52' % (pat, len(files)))
     bad = [f for f in files if Image.open(f).size != size or Image.open(f).mode not in modes or
            ('RGB' in modes and Image.open(f).convert('RGBA').getextrema()[3][0] != 255)]
-    print('%-20s %2d files, %8d bytes%s' % (pat, len(files), sum(os.path.getsize(f) for f in files),
+    print('%-30s %2d files, %8d bytes%s' % (pat, len(files), sum(os.path.getsize(f) for f in files),
           ', BAD: %s' % bad if bad else ', OK'))
     if bad: raise SystemExit(1)
 EOF
@@ -106,6 +122,7 @@ EOF
 for step in "$@"; do
     case $step in
         kings|icon|cursor|cards|backs|solicon|check) $step ;;
+        cards-large) cards_large ;;
         *) echo "unknown step: $step" >&2; exit 2 ;;
     esac
 done

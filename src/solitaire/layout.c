@@ -9,6 +9,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "engine/cardset.h"
+
 #define XP_W      585   /* XP's default client width: 7 cw + 8 g with g = cw / 8 + 3 = 11 */
 #define XP_BOARD  367   /* XP's default client height (384) minus the visible status bar (17) */
 
@@ -16,6 +18,11 @@ static int iround(double v) { return (int)floor(v + 0.5); }
 static int imax(int a, int b) { return a > b ? a : b; }
 
 void sol_layout_compute(SolLayout *l, int client_w, int client_h, int status_h)
+{
+    sol_layout_compute_ex(l, client_w, client_h, status_h, 0);
+}
+
+void sol_layout_compute_ex(SolLayout *l, int client_w, int client_h, int status_h, int large_print)
 {
     int sbv = status_h > 0 ? status_h - 1 : 0, avail = client_h - sbv, k, top_h;
     double sw = client_w / (double)XP_W, sh = avail / (double)XP_BOARD, s = sw < sh ? sw : sh;
@@ -41,7 +48,8 @@ void sol_layout_compute(SolLayout *l, int client_w, int client_h, int status_h)
     l->edge_dy = imax(1, iround(s));
     l->tab_y = imax(l->ch + iround(11 * s), l->top + 5 * l->edge_dy + l->ch + 1);
     l->step_dn = imax(1, iround(3 * s));
-    l->step_up = imax(l->step_dn, iround(15 * s));
+    l->large_print = large_print != 0;
+    l->step_up = imax(l->step_dn, l->large_print ? ce_large_print_step(l->ch) : iround(15 * s));
     l->step_up_min = imax(1, iround(0.10 * l->ch));
     if (l->step_up_min > l->step_up)
         l->step_up_min = l->step_up;

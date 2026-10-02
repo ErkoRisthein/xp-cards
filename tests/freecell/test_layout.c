@@ -189,6 +189,49 @@ static void test_compression(void)
         }
 }
 
+/* "Large print cards" (2c): the column step round(21 ch / 96) (ce_large_print_step), everything else as
+ * without it; compression and hit testing follow the step. */
+static void test_large_print_layout(void)
+{
+    FcLayout n, l;
+    FcBoard b;
+    int w, h, col, pos;
+    memset(&n, 0, sizeof n);                          /* (padding: the structs are compared whole) */
+    memset(&l, 0, sizeof l);
+    fc_layout_compute(&n, 632, 427);
+    fc_layout_compute_ex(&l, 632, 427, 1);
+    CHECK(!n.large_print && l.large_print && n.step == 18 && l.step == 21, "steps %d %d", n.step, l.step);
+    l.step = n.step;
+    l.large_print = 0;
+    CHECK(!memcmp(&l, &n, sizeof l), "the rest is the same");
+    fc_layout_compute_ex(&l, 632, 427, 0);
+    CHECK(!memcmp(&l, &n, sizeof l), "_ex(0) = fc_layout_compute");
+    fc_layout_compute_ex(&l, 1904, 996, 1);
+    CHECK(l.ch == 257 && l.step == 56, "1080p: ch %d step %d", l.ch, l.step);
+    for (w = 316; w <= 4000; w += 61)
+        for (h = 159; h <= 2400; h += 37) {
+            fc_layout_compute_ex(&l, w, h, 1);
+            fc_layout_compute(&n, w, h);
+            CHECK(l.step == (21 * l.ch + 48) / 96 && l.step >= n.step && l.step_min == n.step_min &&
+                  l.step_min <= l.step && l.ch == n.ch && l.col_y0 == n.col_y0, "invariants at %dx%d", w, h);
+        }
+    /* compression at XP's size: 10 cards fit at 21 (106 + 9*21 + 96 = 391 <= 423); 13 do not: floor(221/12) */
+    clear(&b);
+    fc_layout_compute_ex(&l, 632, 427, 1);
+    fill_col(&b, 1, 10);
+    fill_col(&b, 2, 13);
+    fill_col(&b, 3, 19);
+    CHECK(fc_layout_col_step(&l, &b, 1) == 21, "10 cards: %d", fc_layout_col_step(&l, &b, 1));
+    CHECK(fc_layout_col_step(&l, &b, 2) == 18, "13 cards: %d", fc_layout_col_step(&l, &b, 2));
+    CHECK(fc_layout_col_step(&l, &b, 3) == 12, "19 cards: %d", fc_layout_col_step(&l, &b, 3));
+    /* cards and hits at the new step */
+    CHECK(fc_layout_card_rect(&l, &b, 1, 6).y == 106 + 6 * 21, "card 6 at %d", fc_layout_card_rect(&l, &b, 1, 6).y);
+    CHECK(fc_layout_hit(&l, &b, 20, 106 + 2 * 21 + 20, FC_HIT_SOURCE, &col, &pos) && col == 1 && pos == 2,
+          "hit card 2: col %d pos %d", col, pos);
+    CHECK(fc_layout_hit(&l, &b, 20, 106 + 2 * 21 - 1, FC_HIT_SOURCE, &col, &pos) && col == 1 && pos == 1,
+          "hit card 1: col %d pos %d", col, pos);
+}
+
 static void hit(const FcLayout *l, const FcBoard *b, int x, int y, int mode, int want_ret, int want_col,
                 int want_pos, int line)
 {
@@ -878,6 +921,7 @@ int main(void)
     test_xp_equality();
     test_scaling();
     test_compression();
+    test_large_print_layout();
     test_hits();
     CHECK(fc_cardset_new(null_loader, NULL) == NULL, "missing cards -> NULL");
     fc_native_assets_init(&assets, res ? res : "res");

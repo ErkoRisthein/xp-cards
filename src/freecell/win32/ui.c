@@ -254,6 +254,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         set_check(d, IDC_SINGLECLICK, x->single_click);
         set_check(d, IDC_DRAGDROP, x->drag_drop);
         set_check(d, IDC_ENHANCEDANIM, x->enhanced_anim);
+        set_check(d, IDC_LARGEPRINT, x->large_print);
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
@@ -269,6 +270,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             x->single_click = checked(d, IDC_SINGLECLICK);
             x->drag_drop = checked(d, IDC_DRAGDROP);
             x->enhanced_anim = checked(d, IDC_ENHANCEDANIM);
+            x->large_print = checked(d, IDC_LARGEPRINT);
             fc_extras_save(x, &g_app.app_store);
             EndDialog(d, 1);
             return TRUE;
@@ -298,6 +300,7 @@ void dlg_options(App *a)
         ce_menubar_reset(&a->mbt);
         menubar_draw(a);
         clock_update(a);
+        view_large_print(a);                          /* the faces and the column step, at once */
         view_sync(a);
         view_refresh_cursor(a);                       /* the supermove rule changes the cursor */
     }

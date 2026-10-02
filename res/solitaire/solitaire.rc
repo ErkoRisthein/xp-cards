@@ -6,8 +6,9 @@
  *     help strings; the Options dialog's "Extras" group (right of XP's controls, which are unchanged);
  *   - (v1.2) Game > Undo All, Ctrl+Z for Undo (shown on the Undo item; XP's Undo had no key), the C key
  *     on the Deck item, two more Extras;
- *   - (2c) two more Extras, the Statistics dialog's "High Scores" box, the five Windows 7-style
- *     questions (IDD_NOMOVES .. IDD_SETTINGS) in XP's dialog style;
+ *   - (2c) four more Extras (the last two: "Ask before saving or resuming", "Large print cards" with the
+ *     Large Print faces 1300 + card of res/common/cards.rc), the Statistics dialog's "High Scores" box, the
+ *     five Windows 7-style questions (IDD_NOMOVES .. IDD_SETTINGS) in XP's dialog style;
  *   - no context help ("?" / DS_CONTEXTHELP: we cannot ship sol.hlp);
  *   - Select Card Back shows our 12 backs in buttons of the card's shape (XP stretched its 71 x 96
  *     backs to 33 x 62): 34 x 42 DLU instead of 26 x 42, so the dialog is 230 DLU wide instead of 178;
@@ -93,8 +94,10 @@ BEGIN
     CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 120, 94, 40, 14
 END
 
-/* Options: XP's 134 x 101 (controls unchanged) plus the "Extras" group to their right: 302 x 153. */
-IDD_OPTIONS DIALOG 50, 31, 302, 166
+/* Options: XP's 134 x 101 (controls unchanged) plus the "Extras" group to their right: 302 x 192. "Ask before
+ * saving or resuming" is indented under "Save game on exit" (enabled only with it). It and "Large print cards"
+ * have no mnemonic, as "Enhanced animations": every letter of them is taken (XP's "Out&line dragging" keeps L). */
+IDD_OPTIONS DIALOG 50, 31, 302, 192
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Options"
 FONT 8, "MS Shell Dlg"
@@ -113,7 +116,7 @@ BEGIN
     CONTROL "Score", IDC_CUMSCORE, "Static", SS_LEFT | WS_GROUP, 84, 68, 20, 12
     CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_GROUP | WS_TABSTOP, 36, 84, 36, 14
     CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 76, 84, 40, 14
-    CONTROL "Extras", IDC_EXTRAS_GROUP, "Button", BS_GROUPBOX | WS_GROUP, 138, 4, 160, 157
+    CONTROL "Extras", IDC_EXTRAS_GROUP, "Button", BS_GROUPBOX | WS_GROUP, 138, 4, 160, 183
     CONTROL "T&urn cards over automatically", IDC_AUTOTURN, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 15, 150, 12
     CONTROL "Single clic&k moves a card", IDC_CLICKMOVE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
@@ -124,18 +127,22 @@ BEGIN
             144, 54, 150, 12
     CONTROL "Sav&e game on exit, resume at start", IDC_SAVEGAME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 67, 150, 12
+    CONTROL "Ask before saving or resuming", IDC_ASKSAVEGAME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+            152, 80, 142, 12
     CONTROL "&Warn when the game can't be won", IDC_WARNUNWINNABLE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
-            144, 80, 150, 12
-    CONTROL "Move cards &home automatically", IDC_AUTOHOME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 93, 150, 12
-    CONTROL "Click to select, click to &move", IDC_CLICKSELECT, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+    CONTROL "Move cards &home automatically", IDC_AUTOHOME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 106, 150, 12
-    CONTROL "Tell me when there are no mo&re moves", IDC_NOMOREMOVES, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+    CONTROL "Click to select, click to &move", IDC_CLICKSELECT, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 119, 150, 12
-    CONTROL "A&pply option changes to the next game", IDC_NEXTGAMEOPTS, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+    CONTROL "Tell me when there are no mo&re moves", IDC_NOMOREMOVES, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 132, 150, 12
-    CONTROL "Enhanced animations", IDC_ENHANCEDANIM, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+    CONTROL "A&pply option changes to the next game", IDC_NEXTGAMEOPTS, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 145, 150, 12
+    CONTROL "Enhanced animations", IDC_ENHANCEDANIM, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+            144, 158, 150, 12
+    CONTROL "Large print cards", IDC_LARGEPRINT, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+            144, 171, 150, 12
 END
 
 /* Statistics (extra, v1.1): the mode, then the labels and the values; OK, Reset. 2c: the "High Scores"
@@ -296,8 +303,8 @@ END
 1211 RCDATA "backs/65_racing.png"
 
 1 VERSIONINFO
-FILEVERSION     1, 1, 0, 0
-PRODUCTVERSION  1, 1, 0, 0
+FILEVERSION     1, 2, 0, 0
+PRODUCTVERSION  1, 2, 0, 0
 FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
 FILEFLAGS       0
 FILEOS          VOS_NT_WINDOWS32
@@ -310,12 +317,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "xp-cards"
             VALUE "FileDescription",  "Solitaire HD"
-            VALUE "FileVersion",      "1.1.0.0"
+            VALUE "FileVersion",      "1.2.0.0"
             VALUE "InternalName",     "SolitaireHD"
             VALUE "OriginalFilename", "SolitaireHD.exe"
             VALUE "ProductName",      "Solitaire HD"
-            VALUE "ProductVersion",   "1.1.0.0"
-            VALUE "Comments",         "A re-implementation of Solitaire for Windows XP, whose design (by Wes Cherry, Microsoft) it follows; not affiliated with or endorsed by Microsoft. Card faces and backs: SVG playing cards by Adrian Kennard - https://cards.revk.uk (CC0)."
+            VALUE "ProductVersion",   "1.2.0.0"
+            VALUE "Comments",         "A re-implementation of Solitaire for Windows XP, whose design (by Wes Cherry, Microsoft) it follows; not affiliated with or endorsed by Microsoft. Card faces and backs: SVG playing cards by Adrian Kennard - https://cards.revk.uk (CC0); rank index glyphs from Bitter (SIL Open Font License 1.1)."
         END
     END
     BLOCK "VarFileInfo"

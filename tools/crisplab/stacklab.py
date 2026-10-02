@@ -28,8 +28,10 @@ usage (from the repo root; CRISPLAB_XP = dir of XP cards_bitmap_<id>.png for the
   stacklab.py blind   -v variants.json -o final --only a,b,c,d --seed N   # A-D + XP, mapping.json
   stacklab.py freeze  --layout '{"file": "font.ttf", ...}' -o glyphs.json  # rank_font -> rank_glyphs file
 
-A variants file is a JSON list of {"name", "layout": {...}, optional "svg_dir"} (svg_dir: read the
-source SVGs from there instead of res/common/cards-svg, e.g. the generator's own splitindex output).
+A variants file is a JSON list of {"name", "layout": {...}, optional "svg_dir", optional "steps"} (svg_dir: read
+the source SVGs from there instead of res/common/cards-svg, e.g. the generator's own splitindex output; steps:
+{"sol": [n, d], "fc": [n, d]}, the column steps round(n ch / d) the variant is shown with instead of the games'
+normal ones, e.g. the Large Print set's 21/96).
 Layout keys and defaults: LAYOUT_DEFAULTS below ({} = the generator's layout, i.e. CURRENT).
 """
 import argparse
@@ -83,6 +85,8 @@ LAYOUT_DEFAULTS = dict(
     suit_dx=0.0,         # extra x offset of the index suit (split: positive = towards the card edge)
     suit_dy=None,        # split/side: suit centre y relative to the rank box centre (None: 0.9135, the
                          # generator's splitindex)
+    suit_cx=None,        # side: the suit's centre x (units) for every card, a column of its own (None: right of
+                         # the rank by suit_gap)
     pip_scale=1.0,       # body pips (2-10, and the A of C/D/H) box = 50 * pip_scale
     pip_top=None,        # ink top of the top pip row as a fraction of ch (None: keep the grid; else the
                          # grid's y spacing is scaled about the centre so the top row lands there)
@@ -111,6 +115,9 @@ LAYOUT_DEFAULTS = dict(
     pip_h=None,          # xp_pips: body-pip ink height as a fraction of ch (None: the file's pip_h, XP 15/96); the
                          # RevK suit symbols' ink is 5/6 of their box for all four suits, aspect kept
     pip_gain=1.0,        # scale of the pip sizes given as heights (pip_h, ace_h, court_pip_h) about their centres
+    pip_band=None,       # xp_pips: compress the arrangement vertically about the card centre so the outer rows' ink
+                         # starts this far (fraction of ch) from the top and bottom edges (room for a large index;
+                         # None: the file's centres)
     xp_quirks=False,     # xp_pips: also XP's per-card deviations (file 'quirks': its 8D is 2-1-2-1-2)
     court_frame=None,    # [x, y]: the court frame line's top-left corner as fractions of (cw, ch) (XP: column 12.5
                          # of 71, row 11.5 of 96); sets the picture's sx, sy (court_scale/court_top/court_sx unused)
@@ -469,6 +476,8 @@ def layout_svg(svg, code, layout):
                 return classic(t) + '</use>' + _set(t, x=cx - cs / 2, y=cy - cs / 2, width=cs, height=cs)
             if L['suit_mode'] == 'split':
                 cx = -L['rank_cx'] + L['suit_dx']
+            elif L['suit_mode'] == 'side' and L['suit_cx'] is not None:
+                cx = L['suit_cx'] + L['suit_dx']
             elif L['suit_mode'] == 'side':
                 gap = 4.0 if L['suit_gap'] is None else L['suit_gap']
                 right = G['ext'][3] if G else 285 + stroke / 2
@@ -555,7 +564,12 @@ def xp_place_pips(body, code, L, X):
     nb = ph * CH_U * 1.2                          # suit symbol ink = 1000 of its 1200-unit box
     href = '#S%s%s' % (code[1], code[0])
     up, turned = [], []
+    ky = 1.0
+    if L['pip_band'] is not None:                 # the outer rows' ink edge at pip_band (all ranks alike)
+        outer = min(c[1] for r in X['ranks'].values() for c in r)
+        ky = (0.5 - L['pip_band'] - ph / 2) / (0.5 - outer)
     for cx, cy, rot in xp_pips_of(code, L, X):
+        cy = 0.5 + (cy - 0.5) * ky
         x, y = (cx - 0.5) * 240.0, (cy - 0.5) * CH_U
         if rot:
             x, y = -x, -y
@@ -608,8 +622,13 @@ def load_variants(path, only=None):
     return vs
 
 
-def steps(ch):
-    """(Solitaire face-up step, FreeCell step) at card height ch (layout.c: round(15 s), 9 ch / 46)."""
+def steps(ch, v=None):
+    """(Solitaire face-up step, FreeCell step) at card height ch (layout.c: round(15 s), 9 ch / 46). A variant
+    with "steps": {"sol": [n, d], "fc": [n, d]} (a large-index set shown with its own column steps) gives
+    round(n ch / d) for each instead (the games' Large Print steps, src/*/layout.c)."""
+    st = getattr(v, 'd', {}).get('steps') if v is not None else None
+    if st:
+        return tuple(int(math.floor(st[m][0] * ch / st[m][1] + 0.5)) for m in ('sol', 'fc'))
     return int(math.floor(15 * ch / 96 + 0.5)), 9 * ch // 46
 
 
@@ -701,7 +720,7 @@ def pair_name(a, b):
 
 
 def glance(v, ch, mode, rng_seed=1):
-    sol, fc = steps(ch)
+    sol, fc = steps(ch, v)
     step = sol if mode == 'sol' else fc
     rgbs = {c: card_rgb(v, c, ch) for c in ALL}
     X = np.stack([strip_lab(rgbs[c], step).ravel() for c in ALL])
@@ -774,7 +793,7 @@ def run_glance(variants, heights, out, jobs=8):
         res = list(ex.map(lambda a: glance(*a), tasks))
     rows = []
     for (v, h, m), r in zip(tasks, res):
-        r.update(name=v.name, h=h, mode=m, step=steps(h)[0 if m == 'sol' else 1])
+        r.update(name=v.name, h=h, mode=m, step=steps(h, v)[0 if m == 'sol' else 1])
         rows.append(r)
     (out / 'metrics.json').write_text(json.dumps(rows, indent=1))
     md = ['# glance metrics', '',
@@ -833,9 +852,8 @@ def column_rgb(v, cards, ch, step):
 
 
 def stack_sheet(variants, ch, mode, zoom=1, label_w=None, font_px=14, title=None):
-    sol, fc = steps(ch)
-    step = sol if mode == 'sol' else fc
-    rows = [(v.label, [column_rgb(v, col, ch, step) for col in runs()]) for v in variants]
+    k = 0 if mode == 'sol' else 1
+    rows = [(v.label, [column_rgb(v, col, ch, steps(ch, v)[k]) for col in runs()]) for v in variants]
     return cl.compose(rows, ch, zoom, title, label_w=label_w, font_px=font_px)
 
 
@@ -854,8 +872,8 @@ def write_sheets(variants, heights, out, jobs=8, zoom_max=128):
     paths = []
     for ch in heights:
         for mode in ('sol', 'fc'):
-            t = '%s step %d at h=%d' % ('Solitaire' if mode == 'sol' else 'FreeCell',
-                                        steps(ch)[0 if mode == 'sol' else 1], ch)
+            t = '%s step %d at h=%d (variants with their own steps: theirs)' % (
+                'Solitaire' if mode == 'sol' else 'FreeCell', steps(ch)[0 if mode == 'sol' else 1], ch)
             for z in ((1, 2) if ch <= zoom_max else (1,)):
                 p = out / ('stack_%s_%d%s.png' % (mode, ch, '_x2' if z == 2 else ''))
                 stack_sheet(allv, ch, mode, z, title=t).save(p, optimize=True)

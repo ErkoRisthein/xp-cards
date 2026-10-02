@@ -183,5 +183,44 @@
       "ace_spade_cy": 0.46354
     },
     "note": "XPLIKE_BITTER (index untouched) with XP's pip geometry measured from cards.dll (candidates/xp_pips.json, tools/crisplab/xppips.py): per-rank XP arrangements (8 = 2x4, turned bottom pips) at XP's pip ink height 15/96 (RevK shapes, aspect kept); court frame at XP's line (col 12.5/71, row 11.5/96), court pip at XP's size 0.5 px inside the frame on the generator's side with its top at 0.120 (on the frame line like the generator's; XP 0.1354) so the Solitaire strip shows as much court pip as XPLIKE_BITTER; A of C/D/H pip = a body pip (15/96); AS emblem x0.85 (XP's ink-box area) centred at XP's 0.4635"
+  },
+  {
+    "name": "XPLIKE_BITTER_HYBRID_LARGE",
+    "layout": {
+      "rank_scale": 0.957,
+      "rank_bottom": 0.1921,
+      "rank_cx": -88.01,
+      "suit_mode": "side",
+      "suit_scale": 1.3405,
+      "suit_cx": -39.72,
+      "suit_dy": 0.0,
+      "rank_unclip": true,
+      "rank_glyphs": "candidates/rank_bitter800.json",
+      "xp_pips": "candidates/xp_pips_hybrid.json",
+      "pip_h": 0.14583,
+      "pip_gain": 0.8,
+      "pip_band": 0.23,
+      "court_frame": [
+        0.26996,
+        0.23
+      ],
+      "court_pip_h": 0.125,
+      "court_pip_top": 0.23,
+      "court_pip_inset": 0.00704,
+      "ace_h": 0.19531,
+      "ace_spade_scale": 0.85,
+      "ace_spade_cy": 0.46354
+    },
+    "steps": {
+      "sol": [
+        21,
+        96
+      ],
+      "fc": [
+        21,
+        96
+      ]
+    },
+    "note": "Large Print (Options > Extras 'Large print cards', both games; res/common/cards-large via make_assets.sh cards-large): XPLIKE_BITTER_HYBRID's art, Bitter rank and pip arrangements with the index 1.45x: rank ink 0.026-0.192 ch (cap 0.155 ch), the index suit beside the rank (side, ink 0.9 cap, centred on the cap, one column x -39.7 for every rank) so rank + suit fit one strip; body pips 0.8 x 14/96 = 0.117 ch (0.75x XP's; at 0.8 x 15/96 the four pips of a 9's or 10's side column ran together at 72-140 px) compressed into 0.23-0.77 ch (pip_band) and the court picture scaled to a frame from 0.23 ch (aspect kept), so nothing shows below the index in a strip; aces' pip 0.156 ch as the normal set. Shown with column steps 21/96 ch (steps: round(21 ch / 96), both games): every stacked card shows its whole rank and suit (glance: nn min 7.4 at h96 vs 0.0 / 2.5 for the normal set at 15/96 and 18/96)."
   }
 ]

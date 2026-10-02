@@ -1255,8 +1255,8 @@ void sol_command(SolSession *s, int cmd)
     switch (cmd) {
     case SOL_CMD_DEAL:
         if (sol_dragging(s)) break;                 /* XP grays Deal while a card is dragged */
-        if (s->extras.save_game && sol_game_started(s)) {
-            /* 2c: the Windows 7 question (with "Save game on exit" only) */
+        if (s->extras.save_game && s->extras.ask_save_game && sol_game_started(s)) {
+            /* 2c: the Windows 7 question ("Save game on exit" with "Ask before saving or resuming") */
             int r = ui_choose(s, SOL_ASK_NEW_GAME, SOL_ANS_QUIT_NEW, 3);
             if (r == SOL_ANS_KEEP) break;
             if (r == SOL_ANS_RESTART) {
@@ -1349,10 +1349,11 @@ void sol_set_back(SolSession *s, int back)
 
 /* ---- Extras: settings, Hint, Finish, click-to-move ---------------------------------------------- */
 
-#define NEXTRAS 11
+#define NEXTRAS 13
 static const char *const extra_names[NEXTRAS] = { "AutoTurn", "ClickToMove", "AutoFinish", "WinnableOnly",
                                                   "SaveGame", "WarnUnwinnable", "AutoHome", "ClickSelect",
-                                                  "NoMoreMoves", "NextGameOptions", "EnhancedAnimations" };
+                                                  "NoMoreMoves", "NextGameOptions", "EnhancedAnimations",
+                                                  "AskSaveGame", "LargePrint" };
 
 static int *extra_field(SolExtras *x, int i)
 {
@@ -1367,7 +1368,9 @@ static int *extra_field(SolExtras *x, int i)
     case 7: return &x->click_select;
     case 8: return &x->no_more_moves;
     case 9: return &x->next_game_options;
-    default: return &x->enhanced_anim;
+    case 10: return &x->enhanced_anim;
+    case 11: return &x->ask_save_game;
+    default: return &x->large_print;
     }
 }
 
@@ -1523,14 +1526,14 @@ void sol_restart(SolSession *s)
 int sol_exit_choice(SolSession *s)
 {
     if (!s->extras.save_game) return SOL_ANS_EXIT_NOSAVE;
-    if (!sol_game_started(s) || s->busy) return SOL_ANS_EXIT_SAVE;
+    if (!s->extras.ask_save_game || !sol_game_started(s) || s->busy) return SOL_ANS_EXIT_SAVE;   /* silent */
     hint_stop(s);
     return ui_choose(s, SOL_ASK_EXIT, SOL_ANS_EXIT_SAVE, 3);
 }
 
 int sol_offer_resume(SolSession *s)
 {
-    if (!s->extras.save_game || !sol_game_started(s) || s->busy) return 1;
+    if (!s->extras.save_game || !s->extras.ask_save_game || !sol_game_started(s) || s->busy) return 1;
     if (ui_choose(s, SOL_ASK_RESUME, SOL_ANS_CONTINUE, 2) == SOL_ANS_CONTINUE) return 1;
     sol_new_deal(s, 0);                 /* the saved game is lost */
     return 0;

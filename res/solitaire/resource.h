@@ -76,6 +76,8 @@
 #define IDC_NOMOREMOVES     340     /* "Tell me when there are no mo&re moves" (NoMoreMoves, 2c) */
 #define IDC_NEXTGAMEOPTS    341     /* "A&pply option changes to the next game" (NextGameOptions, 2c) */
 #define IDC_ENHANCEDANIM    342     /* "Enhanced animations" (EnhancedAnimations, 2d) */
+#define IDC_ASKSAVEGAME     343     /* "Ask before saving or resuming" (AskSaveGame, 2c; enabled with SaveGame) */
+#define IDC_LARGEPRINT      344     /* "Large print cards" (LargePrint, 2c) */
 /* Statistics */
 #define IDC_STATS_MODE      330     /* the mode: a drop-down list, the current game's mode first selected */
 #define IDC_STATS_LABELS    331     /* the labels (IDS_STATS_LABELS) */

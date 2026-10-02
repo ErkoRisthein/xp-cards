@@ -13,7 +13,8 @@
  *   gap g   = (W - 7 cw) / 8: XP's horizontal spread (its WM_SIZE), so the columns spread over the
  *             whole width as XP's do when the window is wider than the board.
  *   y       = XP's fixed rows: top MulDiv(ch, 5, 100), tableau ch + round(11 s).
- *   steps   = face-down round(3 s), face-up round(15 s) (XP: ch/25, 4ch/25), waste fan cw/5 x round(s),
+ *   steps   = face-down round(3 s), face-up round(15 s) (XP: ch/25, 4ch/25; with the Large Print faces
+ *             round(21 ch / 96), ce_large_print_step, so a stacked card shows its whole index), waste fan cw/5 x round(s),
  *             3-D pile edges (round(2 s), round(s)) per 10 cards (stock, waste) or per 4 (foundations).
  *   Tall tableau columns (extra; XP lets them run under the status bar) compress their face-up step to
  *   end above the status bar, never below 0.10 ch (the top of the rank index stays readable).
@@ -40,7 +41,8 @@ typedef struct SolLayout {
     int    tab_y;              /* tableau top: ch + round(11 s) */
     CeRect pile[SOL_NPILES];   /* XP's pile rects: hit and drop zones (an empty column's drop zone is
                                   its whole rect: 6 face-down + 12 face-up steps + ch tall) */
-    int    step_dn, step_up;   /* tableau steps: round(3 s), round(15 s) */
+    int    large_print;        /* laid out for the Large Print faces (extras.large_print) */
+    int    step_dn, step_up;   /* tableau steps: round(3 s), round(15 s) (Large Print: round(21 ch / 96)) */
     int    step_up_min;        /* compressed face-up step floor: round(0.10 ch) */
     int    fan_dx, fan_dy;     /* waste fan step: cw / 5, round(s) */
     int    edge_dx, edge_dy;   /* 3-D pile edge per layer: round(2 s), round(s) */
@@ -55,8 +57,10 @@ typedef struct SolLayout {
 #define SOL_XP_CLIENT_H 384
 #define SOL_XP_STATUS_H 18
 
-/* Compute the layout for a client area; status_h = the status bar window height, 0 if it is off. */
+/* Compute the layout for a client area; status_h = the status bar window height, 0 if it is off.
+ * sol_layout_compute_ex: large_print = the Large Print faces' face-up step (everything else the same). */
 void sol_layout_compute(SolLayout *l, int client_w, int client_h, int status_h);
+void sol_layout_compute_ex(SolLayout *l, int client_w, int client_h, int status_h, int large_print);
 
 /* Smallest client the window should allow (s = 0.5), and the client giving scale s with XP's default
  * proportions (the first-run window size). */

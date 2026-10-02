@@ -112,11 +112,12 @@
  *     SOL_ASK_NO_MOVES: End Game (a loss in the statistics, the game ends, then "Deal Again?") or Return
  *     to Game (the player may Undo).
  *   - Statistics (stats.h): the high scores and the Vegas money, dated by ui.today.
- *   - extras.save_game, the Windows 7 prompts (ui.choose), only for a game in progress
- *     (sol_game_started: an action was made): Deal asks SOL_ASK_NEW_GAME (Quit and Start a New Game: a
- *     loss / Restart This Game: sol_restart, the same deal, not a loss / Keep Playing); Exit
- *     (sol_exit_choice) asks SOL_ASK_EXIT; a resumed game (sol_offer_resume) asks SOL_ASK_RESUME. With
- *     the option off nothing is asked (XP).
+ *   - extras.save_game saves and resumes silently (Windows 7's "Always save game on exit" and "Always
+ *     continue saved game"). With extras.ask_save_game too, the Windows 7 prompts (ui.choose), only for a
+ *     game in progress (sol_game_started: an action was made): Deal asks SOL_ASK_NEW_GAME (Quit and Start
+ *     a New Game: a loss / Restart This Game: sol_restart, the same deal, not a loss / Keep Playing); Exit
+ *     (sol_exit_choice) asks SOL_ASK_EXIT; a resumed game (sol_offer_resume) asks SOL_ASK_RESUME. Without
+ *     either option nothing is asked (XP; without save_game ask_save_game does nothing).
  *   - extras.next_game_options: an Options change of Draw, Timed game or Scoring during a game in
  *     progress asks SOL_ASK_SETTINGS: Play New Game (XP's redeal, a loss) or Finish This Game (the
  *     game goes on with its own settings; the new ones wait in s->pend_opts and apply at the next deal;
@@ -151,9 +152,9 @@ enum { SOL_MSG_NO_HINT = 1110,           /* "No hint is available." */
 /* Questions with more than two answers (ui.choose, 2c): ids of the UI's dialogs; the answer is the
  * index of the button, in the order listed. */
 enum { SOL_ASK_NO_MOVES = 1130,          /* "There are no more moves. What do you want to do?" */
-       SOL_ASK_NEW_GAME = 1131,          /* Deal during a game in progress (save_game) */
-       SOL_ASK_EXIT = 1132,              /* Exit during a game in progress (save_game) */
-       SOL_ASK_RESUME = 1133,            /* a saved game in progress at start-up (save_game) */
+       SOL_ASK_NEW_GAME = 1131,          /* Deal during a game in progress (save_game + ask_save_game) */
+       SOL_ASK_EXIT = 1132,              /* Exit during a game in progress (save_game + ask_save_game) */
+       SOL_ASK_RESUME = 1133,            /* a saved game in progress at start-up (save_game + ask_save_game) */
        SOL_ASK_SETTINGS = 1134 };        /* Draw / Timed / Scoring changed during a game (next_game_options) */
 enum { SOL_ANS_END_GAME = 0, SOL_ANS_RETURN = 1 };                       /* SOL_ASK_NO_MOVES */
 enum { SOL_ANS_QUIT_NEW = 0, SOL_ANS_RESTART = 1, SOL_ANS_KEEP = 2 };    /* SOL_ASK_NEW_GAME */
@@ -267,7 +268,7 @@ typedef struct SolExtras {
     int click_move;          /* "ClickToMove": a click moves a card to its best place */
     int auto_finish;         /* "AutoFinish": Finish automatically */
     int winnable_only;       /* "WinnableOnly": deal only games known to be winnable */
-    int save_game;           /* "SaveGame": save the game on exit, resume it at start-up */
+    int save_game;           /* "SaveGame": save the game on exit, resume it at start-up (silently) */
     int warn_unwinnable;     /* "WarnUnwinnable": warn when the game can't be won */
     int auto_home;           /* "AutoHome": move cards home automatically (v1.2) */
     int click_select;        /* "ClickSelect": click to select, click to move (v1.2) */
@@ -276,6 +277,10 @@ typedef struct SolExtras {
     int enhanced_anim;       /* "EnhancedAnimations" (2d): the double-click and the right button's autoplay
                                 fly their cards (ui.animate_move); the rest is the UI's (drag shadow, card
                                 turns, the deal, the hint's pulse) */
+    int ask_save_game;       /* "AskSaveGame" (2c): with save_game, the Windows 7 prompts at Deal, Exit and a
+                                resumed game */
+    int large_print;         /* "LargePrint" (2c): the Large Print faces and their face-up step; the UI's
+                                (the session does not look at it) */
 } SolExtras;
 void sol_extras_load(SolExtras *x, const CeStore *store);        /* missing values: off */
 void sol_extras_save(const SolExtras *x, const CeStore *store);  /* every value, then flush */
@@ -439,10 +444,12 @@ int  sol_game_started(const SolSession *s);
  * game's money back before the bet is placed again); it still counts as played, not as a loss. */
 void sol_restart(SolSession *s);
 /* 2c. Exit (WM_CLOSE): SOL_ANS_EXIT_NOSAVE without save_game (XP; the UI then calls sol_abandon);
- * with it, SOL_ANS_EXIT_SAVE for a game not started, else the answer to SOL_ASK_EXIT. */
+ * with it, SOL_ANS_EXIT_SAVE (silent), or with ask_save_game too and a game in progress the answer to
+ * SOL_ASK_EXIT. */
 int  sol_exit_choice(SolSession *s);
-/* 2c. Right after a saved game was resumed: with save_game and a game in progress, SOL_ASK_RESUME;
- * "Play New Game" deals a new game (the saved one is lost). Returns 1 if the saved game goes on. */
+/* 2c. Right after a saved game was resumed: with save_game, ask_save_game and a game in progress,
+ * SOL_ASK_RESUME; "Play New Game" deals a new game (the saved one is lost). Returns 1 if the saved game
+ * goes on (always without ask_save_game: silent). */
 int  sol_offer_resume(SolSession *s);
 /* 2c. There are no more useful moves (see "Dead ends" above). */
 int  sol_no_more_moves(const SolSession *s);

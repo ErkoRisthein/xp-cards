@@ -31,7 +31,7 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   automatically" (off by default).
 - [x] Drag-and-drop as an optional input mode (v1.4, §2b; XP click-click stays the default).
 
-## 2. Solitaire HD (Klondike, sol.exe)
+## 2. Solitaire HD (Klondike, sol.exe) — done
 - [x] Extract the shared card-game engine from FreeCell first (docs/ENGINE.md): images, the card set
   (now with optional card backs), clipped drawing, stats/options persistence interfaces, Win32 shell
   pieces (back buffer, animation clock, menu-bar text, placement, full screen, registry, dialogs, help,
@@ -46,7 +46,7 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   zip-back of a refused drop), double-click and right-click autoplay, XP's status bar, the cascade and
   "Deal Again?", Options / Select Card Back, menu graying, help and About, full screen, the remembered
   placement; Wine end-to-end scenarios (`tests/e2e/solhd_*.txt`).
-- The same fidelity process as FreeCell: reverse-engineer sol.exe and match XP pixel-for-pixel at 1x.
+- [x] The same fidelity process as FreeCell: reverse-engineer sol.exe and match XP pixel-for-pixel at 1x.
 - [x] Solitaire HD v1.1 extras (docs/DESIGN.md "Solitaire HD extras"): Game > Hint (H, fair: only
   visible cards, heuristic ranking, FreeCell's flash), Game > Finish (F6, animated, one undo step),
   Game > Statistics (F4, per Draw x Scoring mode: played/won/%/streaks/best time/best score, in
@@ -79,7 +79,7 @@ docs/DESIGN.md "FreeCell HD extras (v1.4)" and "Solitaire HD extras (v1.2)".
 - [x] Solitaire's winnable-deal table regenerated with the fixed solver (`make seed-tables`).
 - Source of ideas: docs/msc-feature-gap.md.
 
-## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in)
+## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in) — done
 docs/DESIGN.md "Windows 7-inspired extras (2c)".
 - [x] Solitaire: "No More Moves" detection (End Game / Return to Game): option "Tell me when there are
   no more moves" (off); the fair dead-end tracking (a whole stock cycle, or the used-up stock, with no
@@ -88,10 +88,16 @@ docs/DESIGN.md "Windows 7-inspired extras (2c)".
   rankings are documented in assist.h / session.h).
 - [x] Solitaire statistics: top-5 high scores with dates (Standard timed / not timed, Vegas); Vegas most
   won / most lost / current winnings; statistics.bin version 2 (version 1 migrated).
-- "Large Print" card style (big indices, from the RevK generator's Large index option) — opt-in. (Card
-  art: the cards-xplike branch.)
-- [x] Richer New Game / Exit / saved-game prompts when save-on-exit is enabled (XP's plain behaviour stays
-  the default); Restart This Game.
+- [x] "Large Print" card style — opt-in, both games: Options > Extras "Large print cards" (`LargePrint`):
+  a second face set (res/common/cards-large, RCDATA 1300 + card; stacklab XPLIKE_BITTER_HYBRID_LARGE: the
+  index 1.45x with its suit beside the rank, pips 0.117 ch and the court picture kept below 0.23 ch), decoded only
+  when selected, switched at once; face-up column steps round(21 ch / 96) in both games so every stacked
+  card shows its whole rank and suit (glance nn min 7.4 at h96 vs 0.0 / 2.5 normal). docs/DESIGN.md "Large
+  Print cards (2c)".
+- [x] Richer New Game / Exit / saved-game prompts (XP's plain behaviour stays the default); Restart This
+  Game. Since 2026-10-02 "Save game on exit, resume at start" is silent (Win7's "Always save game on exit" /
+  "Always continue saved game") and the prompts are their own opt-in checkbox "Ask before saving or
+  resuming" (`AskSaveGame`, greyed without SaveGame).
 - [x] Solitaire: changing Draw/Scoring/Timed can apply to the next game instead of redealing: option
   "Apply option changes to the next game" (off).
 
@@ -121,23 +127,20 @@ docs/DESIGN.md "Motion (2d)".
   sure win, a small XP-style push button appears on the table (MSC's "Solve"); clicking it = Game > Finish (F6). Players
   who prefer can ignore it and play the cards one by one.
 
-## 2e. Stack-legibility card layout (decided 2026-10-01 by the user; tools/crisplab/stacklab.py)
-- Ship XPLIKE (lab variant "D"): closest to the XP cards. Rank fitted fully inside the Solitaire strip
+## 2e. Stack-legibility card layout (decided 2026-10-01 by the user; tools/crisplab/stacklab.py) — done
+- [x] Ship XPLIKE (lab variant "D"): closest to the XP cards. Rank fitted fully inside the Solitaire strip
   (15/96 of the card; rank_scale .72, stroke 165, bottom .145), classic suit under the rank, pips raised
   to XP's positions (pip_scale 1.1, pip_top .104, pip_xs .94) and the court picture enlarged
   (court_top .113, court_sx 1.035) so pip tops / court art show in every strip like XP. Metrics: at or
   above XP on every strip measure; buried aces show ~40% of their suit (XP: 0%). Regenerate
   res/common/cards via stacklab.py svg --layout XPLIKE in make_assets.sh, refresh tests/card_golden.h.
+  (Shipped as XPLIKE_BITTER_HYBRID: the Bitter rank index and the hybrid pip geometry below.)
 
 ## Bugs / TODO
 - [FIXED with the XPLIKE regeneration] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
   top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
   clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
   res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.
-- TODO (decided 2026-10-02): "Save game on exit, resume at start" must be silent (Win7's "Always save
-  game on exit" / "Always continue saved game"); the Windows 7 prompts move to their own opt-in checkbox
-  "As&k before saving or resuming" (AskSaveGame, default off) — gate in session.c (new game ~1258,
-  sol_exit_choice, sol_offer_resume), Options row after SaveGame, tests + solhd_extras/solhd_win7 e2e.
-- Pip geometry (decided with the user 2026-10-02): HYBRID — XP's pip size and vertical spread and XP's
+- [DONE] Pip geometry (decided with the user 2026-10-02): HYBRID — XP's pip size and vertical spread and XP's
   fuller court frame, but the traditional (RevK) pip arrangements per rank (e.g. 8 = 3+2+3, not XP's 2x4).
   Measured XP geometry comes from the xp-pip-match lab (scratchpad piplab/xp_geometry.json).

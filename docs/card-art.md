@@ -172,6 +172,19 @@ AD.png at 7,378 B and the largest is QH.png at 96,311 B. `SHA256SUMS.txt` covers
      deflate=Deflaters.zopfli(15))`.
    - The contact sheet and preview come from `../research/art/sheets.py <art_dir> <tmp_dir>`.
 
+## Large Print (2026-10-02)
+`res/common/cards-large/<R><S>.png` (Options > Extras "Large print cards", both games; RCDATA 1300 + card) are
+the same SVGs and art edit laid out by stacklab variant `XPLIKE_BITTER_HYBRID_LARGE`
+(`tools/make_assets.sh cards-large`): the Bitter rank 1.45x (rank_scale 0.957; ink 0.026-0.192 ch, cap
+0.155 ch, left ink margin as the normal set's), the index suit beside the rank (suit_mode side, ink 0.9 of
+the cap, centred on it, a fixed column at x -39.7 units), the hybrid pip arrangements with body pips 0.8 x 14/96 =
+0.117 ch (pip_h 0.14583, pip_gain 0.8; at 0.8 x 15/96 the four pips of a 9's or 10's side column ran
+together at 72-140 px: `tests/engine/test_engine.c` counts them) compressed into 0.23-0.77 ch (`pip_band`), the court frame from 0.23 ch with the picture's aspect kept (court_frame
+[0.26996, 0.23]), the court pip 0.8x, the aces' pip 0.156 ch as the normal set. Shown with a face-up column
+step of round(21 ch / 96) (variant key "steps", used by `stacklab.py glance` / `sheets`); the glance metric
+and the decision are in docs/DESIGN.md "Large Print cards (2c)". 52 files, 1,402,889 bytes (oxipng, zopfli
+15).
+
 ## Stacked-legibility layout (2026-10-02)
 The masters are generated with `tools/crisplab/stacklab.py svg --layout <XPLIKE>` (see
 `tools/crisplab/candidates/stack.json` and docs/ROADMAP.md 2e): rank glyph fitted inside the Solitaire

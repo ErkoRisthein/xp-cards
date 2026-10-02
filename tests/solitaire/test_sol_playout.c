@@ -110,6 +110,7 @@ static void play(unsigned game, uint32_t opts, int smart, int extras)
         x.click_select = (game & 1) != 0;
         x.no_more_moves = (game % 5) != 0;      /* 2c */
         x.save_game = (game & 2) != 0;
+        x.ask_save_game = (game & 8) == 0;      /* 2c: the Windows 7 prompts with it (mostly), or silent */
         x.next_game_options = (game & 4) != 0;
         sol_set_extras(&s, &x);
         sol_attach_stats(&s, NULL);

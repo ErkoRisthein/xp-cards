@@ -18,7 +18,9 @@ typedef struct FcLayout {
     CeRect top[8];            /* top row cells: 0..3 free cells, 4..7 home cells */
     int    col_x[9];          /* col_x[1..8]: tableau column left edges (index 0 unused) */
     int    col_y0;            /* top of first card in every column: ch + round(10 s) */
-    int    step;              /* normal vertical step: floor(9 ch / 46) */
+    int    large_print;       /* laid out for the Large Print faces (extras.large_print) */
+    int    step;              /* normal vertical step: floor(9 ch / 46); Large Print: ce_large_print_step(ch),
+                                 round(21 ch / 96), so a stacked card shows its whole index */
     int    step_min;          /* smallest compressed step (keeps the rank glyph readable) */
     int    bottom_limit;      /* columns are compressed to end at or above this y */
     CeRect king;              /* small king sprite rect: K = round(32 s) */
@@ -28,8 +30,10 @@ typedef struct FcLayout {
     int    anim_px_per_frame; /* round(37 s) */
 } FcLayout;
 
-/* Compute the layout for a client area. */
+/* Compute the layout for a client area (fc_layout_compute_ex: large_print = the Large Print faces' step,
+ * everything else the same; column compression as usual). */
 void fc_layout_compute(FcLayout *l, int client_w, int client_h);
+void fc_layout_compute_ex(FcLayout *l, int client_w, int client_h, int large_print);
 
 /* Smallest client size the window should allow (s = 0.5). */
 void fc_layout_min_client(int *w, int *h);

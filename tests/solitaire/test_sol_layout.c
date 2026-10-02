@@ -244,6 +244,52 @@ static void test_compression(void)
     CHECK(st < l.step_up && st >= l.step_up_min && y + l.ch <= l.bottom_limit, "1080p step %d end %d", st, y + l.ch);
 }
 
+/* "Large print cards" (2c): the face-up step round(21 ch / 96) (ce_large_print_step), the rest as without it
+ * (the empty columns' drop zones follow the step: 6 face-down + 12 face-up steps + ch); compression as usual. */
+static void test_large_print_layout(void)
+{
+    SolLayout n, l;
+    SolBoard b;
+    int x, y, k, st, w, h;
+    sol_layout_compute(&n, 585, 384, 18);
+    sol_layout_compute_ex(&l, 585, 384, 18, 1);
+    CHECK(!n.large_print && l.large_print && n.step_up == 15 && l.step_up == 21 && l.step_dn == 3,
+          "steps %d %d", n.step_up, l.step_up);
+    for (k = 0; k < 7; k++)
+        CHECK(rect_eq(l.pile[SOL_TAB0 + k], 11 + 82 * k, 107, 71, 18 + 12 * 21 + 96), "column %d", k);
+    CHECK(rect_eq(l.pile[SOL_STOCK], 11, 5, 81, 101) && l.tab_y == n.tab_y && l.step_up_min == n.step_up_min &&
+          l.bottom_limit == n.bottom_limit, "the rest");
+    l.step_up = n.step_up;
+    l.large_print = 0;
+    for (k = SOL_TAB0; k < SOL_NPILES; k++)
+        l.pile[k] = n.pile[k];
+    CHECK(!memcmp(&l, &n, sizeof l), "nothing else differs");
+    sol_layout_compute_ex(&l, 1904, 996, 18, 1);
+    CHECK(l.ch == 256 && l.step_up == 56, "1080p: ch %d step %d", l.ch, l.step_up);
+    for (w = 293; w <= 4000; w += 61)
+        for (h = 200; h <= 2400; h += 37) {
+            sol_layout_compute_ex(&l, w, h, 18, 1);
+            sol_layout_compute(&n, w, h, 18);
+            CHECK(l.step_up == (l.ch * 21 + 48) / 96 && l.step_up >= n.step_up && l.step_up_min <= l.step_up &&
+                  l.ch == n.ch, "invariants at %dx%d", w, h);
+        }
+    /* the deal: column 7's face-up card at 107 + 6 * 3 as before; then the face-up cards 21 apart */
+    sol_layout_compute_ex(&l, 585, 384, 18, 1);
+    sol_board_clear(&b);
+    set_pile(&b, SOL_TAB0, "#2C #3C KH QS JH TS 9H");
+    sol_layout_card_pos(&l, &b, 0, SOL_TAB0, 2, &x, &y);
+    CHECK(y == 107 + 2 * 3 + 0 * 21, "first face-up at %d", y);
+    sol_layout_card_pos(&l, &b, 0, SOL_TAB0, 6, &x, &y);
+    CHECK(y == 107 + 2 * 3 + 4 * 21, "fifth face-up at %d", y);
+    CHECK(sol_layout_col_step(&l, &b, SOL_TAB0) == 21, "a short column keeps the step");
+    /* XP's 19-card capacity: compressed to end above the status bar, never below 0.10 ch */
+    set_pile(&b, SOL_TAB0, "#2C #3C #4C #5C #6C #7C KH QS JH TS 9H 8S 7H 6S 5H 4S 3H 2S AH");
+    st = sol_layout_col_step(&l, &b, SOL_TAB0);
+    CHECK(st == (364 - 107 - 96 - 18) / 12, "step %d", st);
+    l.bottom_limit = l.tab_y + l.ch + 40;
+    CHECK(sol_layout_col_step(&l, &b, SOL_TAB0) == l.step_up_min, "min step");
+}
+
 /* ---- hit testing and drop targets ---------------------------------------------------------------- */
 
 static int accept_all(void *ctx, int pile) { (void)ctx; (void)pile; return 1; }
@@ -682,6 +728,7 @@ int main(int argc, char **argv)
     test_waste_fan();
     test_scaling();
     test_compression();
+    test_large_print_layout();
     test_hits();
     test_winanim();
     sol_native_assets_init(&na, res);

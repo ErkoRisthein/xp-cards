@@ -51,7 +51,7 @@ HEADERS        := $(wildcard src/*/*.h src/*/*/*.h)
 
 FC_RC    := res/freecell/freecell.rc
 SOL_RC   := res/solitaire/solitaire.rc
-COMMON_RES := $(wildcard res/common/*.rc res/common/cards/*.png)
+COMMON_RES := $(wildcard res/common/*.rc res/common/cards/*.png res/common/cards-large/*.png)
 
 # The exe must import msvcrt.dll (XP has no UCRT). GCC 14+ selects it with -mcrtdll=msvcrt-os, which
 # Homebrew's UCRT-default toolchain needs. Older GCCs (Ubuntu 24.04's mingw-w64 GCC 13) do not know the

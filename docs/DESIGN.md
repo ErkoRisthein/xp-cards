@@ -31,7 +31,8 @@ Reference material (reverse-engineered from the XP binaries in this repo):
      **"Warn when the game can't be won"** and **"Finish automatically"** are off by default.
    * v1.4 (see "FreeCell HD extras (v1.4)"): **Game > Undo All** and **Ctrl+Z** (Undo, repeating while
      held) are always there; the options **"Single click moves a card"** and **"Drag and drop cards"**
-     are off by default.
+     are off by default. 2c / 2d: hint cycling, eased flights and the Finish button (always), the options
+     **"Enhanced animations"** and **"Large print cards"** (off; see "Large Print cards (2c)").
 3. Fix XP bugs listed in rules.md §11 instead of replicating them. Also fix the missing spaces in
    "lose.There" and "cards.You", and drop the stray `%` in the statistics strings (render what XP
    shows on screen).
@@ -328,7 +329,8 @@ policy above. **Commands** that act only when invoked are always there: Game > H
 (F6), Game > Statistics... (F4). **Everything that changes what input does or makes the game act on its
 own** is a checkbox in the Options dialog's new "Extras" group (to the right of XP's controls, which keep
 their positions; `HKCU\Software\xp-cards\Solitaire HD`, REG_DWORD 0/1, all off by default): `AutoTurn`,
-`ClickToMove`, `AutoFinish`, `WinnableOnly`, `SaveGame`, `WarnUnwinnable`. The state machines are in the
+`ClickToMove`, `AutoFinish`, `WinnableOnly`, `SaveGame`, `WarnUnwinnable` (later batches add `AutoHome`,
+`ClickSelect`, `NoMoreMoves`, `NextGameOptions`, `EnhancedAnimations`, `AskSaveGame`, `LargePrint`). The state machines are in the
 platform-independent session (`src/solitaire/session.c`, the `SolExtras` it is given) and pure helpers:
 
 ```
@@ -391,7 +393,9 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   ("SOLS", version, 6 x 8 integers, CRC-32; version 2 since 2c adds the high scores and the money, see
   "Windows 7-inspired extras (2c)"), written atomically after every change; a damaged file is set
   aside as `statistics.bad` and the statistics start empty.
-* **Save game on exit, resume at start**: at WM_CLOSE / WM_ENDSESSION the game in progress is written to
+* **Save game on exit, resume at start** (silent: Windows 7's "Always save game on exit" and "Always continue
+  saved game"; the Windows 7 questions are a separate option since 2c, "Ask before saving or resuming"): at
+  WM_CLOSE / WM_ENDSESSION the game in progress is written to
   `game.bin` (same folder, atomically): the board, waste fan, score, clock, recycles, seed and rand state
   (the cascade continues from it), the mode, whether it already counts in the statistics, and the whole
   undo and redo history ("SOLG", version, length, payload, CRC-32; at most 4 MiB, the oldest history
@@ -471,11 +475,11 @@ all and `make sol-xp-compare` still proves the extras-off session identical to v
 
 ROADMAP §2c (source: docs/win7-feature-gap.md, Windows 7's wording), under the extras policy: hint
 cycling, the dead-end tracking behind Hint and the high scores are always there (they act only when
-asked or are a passive record); the No More Moves question, the Windows 7 prompts and the deferred
-Options are opt-in. Windows 7's questions use its words but XP's look: plain DIALOG templates in MS Shell
-Dlg 8 with a message box's question icon (and its beep), push buttons stacked under the text (the first
-the default, Esc the safe answer), centred over the window as a message box; no command links. The
-"Large Print" deck of §2c belongs to the card-art branch.
+asked or are a passive record); the No More Moves question, the Windows 7 prompts, the deferred Options
+and the Large Print cards (next section) are opt-in. Windows 7's questions use its words but XP's look:
+plain DIALOG templates in MS Shell Dlg 8 with a message box's question icon (and its beep), push buttons
+stacked under the text (the first the default, Esc the safe answer), centred over the window as a message
+box; no command links.
 
 * **Hint cycling (both games, always on).** Hint again while the hint shown last is *current* (the same
   position, and no other input since: only the hint's own flash, mouse moves, the H key's own key-down)
@@ -525,8 +529,11 @@ the default, Esc the safe answer), centred over the window as a message box; no 
   `GetDateFormatW`); Reset clears them. Stored in `statistics.bin` version 2 (`stats.h`: 136 bytes per
   mode); a version 1 file (Solitaire HD 1.1 / 1.2) is read with the new values empty and written back as
   version 2 at the next change. The date comes from `ui.today` (with `SOLHD_TIME`, that time's date).
-* **The Windows 7 prompts with "Save game on exit"** (`SaveGame`; only for a game in progress: an action
-  was made, `sol_game_started`; without the option nothing is asked, as XP):
+* **The Windows 7 prompts: "Ask before saving or resuming"** (`AskSaveGame`, off by default; it acts only
+  with "Save game on exit", `SaveGame`, and the Options dialog greys it while that is unchecked; only for a
+  game in progress: an action was made, `sol_game_started`). "Save game on exit" alone saves at Exit and
+  resumes at start-up without a question (Windows 7's "Always save game on exit" / "Always continue saved
+  game", as Solitaire HD 1.1 did), and Deal is XP's (a game in progress counts as lost). With both:
   * **Deal** (F2) asks "Game in Progress": **Quit and Start a New Game (counts as a loss)** (XP's deal),
     **Restart This Game** (`sol_restart`: the same deal from its start, score and clock as at the deal, a
     Vegas game's money given back before the bet is placed again; it still counts as played and is not a
@@ -550,7 +557,8 @@ the default, Esc the safe answer), centred over the window as a message box; no 
   again cancels the wait. A saved game whose Options differ from the current ones (normally ignored) is
   resumed with its own when this option is on, the current ones waiting for the next deal.
 * **Vanilla unchanged.** `make sol-xp-compare` (every extra off, v1.0's session against today's, with the
-  statistics attached and the new `choose` / `today` callbacks unset): identical, 1100048 lines. `make
+  statistics attached and the new `choose` / `today` callbacks unset): identical, 1100048 lines (also
+  after AskSaveGame and LargePrint, 2026-10-02). `make
   fc-xp-compare`: identical, after one change to its input: a Hint (command or H) in the position where
   the last Hint was given is left out (392 of 2812), as it now shows the next move where 1.3 repeated
   the first; every first Hint in a position is still compared.
@@ -563,15 +571,72 @@ the default, Esc the safe answer), centred over the window as a message box; no 
   trip, damage, impossible contents with a valid CRC, the version 1 migration, Reset; the prompts: off, a
   fresh deal, Keep Playing, Restart (Standard, Vegas with and without Cumulative), Quit, no UI; Exit's
   three answers and the default; the saved game: Continue, Play New Game's loss, an unplayed deal, off;
+  "Save game on exit" alone: Deal's loss without a question, Exit saved and the start resumed silently;
+  "Ask" alone: nothing asked, nothing saved;
   the deferred Options: Finish This Game, the dialog's settings, the registry, Restart keeping the game's
   settings, the next deal, Play New Game, cancelling the wait, off, winnable deals, a saved game under
   other Options), `test_sol_playout.c` (the extras-on games also run the No More Moves question, the New
   Game prompt and deferred Options changes with random answers: a dead end never has a useful move),
   `tests/freecell/test_assist.c` (FreeCell's cycle: every other action once, by estimate, the wrap, what
-  starts over, an unwinnable alternative left out), `tests/e2e/solhd_win7.txt` (Wine: the Options' two
-  boxes, the cycle on deal 64 captured flash by flash, the High Scores box, deal 147's dead end with
-  Return to Game, Hint's message and End Game, the statistics' loss and its date, every Windows 7
-  question with each of its answers, the deferred Draw One).
+  starts over, an unwinnable alternative left out), `tests/e2e/solhd_win7.txt` (Wine: the Options' boxes,
+  "Ask before saving or resuming" greyed until "Save game on exit" is checked, the cycle on deal 64 captured
+  flash by flash, the High Scores box, deal 147's dead end with Return to Game, Hint's message and End Game,
+  the statistics' loss and its date, every Windows 7 question with each of its answers, the deferred Draw
+  One), `tests/e2e/solhd_extras.txt` (the silent save at Exit and resume at start-up).
+
+## Large Print cards (2c)
+
+ROADMAP §2c's "Large Print" deck (Windows 7's "Large Print Deck"), opt-in in both games: Options > Extras
+**"Large print cards"** (`LargePrint`, REG_DWORD in each game's own key, off by default). For small windows
+and for reading from a distance.
+
+* **The art** (`res/common/cards-large/<R><S>.png`, 400 x 560, `tools/make_assets.sh cards-large`; stacklab
+  variant `XPLIKE_BITTER_HYBRID_LARGE` in `tools/crisplab/candidates/stack.json`): the normal faces' art,
+  Bitter rank glyphs and hybrid pip arrangements, with the index 1.45x: the rank's cap height 0.155 ch (ink
+  0.026-0.192 ch, the Q and J tails included; normal: 0.026-0.140), and the index suit (ink 0.9 of the cap
+  height) **beside** the rank, centred on it, in one column for every rank (x -39.7 of the 240-unit card)
+  instead of under it, so rank and suit end at the same height. To keep clear of the bigger index the body
+  pips are 0.117 ch (0.8 x 14/96; at 0.8 x XP's 15/96 a 9's or 10's side column ran together below 140 px) and
+  their arrangement is compressed into 0.23-0.77 ch (`pip_band`), the court
+  picture is scaled (aspect kept) into a frame from 0.23 ch, and the aces' pip keeps the normal size.
+  Nothing but the index shows above 0.23 ch, so a stacked strip shows no slivers. 1,402,889 bytes (the
+  normal set 1,676,109).
+* **The column step**: `ce_large_print_step(ch)` = round(21 ch / 96) for the face-up cards of both games
+  (Solitaire: instead of XP's round(15 s); FreeCell: instead of 9 ch / 46), the smallest step at which
+  every card's whole rank and suit show (the index ends at 0.192 ch); face-down steps, the scale formulas
+  and the column compression (down to 0.10 ch when a column would run off the window) are unchanged.
+  Solitaire's empty-column drop zone (6 face-down + 12 face-up steps + ch) follows the step.
+* **Measured** (`stacklab.py glance`, the crisp pipeline's sprites, strips at each set's own step; nn =
+  RMS dE to the nearest strip of another card): at h96 Large Print at 21 px: rank and suit 100% visible on
+  all 52, nn min 7.4, suit min 7.4, rank min 7.8, the recogniser 99.8%; the normal set at Solitaire's 15 px:
+  under a quarter of any suit shape visible on 16 of 52 cards (the suit shows only through pip tops), nn min
+  0.0 (the aces' strips are the same per colour), recogniser 95.4%; at FreeCell's 18 px nn min 2.5, 98.2%. At h72 / 128 /
+  257: nn min 5.9 / 8.6 / 10.9 against 0.0 / 0.0 / 0.0 (Solitaire) and 1.8 / 3.3 / 4.3 (FreeCell); the
+  recogniser 97.8 / 100 / 100%. (The median distance between same-rank strips is lower than the normal
+  set's, 10.3 against 15.6 at h96, as the normal strips also differ in the pip tops; the worst pair, what
+  can be confused, is far better.)
+* **The engine** (`engine/cardset.h`): two face sets, the normal faces (asset 1000 + card) and the Large
+  Print faces (`CE_ASSET_LARGE0` = 1300 + card, `res/common/cards.rc`). Only the set in use has masters:
+  `ce_cardset_new_faces` decodes the chosen set at start-up (the normal one when the Large Print assets are
+  missing), `ce_cardset_set_faces` drops the faces' sprites, masters and half-size copies and the new set's
+  masters are decoded card by card as the sprites are rebuilt (the same memory policy; a Large Print master
+  that fails to decode falls back to that card's normal face). The games switch at Options > OK and lay
+  out again with the new step at once (`view_large_print`: a full re-render; minimized, at the restore).
+  The session never looks at the option: `make sol-xp-compare` / `fc-xp-compare` are unchanged.
+* **The XP look is kept elsewhere**: the waste's fanned cards (cw / 5 apart) show the Large Print rank
+  only, not the suit beside it (only the top card of the waste plays); free cells, home cells and
+  foundations show whole cards.
+* Tests: `tests/engine/test_engine.c` (the step, the default set, switching both ways at small and big
+  sizes and at both qualities, the same sprite as a set started with Large Print, the index ink down to
+  0.18 ch and nothing between the step and 0.23 ch, missing assets: no switch and the normal set at
+  start-up, a broken face: that card's normal face; every pip of 2..10 a blob of its own at 72 / 96 / 128 /
+  257 px), `tests/freecell/test_layout.c` and
+  `tests/solitaire/test_sol_layout.c` (the steps at 1x and 1080p, everything else as without it,
+  compression, card positions and hits at the new step), the registry values in `test_session.c` /
+  `test_sol_extras.c`, `make snapshots` (FreeCell `23_large_*` .. `29_large_card_sheet`, Solitaire
+  `50_large_*` .. `55_large_*`), `tests/e2e/fchd_largeprint.txt` and `solhd_largeprint.txt` (Wine: the option
+  off by default, on: the faces and the step at once, off again, kept across a restart; pixels from a
+  native render of the same board).
 
 ## Motion (2d)
 
@@ -689,8 +754,9 @@ ignorable affordance, always there.
   `src/freecell/win32/storage.c` names them.
 * The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
   `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2),
-  `SingleClick`, `DragDrop` (v1.4), `EnhancedAnimations` (2d). Solitaire HD's v1.2 options: `AutoHome`,
-  `ClickSelect`; 2c: `NoMoreMoves`, `NextGameOptions`; 2d: `EnhancedAnimations`.
+  `SingleClick`, `DragDrop` (v1.4), `EnhancedAnimations` (2d), `LargePrint` (2c). Solitaire HD's v1.2 options:
+  `AutoHome`, `ClickSelect`; 2c: `NoMoreMoves`, `NextGameOptions`, `AskSaveGame`, `LargePrint`; 2d:
+  `EnhancedAnimations`.
 * Solitaire HD: Options and Back in XP sol.exe's own key and format (`HKCU\Software\Microsoft\Solitaire`,
   shared with sol.exe); window placement, full screen and the v1.1 extras' options in
   `HKCU\Software\xp-cards\Solitaire HD`; the statistics and the saved game in
@@ -707,7 +773,12 @@ available or fails, a built-in "How to play" message is shown. About uses `Shell
 
 Credit the card art only in unobtrusive places — never on the table or the cards (the Ace of Spades
 deliberately carries no link/text): the GitHub README, Help ▸ About, and the exe's version info.
-Wording: "Card faces: SVG playing cards by Adrian Kennard — https://cards.revk.uk (CC0)".
+Wording: "Card faces: SVG playing cards by Adrian Kennard — https://cards.revk.uk (CC0)"; the rank
+index glyphs: "Bitter, SIL Open Font License 1.1" (README, version info; the licence text is
+`tools/crisplab/candidates/OFL-Bitter.txt`). The original games' authors are named in the README, the
+version info and About: FreeCell by Jim Horne, Solitaire by Wes Cherry; both programs are independent
+re-implementations, not affiliated with Microsoft. Version info: FreeCell HD 1.4.0.0, Solitaire HD
+1.2.0.0.
 Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
 
 ## Testing

@@ -149,7 +149,7 @@ void view_resize(App *a, int w, int h)
     if (w <= 0 || h <= 0)
         return;
     if (a->have_layout && a->L.client_w == w && a->L.client_h == h && a->quality == q &&
-        a->L.status_h == status_h_now(a)) {
+        a->L.status_h == status_h_now(a) && a->L.large_print == (a->s.extras.large_print != 0)) {
         status_place(a);
         return;                                       /* e.g. WM_SIZE after a restore: nothing new */
     }
@@ -158,7 +158,7 @@ void view_resize(App *a, int w, int h)
     if (!ce_backbuf_ensure(&a->bb, w, h))
         return;                                       /* out of memory: keep the old view */
     ce_flights_drop(&a->fl);                          /* (their rects are stale: the board shows them) */
-    sol_layout_compute(&a->L, w, h, status_h_now(a));
+    sol_layout_compute_ex(&a->L, w, h, status_h_now(a), a->s.extras.large_print);
     a->have_layout = 1;
     a->layout_gen++;
     a->quality = q;
@@ -179,6 +179,17 @@ void view_relayout(App *a)
         return;
     a->quality = -1;                                  /* force it */
     view_resize(a, cr.right, cr.bottom);
+}
+
+void view_large_print(App *a)
+{
+    int on = a->s.extras.large_print != 0;
+    CeCardSet *cs = a->gfx ? sol_gfx_cards(a->gfx) : NULL;
+    if (cs && ce_cardset_faces(cs) != (on ? CE_FACES_LARGE : CE_FACES_NORMAL))
+        ce_log(ce_cardset_set_faces(cs, on ? CE_FACES_LARGE : CE_FACES_NORMAL) ? "large print %s"
+                                                                               : "large print %s: the faces are missing",
+               on ? "on" : "off");
+    view_relayout(a);                                 /* the face-up step; every card re-rendered */
 }
 
 void view_exit_sizemove(App *a)

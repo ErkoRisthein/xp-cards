@@ -13,8 +13,8 @@ src/engine/            portable C99, no Windows headers, unit-tested natively (p
   geom.h               CeRect and inline helpers (overlaps, union, clip)
   image.{h,c}          CeImage (premultiplied BGRA = a 32-bpp DIB), PNG decode (stb_image), resampling,
                        the card resampler, compositing, the card shape and frame, bevel rings
-  cardset.{h,c}        CeCardSet: the 52 faces + optional backs at any size, lazy, two qualities,
-                       memory policy, ring cache
+  cardset.{h,c}        CeCardSet: the 52 faces (two face sets: normal and Large Print) + optional backs
+                       at any size, lazy, two qualities, memory policy, ring cache
   draw.{h,c}           CeDraw: clipped drawing (fill, sprites, inversion (also partial), XP bevel, HD ring,
                        R2_NOT frame)
   ease.{h,c}           easing curves (cubic-bezier, fixed-point tables) and flight durations (2d)
@@ -43,8 +43,9 @@ src/solitaire/         Solitaire HD, portable (prefix sol_ / Sol): game, session
                        winanim
 src/solitaire/win32/   Solitaire HD's window, view (drag and drop, the win cascade), status bar, dialogs
 
-res/common/            shared art: cards/ (52 x 400x560 PNG), cards-svg/, cards-src/ (provenance),
-                       cards.rc (the 52 RCDATA lines, #included by each game's .rc)
+res/common/            shared art: cards/ (52 x 400x560 PNG), cards-large/ (the Large Print faces),
+                       cards-svg/, cards-src/ (provenance), cards.rc (the 104 RCDATA lines, #included by
+                       each game's .rc)
 res/freecell/          freecell.rc, resource.h, manifest, icon, cursor, king/ (+ sources), icon/ (tools)
 res/solitaire/         solitaire.rc, resource.h, manifest
 res/LICENSE-ART.md     licences and provenance of all art
@@ -74,6 +75,13 @@ black frame). Any master size of the card's 5:7 shape works; the art is stretche
 `ce_cardset_card(cs, c)` / `ce_cardset_back(cs, i)` return cw x ch premultiplied sprites with
 transparent rounded corners and XP's black frame. In an exe the loader is `ce_rcdata_loader` with the
 HINSTANCE as ctx; asset ids 1100..1199 are free for a game's own images (FreeCell's kings).
+**Large Print** (2c): a second face set, asset ids `CE_ASSET_LARGE0 + c` (1300..1351,
+res/common/cards-large). `ce_cardset_new_faces(loader, ctx, nbacks, CE_FACES_LARGE)` starts with it (the
+normal set if its assets are missing), `ce_cardset_set_faces(cs, CE_FACES_*)` switches: the faces' sprites
+and masters are dropped and the new set's masters decoded card by card as sprites are rebuilt (only one
+set is ever decoded; a Large Print master that fails to decode gives that card's normal face). A game
+using it lays its columns out with `ce_large_print_step(ch)` = round(21 ch / 96), the step at which a
+stacked Large Print card shows its whole index.
 
 **Drawing.** Render the board into the back buffer's `CeImage` region by region:
 `ce_draw_begin(&d, fb, rect)`, then `ce_draw_fill`, `ce_draw_sprite` (inverted = XP's selection),

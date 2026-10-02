@@ -30,6 +30,9 @@ extern const char *const sol_back_names[SOL_NBACKS];  /* "Sky", "Aqua", ... (log
 typedef struct SolGfx SolGfx;
 
 SolGfx    *sol_gfx_new(CeAssetLoader loader, void *ctx);   /* NULL if the faces cannot be loaded */
+/* The same with the engine face set to start with (CE_FACES_*: the Large Print faces, extras.large_print);
+ * switch later with ce_cardset_set_faces(sol_gfx_cards(g), ...). */
+SolGfx    *sol_gfx_new_faces(CeAssetLoader loader, void *ctx, int faces);
 void       sol_gfx_free(SolGfx *g);
 CeCardSet *sol_gfx_cards(SolGfx *g);
 

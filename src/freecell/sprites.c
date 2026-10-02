@@ -35,6 +35,11 @@ static CeImage *load(FcCardSet *cs, int id)
 
 FcCardSet *fc_cardset_new(CeAssetLoader loader, void *ctx)
 {
+    return fc_cardset_new_faces(loader, ctx, CE_FACES_NORMAL);
+}
+
+FcCardSet *fc_cardset_new_faces(CeAssetLoader loader, void *ctx, int faces)
+{
     FcCardSet *cs;
     int i;
     if (!loader)
@@ -57,7 +62,7 @@ FcCardSet *fc_cardset_new(CeAssetLoader loader, void *ctx)
         }
         cs->king_master[i] = k;
     }
-    cs->cards = ce_cardset_new(loader, ctx, 0);
+    cs->cards = ce_cardset_new_faces(loader, ctx, 0, faces);
     if (!cs->cards) {
         fc_cardset_free(cs);
         return NULL;

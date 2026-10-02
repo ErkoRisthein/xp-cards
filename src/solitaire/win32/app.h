@@ -130,6 +130,9 @@ void   view_resize(App *a, int w, int h);            /* WM_SIZE (w, h > 0) */
 void   view_relayout(App *a);                        /* same size, e.g. the status bar came or went */
 void   view_exit_sizemove(App *a);
 void   view_gfx_ready(App *a);
+/* Options OK (2c): "Large print cards" changed: switch the card set's faces and lay out again with their
+ * face-up step (a full re-render). */
+void   view_large_print(App *a);
 void   view_invalidate_all(App *a);
 void   view_sync(App *a);                            /* render what changed, invalidate it */
 void   view_sync_now(App *a);                        /* view_sync + UpdateWindow */

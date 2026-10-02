@@ -1,0 +1,91 @@
+# Solitaire HD "Large print cards" (docs/ROADMAP.md 2c, Options > Extras, LargePrint, off by default) end to
+# end: the option off by default and its registry value; turned on, every card is redrawn at once with the
+# Large Print faces (the index 1.45x, its suit beside the rank) and the face-up step becomes round(21 ch / 96)
+# so a stacked card shows its whole rank and suit (face-down steps unchanged); turned off again, XP's step and
+# faces come back; kept across a restart (the start-up decodes the Large Print set). Run by run_solhd_e2e.sh.
+#
+# Geometry as solhd_smoke.txt: client 1264 x 854 (cards 153 x 207; columns x = 24 201 378 555 732 909 1086,
+# tableau top y = 231, steps 6 / 32; Large Print: face-up step 45). Deal 64 (Draw Three): col 4 # # # KC; the
+# first five actions of solhd_extras.txt's winning line put a red queen on it (KC at y 249, the queen at 281,
+# with Large Print at 294). Pixels (from a native render of that column, tests/solitaire/sol_snapshots.c's
+# code): the queen's top frame line at (631, 281) normal / (631, 294) Large Print; KC's index suit beside its
+# rank at (606, 270), black only with Large Print. Ids: 1003 Options (344 LargePrint).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regset HKCU\Software\Microsoft\Solitaire Options dword 9   # Draw Three, Standard, untimed
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+sync                                          # (in its message loop before the first command)
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+
+# ---- the queen onto KC (column 4): the line's first actions ---------------------------------------------
+settle 20
+drag 100 235 631 14 4
+drag 985 265 808 14 4
+click 985 358
+drag 1162 271 631 14 4
+click 1162 364
+drag 985 259 631 285 4
+settle 100
+assert_pixel 631 281 000000                   # XP's step: the queen's top edge 32 below KC's
+assert_pixel 606 270 FFFFFF                   # (the normal index is narrow: white there)
+capture 95_large_off.bmp
+
+# ---- Options: the check box, off by default; on: the Large Print faces and step at once -------------------------
+command 1003
+wait_dialog Options
+assert_dialog_text "[344] Button \"Large print cards\" [ ]"
+dialog_check 344 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" LargePrint 1
+assert_reg HKCU\Software\Microsoft\Solitaire LargePrint absent   # never in XP's key
+assert_pixel 631 294 000000                   # the queen 45 below KC: KC's whole index shows
+assert_pixel 631 281 FFFFFF
+assert_pixel 606 270 000000                   # KC's club beside its rank
+assert_pixel 277 443 000000                   # face-down steps unchanged: column 2's 4S (237..443) in place
+capture 96_large_on.bmp
+
+# ---- off again: XP's faces and step at once; then on again and kept across a restart -------------------------
+command 1003
+wait_dialog Options
+assert_dialog_text "[344] Button \"Large print cards\" [x]"
+dialog_check 344 0
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" LargePrint 0
+assert_pixel 631 281 000000
+assert_pixel 606 270 FFFFFF
+capture 97_large_off_again.bmp
+command 1003
+wait_dialog Options
+dialog_check 344 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" LargePrint 1
+close
+
+launch ${REPO}/build/SolitaireHD.exe          # deal 64 again (SOLHD_TIME), with the Large Print faces from the start
+sync
+assert_client_size 1264 854
+settle 20
+drag 100 235 631 14 4
+drag 985 265 808 14 4
+click 985 358
+drag 1162 271 631 14 4
+click 1162 364
+drag 985 259 631 285 4
+settle 100
+assert_pixel 631 294 000000
+assert_pixel 606 270 000000
+capture 98_large_at_start.bmp
+command 1003
+wait_dialog Options
+assert_dialog_text "[344] Button \"Large print cards\" [x]"
+capture_dialog 99_options_large.bmp
+dialog_check 344 0
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" LargePrint 0
+close

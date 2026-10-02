@@ -606,7 +606,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
     a->cursor = a->cur_wait;
     SetCursor(a->cursor);
     t0 = ce_now_ms();
-    a->cs = fc_cardset_new(ce_rcdata_loader, (void *)a->inst);
+    a->cs = fc_cardset_new_faces(ce_rcdata_loader, (void *)a->inst,
+                                 a->s.extras.large_print ? CE_FACES_LARGE : CE_FACES_NORMAL);
     ce_log("card set decode: %.1f ms", ce_now_ms() - t0);
     a->cursor = a->cur_arrow;
     failed = !a->cs;

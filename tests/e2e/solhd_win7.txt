@@ -1,8 +1,9 @@
 # Solitaire HD, the Windows 7-inspired batch (docs/ROADMAP.md 2c) end to end: hint cycling (H again shows
 # the next move), the Statistics dialog's High Scores box, the dead end of deal 147 (the No More Moves
 # question: Return to Game, then Hint's "There are no more useful moves.", then End Game: a loss and
-# "Deal Again?"), the Windows 7 questions of "Save game on exit" (Game in Progress: Keep Playing / Restart
-# This Game / Quit; Exit Game: Don't Exit / Exit and Save / Exit and Don't Save; Saved Game Found) and
+# "Deal Again?"), the Windows 7 questions of "Save game on exit" with "Ask before saving or resuming" (Game in
+# Progress: Keep Playing / Restart This Game / Quit; Exit Game: Don't Exit / Exit and Save / Exit and Don't
+# Save; Saved Game Found; without "Ask" the save is silent: solhd_extras.txt) and
 # "Apply option changes to the next game" (Changed Game Settings: Finish This Game).
 # Run by run_solhd_e2e.sh.
 #
@@ -11,7 +12,7 @@
 # y = 10). Deal 64: col 1 AH, col 2 #7H 4S, col 3 # # TD, col 4 # # # KC, col 5 # # # # 5D, col 6 # # # # # AC,
 # col 7 # # # # # # 2H. Deal 147 (Draw Three): no useful move anywhere, also with any card the stock shows.
 # Options 0x09: Draw Three, Standard, untimed. Ids: 1003 Options (340 NoMoreMoves, 341 NextGameOptions,
-# 325 SaveGame, 300 Draw One), 1104 Statistics (333 Reset, 335 / 336 / 337 the High Scores box),
+# 325 SaveGame, 343 AskSaveGame, 300 Draw One), 1104 Statistics (333 Reset, 335 / 336 / 337 the High Scores box),
 # 1001 Undo, 1102 Hint; the questions' buttons 350 351 352.
 
 timeout 60000
@@ -32,10 +33,13 @@ wait_dialog Options
 dialog_text
 assert_dialog_text "[340] Button \"Tell me when there are no mo&re moves\" [ ]"
 assert_dialog_text "[341] Button \"A&pply option changes to the next game\" [ ]"
+assert_dialog_text "[343] Button \"Ask before saving or resuming\" [ ] (disabled)"   # needs Save game on exit
+assert_dialog_text "[344] Button \"Large print cards\" [ ]"
 capture_dialog 80_options_2c.bmp
 dialog_click OK
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" NoMoreMoves 0
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" NextGameOptions 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AskSaveGame 0
 
 # ---- Hint cycling: AC home, AH home, AC onto 2H, 4S onto 5D, draw, then AC home again ----------------------
 assert_pixel 929 381 FFFFFF                   # AC (col 6), white
@@ -137,12 +141,17 @@ assert_dialog_text "1970"                     # the date of the game (SOLHD_TIME
 capture_dialog 86_statistics_loss.bmp
 dialog_click OK
 
-# ---- Save game on exit: the Windows 7 questions ----------------------------------------------------------------
+# ---- Save game on exit + Ask before saving or resuming: the Windows 7 questions -----------------------------
 command 1003
 wait_dialog Options
+assert_dialog_enabled 343 0
 dialog_check 325 1
+assert_dialog_enabled 343 1                   # enabled with Save game on exit
+dialog_check 343 1
+capture_dialog 80b_options_ask.bmp
 dialog_click OK
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" SaveGame 1
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AskSaveGame 1
 vkey F2                                       # after the end: dealt at once (deal 148)
 assert_no_dialog
 assert_pixel 277 120 008000                   # the waste empty
@@ -243,6 +252,7 @@ assert_no_dialog                              # nothing saved: a new deal, no qu
 assert_pixel 277 120 008000
 command 1003                                  # the extras off again (and no saved game left behind)
 wait_dialog Options
+dialog_check 343 0
 dialog_check 325 0
 dialog_check 340 0
 dialog_check 341 0

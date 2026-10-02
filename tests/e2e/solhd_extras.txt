@@ -2,7 +2,8 @@
 # Options dialog's Extras group (off by default, written to HKCU\Software\xp-cards\Solitaire HD, kept
 # across restarts); the hint's flash (the source, then the destination, captured mid-flash); single
 # click to move (and its double-click ignored); turning cards over automatically (+5 each, as a click);
-# the statistics (reset, a loss, wins, the dialog's text); save on exit and resume at start-up; Finish
+# the statistics (reset, a loss, wins, the dialog's text); save on exit and resume at start-up, silently
+# ("Save game on exit" alone: no Windows 7 question; those are solhd_win7.txt's, with AskSaveGame); Finish
 # by hand and automatically after a winning line; the unwinnable warning and winnable deals only.
 # Run by tests/e2e/run_solhd_e2e.sh.
 #
@@ -11,7 +12,8 @@
 # 909 1086, y = 10). Deal 64: col 1 AH, col 2 #7H 4S, col 3 # # TD, col 4 # # # KC, col 5 # # # # 5D,
 # col 6 # # # # # AC, col 7 # # # # # # 2H. Ids (res/solitaire/resource.h): 1102 Hint, 1103 Finish,
 # 1104 Statistics; dialog 103 Options (Extras 321 AutoTurn, 322 ClickToMove, 323 AutoFinish,
-# 324 WinnableOnly, 325 SaveGame, 326 WarnUnwinnable); 105 Statistics (330 mode, 332 values, 333 Reset).
+# 324 WinnableOnly, 325 SaveGame, 326 WarnUnwinnable, 343 AskSaveGame (enabled only with SaveGame), 344
+# LargePrint); 105 Statistics (330 mode, 332 values, 333 Reset).
 #
 # The winning line of deal 64 (Draw Three) is the full-information solver's, played through the
 # session and turned into clicks and drags by tests/solitaire/sol_e2e_line.c ("64 3"): 152 actions to
@@ -46,11 +48,20 @@ assert_dialog_text "[323] Button \"&Finish automatically\" [ ]"
 assert_dialog_text "[324] Button \"Deal only winnable &games\" [ ]"
 assert_dialog_text "[325] Button \"Sav&e game on exit, resume at start\" [ ]"
 assert_dialog_text "[326] Button \"&Warn when the game can't be won\" [ ]"
+assert_dialog_text "[343] Button \"Ask before saving or resuming\" [ ] (disabled)"   # (2c) only with SaveGame
+assert_dialog_text "[344] Button \"Large print cards\" [ ]"
+assert_dialog_enabled 343 0
+dialog_check 325 1                            # Save game on exit enables it, unchecking greys it again
+assert_dialog_enabled 343 1
+dialog_check 325 0
+assert_dialog_enabled 343 0
 capture_dialog 50_options_extras_off.bmp
 dialog_click OK
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" AutoTurn 0
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" ClickToMove 0
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" SaveGame 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AskSaveGame 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" LargePrint 0
 assert_reg HKCU\Software\Microsoft\Solitaire AutoTurn absent     # never in XP's key
 assert_pixel 277 443 000000                   # OK did not deal again (4S still in col 2)
 
@@ -148,9 +159,11 @@ command 1003
 wait_dialog Options
 assert_dialog_text "[321] Button \"T&urn cards over automatically\" [ ]"   # read back from the registry
 assert_dialog_text "[322] Button \"Single clic&k moves a card\" [ ]"
-dialog_check 325 1                            # Save game on exit
+dialog_check 325 1                            # Save game on exit (alone: silent, as Windows 7's "Always ...")
+assert_dialog_text "[343] Button \"Ask before saving or resuming\" [ ]"
 dialog_click OK
 assert_reg "HKCU\Software\xp-cards\Solitaire HD" SaveGame 1
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AskSaveGame 0
 settle 20
 drag 100 235 631 14 4
 drag 985 265 808 14 4
@@ -306,15 +319,14 @@ drag 277 14 100 331 4
 settle 100
 assert_menu 1103 grayed                       # the waste still holds 8H
 capture 59_line_before_exit.bmp
-close "Exit and Save My Game"                  # (2c: asked, a game in progress) the game is saved
-                                              # (%APPDATA%\xp-cards\Solitaire HD\game.bin)
+close none                                    # a game in progress: saved without a question
+wait_exit 5000                                # (%APPDATA%\xp-cards\Solitaire HD\game.bin)
 
 # ---- resumed at start-up: the same board, the history kept; the last action; Finish (F6) by hand ------------
 launch ${REPO}/build/SolitaireHD.exe
 sync                                          # (in its message loop before the first command)
-wait_dialog "Saved Game Found"                # (2c)
-dialog_click "Continue Saved Game"
-assert_no_dialog
+wait 300
+assert_no_dialog                              # resumed without a question (no AskSaveGame)
 capture 60_resumed.bmp
 assert_menu 1001 enabled                      # the undo history came back with the game
 assert_menu 1103 grayed

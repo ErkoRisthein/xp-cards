@@ -1,6 +1,6 @@
 # Artwork licences
 
-## Card faces: `res/common/cards-svg/` (SVG) and `res/common/cards/` (400x560 PNG masters)
+## Card faces: `res/common/cards-svg/` (SVG), `res/common/cards/` and `res/common/cards-large/` (400x560 PNG masters)
 
 **Source:** "SVG playing cards" by Adrian Kennard (RevK), generated with the author's online generator.
 - Project page (primary source): https://www.me.uk/cards/
@@ -16,6 +16,10 @@
   (`#223`) and 1.6x wider court linework and a darker court picture frame. These changes are ours and
   are dedicated to the public domain under CC0 1.0 as well; the SVGs in `res/common/cards-svg/` are kept as
   generated.
+- `res/common/cards-large/<R><S>.png` (the "Large print cards" option) are rasterised the same way from the
+  same SVGs with another layout (`tools/make_assets.sh cards-large`: stacklab variant
+  XPLIKE_BITTER_HYBRID_LARGE, a 1.45x index with its suit beside the rank, smaller pips and court picture);
+  the same licences (CC0 art, Bitter rank glyphs below).
 - Independent archived copy: http://web.archive.org/web/20260829054033/https://www.me.uk/cards/
 - Generator source code: https://codeberg.org/RevK/SVG-playing-cards
 
@@ -90,5 +94,5 @@ The rank index letters/digits on the card faces are outlines taken from **Bitter
 © 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro), licensed under the
 SIL Open Font License 1.1 — full text in `tools/crisplab/candidates/OFL-Bitter.txt`. The outlines are
 frozen in `tools/crisplab/candidates/rank_bitter800.json` and rendered into the card art by
-`tools/crisplab/stacklab.py` (layout variant XPLIKE_BITTER). The OFL permits embedding glyphs in
+`tools/crisplab/stacklab.py` (layout variants XPLIKE_BITTER*, also the Large Print faces). The OFL permits embedding glyphs in
 artwork; the font itself is not redistributed as a font.

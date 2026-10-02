@@ -128,7 +128,8 @@ void view_resize(App *a, int w, int h)
     double t0, t1;
     if (w <= 0 || h <= 0)
         return;
-    if (a->have_layout && a->L.client_w == w && a->L.client_h == h && a->quality == q)
+    if (a->have_layout && a->L.client_w == w && a->L.client_h == h && a->quality == q &&
+        a->L.large_print == (a->s.extras.large_print != 0))
         return;                                       /* e.g. WM_SIZE after a restore: nothing new */
     if (a->drag_on || a->press_armed) {               /* v1.4: a drag cannot survive a new layout */
         ce_drag_free(&a->drag);
@@ -143,7 +144,7 @@ void view_resize(App *a, int w, int h)
     if (!ce_backbuf_ensure(&a->bb, w, h))
         return;                                       /* out of memory: keep the old view */
     ce_flights_drop(&a->fl);                          /* (their rects are stale: the board shows them) */
-    fc_layout_compute(&a->L, w, h);
+    fc_layout_compute_ex(&a->L, w, h, a->s.extras.large_print);
     a->have_layout = 1;
     a->layout_gen++;
     a->quality = q;
@@ -162,6 +163,24 @@ void view_cardset_ready(App *a)
     if (a->have_layout)
         fc_render_prepare(a->cs, &a->L, a->quality);
     view_invalidate_all(a);
+}
+
+void view_large_print(App *a)
+{
+    int on = a->s.extras.large_print != 0;
+    RECT cr;
+    if ((!a->cs || ce_cardset_faces(fc_cardset_cards(a->cs)) == (on ? CE_FACES_LARGE : CE_FACES_NORMAL)) &&
+        (!a->have_layout || a->L.large_print == on))
+        return;                                       /* unchanged */
+    if (a->cs && ce_cardset_faces(fc_cardset_cards(a->cs)) != (on ? CE_FACES_LARGE : CE_FACES_NORMAL)) {
+        if (!ce_cardset_set_faces(fc_cardset_cards(a->cs), on ? CE_FACES_LARGE : CE_FACES_NORMAL))
+            ce_log("large print: the faces are missing");
+        else
+            ce_log("large print %s", on ? "on" : "off");
+    }
+    if (a->have_layout && a->L.large_print != on && a->hwnd && !IsIconic(a->hwnd) && GetClientRect(a->hwnd, &cr))
+        view_resize(a, cr.right, cr.bottom);          /* the new column step */
+    view_invalidate_all(a);                           /* the new faces everywhere */
 }
 
 void view_exit_sizemove(App *a)
