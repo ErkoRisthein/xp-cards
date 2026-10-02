@@ -48,6 +48,25 @@
  *   Finish (Game > Finish, F6): enabled when fc_sure_win; sends every card home as one undoable action
  *     (one move; animated card by card unless Quick play), then the normal win. extras.auto_finish (off
  *     by default) runs it after any committed move or Redo that leaves a sure win (not counted).
+ *
+ * v1.4 extras:
+ *   Undo All (FCS_CMD_UNDO_ALL, Game > Undo All, always there): after ui.confirm says Yes, every action
+ *     is undone back to the deal at once (no flights; the move counter as after that many Undos), and
+ *     the next Redo brings them all back as one group (no flights either).
+ *   extras.single_click ("Single click moves a card", off by default): a click on a card (nothing
+ *     selected) moves it, XP's move to the best place (fcs_single_dest): its home cell if it may go there
+ *     and is safe there (XP's autoplay rule), else the leftmost non-empty column it fits on (a column's
+ *     run: as many cards as XP's move to that column takes, within the supermove limit), else the
+ *     leftmost empty column (not when the whole column is one run: that would gain nothing; the
+ *     "Move to Empty Column..." dialog as XP), else its home cell (legal, not safe), else the leftmost
+ *     empty free cell (from a column). Nowhere: the card stays selected, as XP's click, so the next click
+ *     moves it. The double-click that follows a click which moved a card is ignored.
+ *   extras.drag_drop ("Drag and drop cards", off by default; the UI's): a press selects as XP's click
+ *     (fcs_press); once the pointer passes the drag threshold the cards from the pressed one down
+ *     (fcs_drag_cards) are lifted and follow it; the drop is XP's move to the pile under the pointer
+ *     (fcs_drop: the supermove limit, the messages, the "Move to Empty Column..." dialog), its cards
+ *     not flown (the autoplay that follows is); a drop XP would refuse (fcs_drop_ok) slides back first.
+ *     A press released without moving keeps XP's click-to-select (fcs_release: or the single click).
  */
 #ifndef FC_SESSION_H
 #define FC_SESSION_H
@@ -69,7 +88,8 @@ enum { FCS_CURSOR_ARROW = 0,             /* IDC_ARROW */
 /* WM_COMMAND ids of the XP menu (resources.md) handled by fcs_command / posted via post_command. */
 enum { FCS_CMD_NEW = 102, FCS_CMD_SELECT = 103, FCS_CMD_RESTART = 107, FCS_CMD_CHEAT = 114,
        FCS_CMD_UNDO = 115, FCS_CMD_REDO = 116 /* extra, not in XP */,
-       FCS_CMD_HINT = 118, FCS_CMD_FINISH = 119 /* extras (v1.2) */ };
+       FCS_CMD_HINT = 118, FCS_CMD_FINISH = 119 /* extras (v1.2) */,
+       FCS_CMD_UNDO_ALL = 120 /* extra (v1.4) */ };
 enum { FCS_TIMER_FLASH = 2, FCS_TIMER_PEEK = 3,            /* XP timer ids; 400 ms and 300 ms */
        FCS_TIMER_HINT = 4, FCS_TIMER_HINT_WAIT = 5 };      /* extras: hint flash step, hint time limit */
 #define FCS_HINT_STEP_MS    200          /* one flash step (on or off); 8 steps */
@@ -83,7 +103,8 @@ enum { FCS_STR_YOULOSE = 1001, FCS_STR_YOUWIN = 1002, FCS_STR_CHEAT_CAPTION = 10
        FCS_STR_HINT_NONE = 1005,         /* "No hint is available." */
        FCS_STR_HINT_LOST = 1006,         /* "There are no more winning moves." */
        FCS_STR_UNWINNABLE = 1007,        /* "This game can no longer be won. Use Undo to go back." */
-       FCS_STR_UNWINNABLE_DEAL = 1008 }; /* "This game cannot be won." (the deal itself) */
+       FCS_STR_UNWINNABLE_DEAL = 1008,   /* "This game cannot be won." (the deal itself) */
+       FCS_STR_UNDO_ALL = 1009 };        /* "Do you want to undo all your moves ..." (v1.4, confirm) */
 
 /* ---- UI callbacks ---------------------------------------------------------------------------------
  * Any callback may be NULL (then: no-op; prompts take the default noted). All modal prompts are
@@ -142,6 +163,10 @@ typedef struct FcSessionUI {
     void (*solve_cancel)(void *ctx);                   /* the current request is no longer wanted */
     /* Game menu: Hint (118) and Finish (119) enabled (1) or grayed (0). */
     void (*assist_menu)(void *ctx, int hint_enabled, int finish_enabled);
+    /* Extras (v1.4). A question (id FCS_STR_*, its text): MessageBeep(MB_ICONQUESTION) + MB_YESNO |
+     * MB_ICONQUESTION, caption "FreeCell". 1 = Yes. NULL = Yes. (Undo All's enabled state follows Undo's
+     * in menu_state.) */
+    int  (*confirm)(void *ctx, int id, const char *text);
 } FcSessionUI;
 
 /* Solver extras' state (assist.c); read-only for the UI. */
@@ -203,6 +228,12 @@ typedef struct FcSession {
     CeStore   store;
     FcSessionUI ui;
     FcAssist  as;            /* v1.2 extras: hint, warning, solution cache */
+    /* v1.4 extras */
+    int       click_moved;   /* the last click moved a card (single click): its double-click is ignored */
+    int       redo_group;    /* Undo All: the top redo_group actions of the redo stack come back together */
+    int       batch;         /* inside Undo All: no flights, one notification at the end */
+    int       dropping;      /* inside fcs_drop: the user's steps are not flown */
+    int       noanim_steps;  /* the next commit flies its steps from this one on */
     FcAction  work;          /* scratch action being built */
 } FcSession;
 
@@ -242,6 +273,28 @@ int  fcs_cursor(const FcSession *s, int col, int pos, int on_card);   /* same, w
 void fcs_timer(FcSession *s, int id);
 void fcs_command(FcSession *s, int cmd);
 int  fcs_close(FcSession *s);                    /* 1 = OK to destroy the window */
+
+/* ---- v1.4: single click, drag and drop (see the header comment) --------------------------------- */
+/* The drag mode's press (extras.drag_drop, nothing selected): XP's selecting click alone (no single
+ * click yet). Returns 1 if a card is now selected (a drag may follow). With a selection it is XP's
+ * destination click (fcs_click) and returns 0. */
+int  fcs_press(FcSession *s, int col, int pos);
+/* The press that selected was released without a drag: with extras.single_click the selection moves
+ * to its best place (else it stays selected, XP). Returns 1 if cards moved. */
+int  fcs_release(FcSession *s);
+/* The cards a drag from (col, pos) lifts while (col, pos) is on the selection: a free cell's card, or
+ * the column's cards from pos to its end when they form an ordered run. Returns their number (0: the
+ * card cannot be dragged); *first = pos. */
+int  fcs_drag_cards(const FcSession *s, int col, int pos, int *first);
+/* Would XP's move of the selection to (col, pos) (an FC_HIT_DEST hit, FCS_MISS) move cards? (The
+ * "Move to Empty Column..." dialog may still be cancelled.) Not onto the selection's own pile. */
+int  fcs_drop_ok(const FcSession *s, int col, int pos);
+/* The drop: XP's move of the selection to (col, pos), as a click there would make it (messages, the
+ * dialog, autoplay; a miss or the own pile deselects), the user's own steps not flown. Returns 1 if
+ * the user's cards moved. */
+int  fcs_drop(FcSession *s, int col, int pos);
+/* The single click's destination for the current selection (see above). Returns 1 with (*col, *pos). */
+int  fcs_single_dest(const FcSession *s, int *col, int *pos);
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
 int  fcs_undo_enabled(const FcSession *s);       /* history non-empty and the game active */

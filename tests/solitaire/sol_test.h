@@ -164,6 +164,17 @@ typedef struct Fake {
     int cascade_dealt, cascade_visible, cascade_score, cascade_forced;
     int cascade_hist;        /* history entries during the cascade */
     char cascade_text[128];
+    /* extras */
+    int hint_timer_ms;       /* current timer state for SOL_TIMER_HINT */
+    int nmsg, last_msg;      /* ui.message */
+    char last_msg_text[128];
+    int nanim;               /* ui.animate_move */
+    int anim[60][2];         /* src, dst */
+    int nstats;              /* ui.stats_changed */
+    int nsolve, ncancel;     /* ui.solve_start / solve_cancel */
+    uint32_t solve_id;
+    SolBoard solve_board;
+    int solve_draw, solve_left;
 } Fake;
 
 static inline void flog(Fake *f, const char *fmt, ...)
@@ -182,6 +193,7 @@ static inline void f_set_timer(void *ctx, int id, int ms)
 {
     Fake *f = ctx;
     if (id == SOL_TIMER_CLOCK) f->timer_ms = ms;
+    if (id == SOL_TIMER_HINT) f->hint_timer_ms = ms;
     f->ntimer_calls++;
 }
 static inline void f_cascade(void *ctx)
@@ -219,10 +231,50 @@ static inline void f_kbd(void *ctx, int pile, int card, int dragging)
     f->nkbd++;
 }
 
+static inline void f_message(void *ctx, int id, const char *text)
+{
+    Fake *f = ctx;
+    f->nmsg++;
+    f->last_msg = id;
+    snprintf(f->last_msg_text, sizeof f->last_msg_text, "%s", text);
+    flog(f, "msg(%d);", id);
+}
+static inline void f_animate(void *ctx, int src, int dst)
+{
+    Fake *f = ctx;
+    if (f->nanim < 60) { f->anim[f->nanim][0] = src; f->anim[f->nanim][1] = dst; }
+    f->nanim++;
+}
+static inline void f_stats(void *ctx) { ((Fake *)ctx)->nstats++; }
+static inline void f_solve(void *ctx, uint32_t id, const SolBoard *b, int draw, int left)
+{
+    Fake *f = ctx;
+    f->nsolve++;
+    f->solve_id = id;
+    f->solve_board = *b;
+    f->solve_draw = draw;
+    f->solve_left = left;
+}
+static inline void f_cancel(void *ctx) { ((Fake *)ctx)->ncancel++; }
+
 static inline SolSessionUI fake_ui(Fake *f, int with_post)
 {
-    SolSessionUI ui = { f, f_invalidate, f_status, f_set_timer, f_cascade, f_deal_again,
-                        with_post ? f_post : NULL, f_now, f_kbd };
+    SolSessionUI ui;
+    memset(&ui, 0, sizeof ui);
+    ui.ctx = f;
+    ui.invalidate = f_invalidate;
+    ui.status_changed = f_status;
+    ui.set_timer = f_set_timer;
+    ui.win_cascade = f_cascade;
+    ui.deal_again = f_deal_again;
+    ui.post_command = with_post ? f_post : NULL;
+    ui.now_seed = f_now;
+    ui.kbd_cursor = f_kbd;
+    ui.message = f_message;
+    ui.animate_move = f_animate;
+    ui.stats_changed = f_stats;
+    ui.solve_start = f_solve;
+    ui.solve_cancel = f_cancel;
     return ui;
 }
 

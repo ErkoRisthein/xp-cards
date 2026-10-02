@@ -159,6 +159,8 @@ void fc_extras_load(FcExtras *x, const CeStore *store)
     x->full_screen = ce_store_get(store, "FullScreen", 0) != 0;
     x->warn_unwinnable = ce_store_get(store, "WarnUnwinnable", 0) != 0;
     x->auto_finish = ce_store_get(store, "AutoFinish", 0) != 0;
+    x->single_click = ce_store_get(store, "SingleClick", 0) != 0;
+    x->drag_drop = ce_store_get(store, "DragDrop", 0) != 0;
 }
 
 void fc_extras_save(const FcExtras *x, const CeStore *store)
@@ -170,5 +172,7 @@ void fc_extras_save(const FcExtras *x, const CeStore *store)
     ce_store_set(store, "FullScreen", x->full_screen != 0);
     ce_store_set(store, "WarnUnwinnable", x->warn_unwinnable != 0);
     ce_store_set(store, "AutoFinish", x->auto_finish != 0);
+    ce_store_set(store, "SingleClick", x->single_click != 0);
+    ce_store_set(store, "DragDrop", x->drag_drop != 0);
     if (store->flush) store->flush(store->ctx);
 }

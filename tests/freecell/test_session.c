@@ -159,6 +159,7 @@ typedef struct Fake {
     uint32_t ms;                 /* fake GetTickCount for the game clock */
     int nstatus;                 /* status_changed calls */
     int win_msgs_opt;            /* s->opts.messages while the YouWin dialog was up */
+    int confirm_answer, nconfirm, last_confirm_id;   /* ui.confirm (v1.4) */
 } Fake;
 
 static void logf_(Fake *f, const char *fmt, ...)
@@ -239,12 +240,21 @@ static void ui_post(void *c, int cmd) { Fake *f = c; if (f->nposted < 8) f->post
 static uint32_t ui_now(void *c) { return ((Fake *)c)->now; }
 static uint32_t ui_now_ms(void *c) { return ((Fake *)c)->ms; }
 static void ui_status(void *c) { ((Fake *)c)->nstatus++; }
+static int ui_confirm(void *c, int id, const char *t)
+{
+    Fake *f = c;
+    f->nconfirm++;
+    f->last_confirm_id = id;
+    logf_(f, "confirm%d;", id);
+    if (strcmp(t, fcs_string(id))) { fails++; printf("FAIL confirm text\n"); }
+    return f->confirm_answer;
+}
 
 static FcSessionUI fake_ui(Fake *f)
 {
     FcSessionUI u = { f, ui_message, ui_resign, ui_movecol, ui_gamenum, ui_win, ui_lose, ui_cheat,
                       ui_anim, ui_inval, ui_title, ui_cards_left, ui_menu, ui_timer, ui_flash, ui_post,
-                      ui_now, ui_now_ms, ui_status, NULL, NULL, NULL };
+                      ui_now, ui_now_ms, ui_status, NULL, NULL, NULL, ui_confirm };
     return u;
 }
 
@@ -257,6 +267,7 @@ static void fake_reset(Fake *f, FcSession *s)
     f->win_sel = -1;
     f->lose_same = -1;
     f->now = 1700000000u;
+    f->confirm_answer = 1;
 }
 
 static void clear_log(Fake *f) { f->log[0] = 0; }
@@ -1247,7 +1258,11 @@ static void random_playout(unsigned seed, int extras)
         FcSessionUI ui = fake_ui(&f);
         if (game & 1) ui.post_command = NULL;   /* follow-ups run directly */
         fcs_init(&s, &ui, &st);
-        s.extras.standard_supermove = s.extras.full_range = extras;
+        s.extras.standard_supermove = s.extras.full_range = extras == 1;
+        if (extras == 2) {                      /* v1.4: single click, drag and drop, Undo All */
+            s.extras.single_click = trand() % 2;
+            s.extras.standard_supermove = trand() % 2;
+        }
         start_game(&s, &f, 1 + trand() % 1000000);
         FcBoard dealt = s.board;
         int ntitle = f.ntitle, frozen = 0;
@@ -1264,7 +1279,23 @@ static void random_playout(unsigned seed, int extras)
             int col = trand() % 10 - 1, pos = trand() % 8;
             if (col < 0) col = FCS_MISS;
             if (col >= 1 && col <= 8) pos = trand() % 3 ? fc_last_index(&s.board, col) : trand() % 8;
-            if (what < 700) fcs_click(&s, col, pos);
+            if (extras == 2 && what < 300) {
+                /* a press, then a release (a click) or a drag and a drop on a random pile */
+                int k2 = trand() % 4, dcol = trand() % 10 - 1, dpos = trand() % 8, first;
+                if (dcol < 0) dcol = FCS_MISS;
+                if (dcol >= 1) dpos = fc_last_index(&s.board, dcol);
+                f.confirm_answer = trand() % 2;
+                if (k2 == 3 && trand() % 4 == 0) fcs_command(&s, FCS_CMD_UNDO_ALL);
+                else if (fcs_press(&s, col, pos)) {
+                    if (k2 == 0) fcs_release(&s);
+                    else if (fcs_drag_cards(&s, col, pos, &first) || k2 == 2) {
+                        int ok = fcs_drop_ok(&s, dcol, dpos), h0 = s.nhist, moved = fcs_drop(&s, dcol, dpos);
+                        if (moved) CHECK(ok);
+                        if (!ok && f.movecol != FCS_MOVECOL_CANCEL) CHECK(!moved && s.nhist <= h0 + 1);
+                    }
+                }
+            }
+            else if (what < 700) fcs_click(&s, col, pos);
             else if (what < 780) fcs_dblclick(&s, col, pos);
             else if (what < 880) fcs_char(&s, '0' + trand() % 10);
             else if (what < 910) { fcs_rbutton_down(&s, col, pos); fcs_rbutton_up(&s); }
@@ -1315,7 +1346,8 @@ static void random_playout(unsigned seed, int extras)
         fcs_free(&s);
     }
     printf("random playout%s: %ld actions, %ld deals, %ld lost, %ld won, %ld games undone to the deal\n",
-           extras ? " (standard supermove, full range)" : "", actions, deals, losses, wins, undone);
+           extras == 2 ? " (single click, drag and drop, Undo All)" : extras ? " (standard supermove, full range)" : "",
+           actions, deals, losses, wins, undone);
     CHECK(undone > 50);
     CHECK(wins > 0 && losses > 0);
 }
@@ -1324,6 +1356,7 @@ static void test_random_playout(void)
 {
     random_playout(4242, 0);
     random_playout(777, 1);
+    random_playout(1414, 2);
 }
 
 /* Greedy legal play with undo stress: many moves, many undos interleaved. */
@@ -2022,6 +2055,277 @@ static void test_won_deals(void)
 }
 
 /* Extras persistence: our own store, every value written, defaults off. */
+
+/* ---- v1.4 extras ---------------------------------------------------------------------------------- */
+
+static void set_free(FcBoard *b, int i, const char *card) { b->board[0][i] = card ? C(card) : FC_EMPTY; }
+
+/* Single click: the best place, in the documented order; nowhere: selected (XP); its double-click. */
+static void test_single_click(void)
+{
+    FcSession s; Fake f;
+    fake_reset(&f, &s);
+    FcSessionUI ui = fake_ui(&f);
+    fcs_init(&s, &ui, NULL);
+    start_game(&s, &f, 5);
+    s.opts.messages = 0;
+    s.extras.single_click = 1;
+    int dc, dp;
+
+    /* 1. an ace: home (safe), as one counted move */
+    static const char *const a1[8] = { "KH AS", "QD 5H", "KS", "KC", "KD", "QS", "QC", "JH" };
+    custom(&s, a1, NULL);
+    fcs_click(&s, 1, 0);
+    CHECK_EQ(s.board.board[0][4], C("AS"));
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(s.nhist, 1);
+    CHECK_EQ(fcs_moves(&s), 1);
+    CHECK_EQ(s.click_moved, 1);
+    fcs_dblclick(&s, 1, 0);                     /* the double-click that follows: ignored */
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(s.board.board[1][0], C("KH"));
+    CHECK_EQ(s.nhist, 1);
+    fcs_command(&s, FCS_CMD_UNDO);
+    CHECK_EQ(s.board.board[1][1], C("AS"));
+
+    /* 2. 3H could go home (2H there) but is not safe (no black twos home): a column first */
+    static const char *const a2[8] = { "KC 3H", "QD 4S", "KS", "KD", "QS", "QC", "JH", "TH" };
+    custom(&s, a2, NULL);
+    set_home(&s.board, 4, "2H");
+    s.board.home_rank[2] = 1;
+    fix_cards_left(&s.board);
+    s.sel = 1; s.sel_col = 1; s.sel_pos = 1;
+    CHECK(fcs_single_dest(&s, &dc, &dp) && dc == 2);
+    s.sel = 0; s.sel_col = s.sel_pos = -1;
+    fcs_click(&s, 1, 1);
+    CHECK_EQ(s.board.board[2][2], C("3H"));
+    /* 3. no column: an empty column (the column is not one run: KC 3H) */
+    custom(&s, (const char *const[8]){ "KC 3H", "QD 5S", "KS", "KD", "QS", "QC", "JH", NULL }, NULL);
+    set_home(&s.board, 4, "2H");
+    fix_cards_left(&s.board);
+    fcs_click(&s, 1, 1);
+    CHECK_EQ(s.board.board[8][0], C("3H"));
+    /* 4. no column, no empty column: home after all (before a free cell) */
+    custom(&s, (const char *const[8]){ "KC 3H", "QD 5S", "KS", "KD", "QS", "QC", "JH", "TH" }, NULL);
+    set_home(&s.board, 4, "2H");
+    fix_cards_left(&s.board);
+    fcs_click(&s, 1, 1);
+    CHECK_EQ(s.board.board[0][4], C("3H"));
+    /* 5. nothing else: the leftmost free cell; a whole-run column never to an empty column */
+    custom(&s, (const char *const[8]){ "KC 3H", "QD 5S", "KS", "KD", "QS", "QC", "JH", NULL }, NULL);
+    set_free(&s.board, 0, "9D");
+    fix_cards_left(&s.board);
+    fcs_click(&s, 4, 0);                        /* KD: a lone card (one run): a free cell, not column 8 */
+    CHECK_EQ(s.board.board[0][1], C("KD"));
+    CHECK_EQ(s.board.board[8][0], FC_EMPTY);
+    /* a free cell's card: onto a column, else an empty column, never another free cell */
+    custom(&s, (const char *const[8]){ "KC 3H", "QD 5S", "KS", "KD", "QS", "QC", "TS", "8H" }, NULL);
+    set_free(&s.board, 2, "9D");
+    fix_cards_left(&s.board);
+    fcs_click(&s, 0, 2);
+    CHECK_EQ(s.board.board[7][1], C("9D"));
+    custom(&s, (const char *const[8]){ "KC 3H", "QD 5S", "KS", "KD", "QS", "QC", "JH", "TH" }, NULL);
+    set_free(&s.board, 2, "9D");
+    fix_cards_left(&s.board);
+    fcs_click(&s, 0, 2);                        /* nowhere: selected, as XP's click */
+    CHECK_EQ(s.sel, 1);
+    CHECK_EQ(s.sel_col, 0);
+    CHECK_EQ(s.click_moved, 0);
+    fcs_click(&s, 0, 3);                        /* the next click is XP's destination click */
+    CHECK_EQ(s.board.board[0][3], C("9D"));
+    CHECK_EQ(s.sel, 0);
+    /* a run: XP's count onto the column that fits; the empty column asks "Move to Empty Column..." */
+    custom(&s, (const char *const[8]){ "KC 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "TS", "JH" }, NULL);
+    fcs_click(&s, 1, 2);
+    CHECK_EQ(fc_last_index(&s.board, 7), 3);    /* 9H 8S 7H onto TS */
+    CHECK_EQ(s.board.board[7][3], C("7H"));
+    custom(&s, (const char *const[8]){ "KC 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "JD", NULL }, NULL);
+    f.movecol = FCS_MOVECOL_COLUMN;
+    int nmc = f.nmovecol;
+    fcs_click(&s, 1, 3);
+    CHECK_EQ(f.nmovecol, nmc + 1);
+    CHECK_EQ(fc_last_index(&s.board, 8), 2);
+    /* off: XP's click selects */
+    s.extras.single_click = 0;
+    custom(&s, (const char *const[8]){ "KH 4S", "QD 5H", "KS", "KC", "KD", "QS", "QC", "JH" }, NULL);
+    fcs_click(&s, 1, 0);
+    CHECK_EQ(s.sel, 1);
+    fcs_dblclick(&s, 1, 0);                     /* XP: the double-click sends it to a free cell */
+    CHECK_EQ(s.board.board[0][0], C("4S"));
+    fcs_free(&s);
+}
+
+/* Drag and drop: the press selects (XP), the cards a drag lifts, the drop is XP's move there. */
+static void test_drag_drop(void)
+{
+    FcSession s; Fake f;
+    fake_reset(&f, &s);
+    f.check_replay = 2;                         /* (small boards: the card only) */
+    FcSessionUI ui = fake_ui(&f);
+    fcs_init(&s, &ui, NULL);
+    start_game(&s, &f, 5);
+    s.extras.drag_drop = 1;
+    int first;
+    custom(&s, (const char *const[8]){ "AS 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "TS", "JH" }, NULL);
+    set_free(&s.board, 1, "4D");
+    fix_cards_left(&s.board);
+    CHECK_EQ(fcs_press(&s, 1, 1), 1);           /* 9H: the column is selected (its bottom card) */
+    CHECK(s.sel && s.sel_col == 1 && s.sel_pos == 3);
+    CHECK_EQ(fcs_drag_cards(&s, 1, 1, &first), 3);
+    CHECK_EQ(first, 1);
+    CHECK_EQ(fcs_drag_cards(&s, 1, 3, &first), 1);
+    CHECK_EQ(fcs_drag_cards(&s, 1, 0, &first), 0);   /* AS: above the run */
+    CHECK_EQ(fcs_drag_cards(&s, 2, 1, &first), 0);   /* not the selection */
+    CHECK(fcs_drop_ok(&s, 7, 0));               /* 9H 8S 7H onto TS */
+    CHECK(!fcs_drop_ok(&s, 2, 1));              /* 5S */
+    CHECK(!fcs_drop_ok(&s, 1, 3));              /* its own column */
+    CHECK(!fcs_drop_ok(&s, FCS_MISS, -1));
+    CHECK(fcs_drop_ok(&s, 0, 0));               /* an empty free cell: the bottom card */
+    CHECK(!fcs_drop_ok(&s, 0, 1));              /* a full one */
+    CHECK(fcs_drop_ok(&s, 0, 4) == 0);          /* 7H home: no */
+    int fwd = f.nfwd;
+    CHECK_EQ(fcs_drop(&s, 7, 0), 1);
+    CHECK_EQ(s.board.board[7][3], C("7H"));
+    CHECK_EQ(s.board.board[0][4], C("AS"));     /* uncovered, and autoplayed home ... */
+    CHECK_EQ(f.nfwd - fwd, 1);                  /* ... the only card flown: the dropped ones are there */
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(s.nhist, 1);
+    CHECK_EQ(fcs_moves(&s), 1);
+    fcs_command(&s, FCS_CMD_UNDO);              /* one Undo, flown back as any action */
+    CHECK_EQ(s.board.board[1][3], C("7H"));
+
+    /* a free cell's card */
+    CHECK_EQ(fcs_press(&s, 0, 1), 1);
+    CHECK_EQ(fcs_drag_cards(&s, 0, 1, &first), 1);
+    CHECK(!fcs_drop_ok(&s, 0, 1));              /* onto itself */
+    CHECK(fcs_drop_ok(&s, 2, 1));               /* 4D onto 5S */
+    CHECK_EQ(fcs_drop(&s, 2, 1), 1);
+    CHECK_EQ(s.board.board[2][2], C("4D"));
+    fcs_command(&s, FCS_CMD_UNDO);
+
+    /* refused: the messages as a click there (on: the box, deselected; off: silent, still selected) */
+    fcs_press(&s, 1, 2);
+    CHECK_EQ(fcs_drop(&s, 2, 1), 0);
+    CHECK_EQ(f.last_msg_id, 306);
+    CHECK_EQ(s.sel, 0);
+    s.opts.messages = 0;
+    fcs_press(&s, 1, 2);
+    CHECK_EQ(fcs_drop(&s, 2, 1), 0);
+    CHECK_EQ(s.sel, 1);
+    CHECK_EQ(fcs_drop(&s, FCS_MISS, -1), 0);    /* dropped nowhere: deselected (XP's click on a miss) */
+    CHECK_EQ(s.sel, 0);
+    /* too many cards: the supermove limit (no free cell, no empty column: 1) */
+    custom(&s, (const char *const[8]){ "AS 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "TS", "JH" },
+           (const char *const[4]){ "4D", "4C", "3D", "3C" });
+    fcs_press(&s, 1, 1);
+    CHECK(!fcs_drop_ok(&s, 7, 0));
+    s.opts.messages = 1;
+    CHECK_EQ(fcs_drop(&s, 7, 0), 0);
+    CHECK_EQ(f.last_msg_id, 307);
+    /* an empty column: XP's dialog; Cancel moves nothing */
+    custom(&s, (const char *const[8]){ "AS 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "JD", NULL }, NULL);
+    fcs_press(&s, 1, 1);
+    CHECK(fcs_drop_ok(&s, 8, -1));
+    f.movecol = FCS_MOVECOL_CANCEL;
+    int nmc = f.nmovecol;
+    CHECK_EQ(fcs_drop(&s, 8, -1), 0);
+    CHECK_EQ(f.nmovecol, nmc + 1);
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(fc_last_index(&s.board, 8), -1);
+    fcs_press(&s, 1, 1);
+    f.movecol = FCS_MOVECOL_COLUMN;
+    fwd = f.nfwd;
+    CHECK_EQ(fcs_drop(&s, 8, -1), 1);
+    CHECK_EQ(fc_last_index(&s.board, 8), 2);
+    CHECK_EQ(s.board.board[8][0], C("9H"));
+    CHECK_EQ(f.nfwd - fwd, 1);                  /* (AS home) */
+
+    /* the release: XP keeps the selection; with single click on the card moves */
+    custom(&s, (const char *const[8]){ "KC 9H 8S 7H", "QD 5S", "KS", "KD", "QS", "QC", "TS", "JH" }, NULL);
+    CHECK_EQ(fcs_press(&s, 1, 3), 1);
+    CHECK_EQ(fcs_release(&s), 0);
+    CHECK_EQ(s.sel, 1);
+    CHECK_EQ(fcs_press(&s, 7, 0), 0);           /* a press with a selection: XP's destination click */
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(s.board.board[7][3], C("7H"));
+    fcs_command(&s, FCS_CMD_UNDO);
+    s.extras.single_click = 1;
+    int h0 = s.nhist;
+    CHECK_EQ(fcs_press(&s, 1, 3), 1);           /* the press selects only ... */
+    CHECK_EQ(s.board.board[1][3], C("7H"));
+    CHECK_EQ(fcs_release(&s), 1);               /* ... the release (a click) moves */
+    CHECK_EQ(s.board.board[7][3], C("7H"));
+    fcs_dblclick(&s, 7, 3);                     /* its double-click: ignored */
+    CHECK_EQ(s.sel, 0);
+    CHECK_EQ(s.nhist, h0 + 1);
+    fcs_free(&s);
+}
+
+/* Undo All: asked first; back to the deal at once (no flights); the next Redo brings it all back. */
+static void test_undo_all(void)
+{
+    FcSession s; Fake f;
+    fake_reset(&f, &s);
+    f.check_replay = 1;
+    FcSessionUI ui = fake_ui(&f);
+    fcs_init(&s, &ui, NULL);
+    s.opts.messages = 0;
+    tsrand(31);
+    int n = 0, r = 1;
+    FcBoard dealt;
+    for (int game = 3; game < 60; game++) {
+        start_game(&s, &f, game);
+        dealt = s.board;
+        n = 0;
+        while (n < 16 && (r = legal_action(&s)) == 1) n++;
+        if (r != -1 && n >= 6) break;
+    }
+    CHECK(n >= 6 && s.game_number != 0);
+    fcs_command(&s, FCS_CMD_UNDO);              /* one already on the redo stack */
+    FcBoard end = s.board;
+    int nh = s.nhist, moves = fcs_moves(&s), nconf = f.nconfirm;
+    f.confirm_answer = 0;
+    fcs_command(&s, FCS_CMD_UNDO_ALL);          /* No */
+    CHECK_EQ(f.nconfirm, nconf + 1);
+    CHECK_EQ(f.last_confirm_id, FCS_STR_UNDO_ALL);
+    CHECK_EQ(s.nhist, nh);
+    CHECK(board_eq(&s.board, &end));
+    f.confirm_answer = 1;
+    int back = f.nback, fwd = f.nfwd;
+    fcs_command(&s, FCS_CMD_UNDO_ALL);
+    CHECK(board_eq(&s.board, &dealt));
+    CHECK_EQ(s.nhist, 0);
+    CHECK_EQ(s.nredo, nh + 1);
+    CHECK_EQ(s.redo_group, nh);
+    CHECK_EQ(f.nback, back);                    /* not flown */
+    CHECK_EQ(fcs_moves(&s), 0);
+    CHECK_EQ(f.undo_en, 0);
+    CHECK_EQ(f.redo_en, 1);
+    CHECK_EQ(f.cards_left, dealt.cards_left);
+    nconf = f.nconfirm;
+    fcs_command(&s, FCS_CMD_UNDO_ALL);          /* nothing to undo: not asked */
+    CHECK_EQ(f.nconfirm, nconf);
+    fcs_command(&s, FCS_CMD_REDO);              /* everything back at once */
+    CHECK(board_eq(&s.board, &end));
+    CHECK_EQ(s.nhist, nh);
+    CHECK_EQ(s.nredo, 1);
+    CHECK_EQ(s.redo_group, 0);
+    CHECK_EQ(f.nfwd, fwd);
+    CHECK_EQ(fcs_moves(&s), moves);
+    CHECK_EQ(f.cards_left, end.cards_left);
+    fcs_command(&s, FCS_CMD_REDO);              /* then the single one, flown as ever */
+    CHECK_EQ(s.nredo, 0);
+    CHECK_EQ(s.nhist, nh + 1);
+    /* Undo All, then a new action: the group is gone */
+    fcs_command(&s, FCS_CMD_UNDO_ALL);
+    CHECK(s.redo_group > 0);
+    r = legal_action(&s);
+    CHECK(r != 0);
+    CHECK_EQ(s.redo_group, 0);
+    CHECK_EQ(s.nredo, 0);
+    fcs_free(&s);
+}
+
 static void test_extras_store(void)
 {
     Reg r = { 0 };
@@ -2041,6 +2345,12 @@ static void test_extras_store(void)
     fc_extras_load(&y, &st);
     CHECK_EQ(y.show_time_moves, 1); CHECK_EQ(y.standard_supermove, 0);
     CHECK_EQ(y.full_range, 1); CHECK_EQ(y.full_screen, 1);
+    CHECK_EQ(rv(&r, "SingleClick"), 0); CHECK_EQ(rv(&r, "DragDrop"), 0);
+    x.single_click = 1;
+    fc_extras_save(&x, &st);
+    CHECK_EQ(rv(&r, "SingleClick"), 1);
+    fc_extras_load(&y, &st);
+    CHECK_EQ(y.single_click, 1); CHECK_EQ(y.drag_drop, 0);
     reg_set(&r, "StandardSupermove", 7);         /* any non-zero value is on */
     fc_extras_load(&y, &st);
     CHECK_EQ(y.standard_supermove, 1);
@@ -2083,6 +2393,9 @@ int main(void)
     test_deal_range();
     test_won_deals();
     test_extras_store();
+    test_single_click();
+    test_drag_drop();
+    test_undo_all();
     printf("test_session: %d checks, %d failures\n", checks, fails);
     return fails != 0;
 }

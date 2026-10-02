@@ -807,13 +807,17 @@ static int parse_vk(const WCHAR *s, long *vk)
 
 static int c_vkey(int argc, WCHAR **argv)
 {
-    long vk;
+    long vk, repeat = 1;
     int shift = 0, ctrl = 0, alt = 0;
     if (!parse_vk(argv[1], &vk)) return err(L"vkey: unknown key '%ls' (number, F1..F24, ESC, ENTER, ...)", argv[1]);
     for (int i = 2; i < argc; i++) {
         if (!_wcsicmp(argv[i], L"shift")) shift = 1;
         else if (!_wcsicmp(argv[i], L"ctrl")) ctrl = 1;
         else if (!_wcsicmp(argv[i], L"alt")) alt = 1;
+        else if (!_wcsicmp(argv[i], L"repeat") && i + 1 < argc) {   /* the key held: auto-repeat key-downs */
+            if (want_int(argv[++i], &repeat, argv[0])) return 1;
+            if (repeat < 1 || repeat > 100) return err(L"vkey: repeat 1..100");
+        }
         else return err(L"vkey: unknown modifier '%ls'", argv[i]);
     }
     if (ensure_hook()) return 1;
@@ -830,6 +834,8 @@ static int c_vkey(int argc, WCHAR **argv)
     UINT sc = MapVirtualKeyW((UINT)vk, 0);
     LPARAM down = 1 | (sc << 16) | (alt ? 1 << 29 : 0), up = down | 0xC0000000;
     PostMessageW(h, alt ? WM_SYSKEYDOWN : WM_KEYDOWN, (WPARAM)vk, down);
+    for (long r = 1; r < repeat; r++)               /* auto-repeat: the previous-state bit (30) set */
+        PostMessageW(h, alt ? WM_SYSKEYDOWN : WM_KEYDOWN, (WPARAM)vk, down | 0x40000000);
     PostMessageW(h, alt ? WM_SYSKEYUP : WM_KEYUP, (WPARAM)vk, up);
     int rc = sync_target(0);
     if (shift || ctrl || alt) {
@@ -1298,7 +1304,7 @@ static const struct cmd {
     {L"sendmsg", 3, 3, c_sendmsg, L"<msg> <wparam> <lparam>  SendMessage to the main window (e.g. 0x11F WM_MENUSELECT)"},
     {L"mouse_activate", 2, 2, c_mouse_activate, L"<hittest> <mouse msg>  send WM_MOUSEACTIVATE (e.g. 1 516 = HTCLIENT, WM_RBUTTONDOWN)"},
     {L"key", 1, 1, c_key, L"<chars>  post WM_CHAR for each character to the focus window"},
-    {L"vkey", 1, 4, c_vkey, L"<code|F1..F24|ESC|ENTER|..> [shift] [ctrl] [alt]  key down + up"},
+    {L"vkey", 1, 6, c_vkey, L"<code|F1..F24|ESC|ENTER|..> [shift] [ctrl] [alt] [repeat N]  key down (N times: held) + up"},
     {L"capture", 1, 1, c_capture, L"<out.bmp>  capture the client area (in-process)"},
     {L"capture_window", 1, 1, c_capture_window, L"<out.bmp>  capture the whole window incl. menu bar"},
     {L"capture_dialog", 1, 1, c_capture_dialog, L"<out.bmp>  capture the topmost dialog"},

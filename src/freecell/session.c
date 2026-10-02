@@ -35,6 +35,7 @@ const char *fcs_string(int id)
     case FCS_STR_HINT_LOST: return "There are no more winning moves.";
     case FCS_STR_UNWINNABLE: return "This game can no longer be won. Use Undo to go back.";
     case FCS_STR_UNWINNABLE_DEAL: return "This game cannot be won.";
+    case FCS_STR_UNDO_ALL: return "Do you want to undo all your moves and return to the start of the game?";
     }
     return "";
 }
@@ -129,7 +130,11 @@ static void stack_clear(FcAction **st, int *n)
 }
 
 static void hist_clear(FcSession *s) { stack_clear(s->hist, &s->nhist); }
-static void redo_clear(FcSession *s) { stack_clear(s->redo, &s->nredo); }
+static void redo_clear(FcSession *s)
+{
+    stack_clear(s->redo, &s->nredo);
+    s->redo_group = 0;
+}
 
 /* Push an owned (malloc'ed) action; on out of memory the stack is dropped (it can't stay consistent). */
 static void stack_push(FcAction ***st, int *n, int *cap, FcAction *a)
@@ -297,11 +302,13 @@ static void check_no_moves(FcSession *s)         /* CheckNoMoves, §6.1 */
 
 /* ---- Commit: replay the built action card by card (§4.2), record it, check win / no moves ------ */
 
-static void replay_forward(FcSession *s, const FcAction *a)    /* ReplayMove for each logged step */
+/* ReplayMove for each logged step; steps before `from` are not flown (extra: a drop's own cards, Undo
+ * All's Redo). */
+static void replay_forward(FcSession *s, const FcAction *a, int from)
 {
     for (int i = 0; i < a->nsteps; i++) {
         const FcStep *st = &a->steps[i];
-        if (UI(s, animate_step)) UI(s, animate_step)(UI(s, ctx), st, 1);
+        if (UI(s, animate_step) && i >= from) UI(s, animate_step)(UI(s, ctx), st, 1);
         int left = s->board.cards_left;
         fc_step_apply(&s->board, st);
         if (st->dst_col == 0) s->king = st->dst_pos < 4 ? FCS_KING_LEFT : FCS_KING_RIGHT;  /* 0x1004EB1 */
@@ -331,7 +338,8 @@ static void after_commit(FcSession *s, int moved, const FcBoard *before)
 
 static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
 {
-    int counted = a->nsteps > 0 && a->counted;
+    int counted = a->nsteps > 0 && a->counted, from = s->noanim_steps;
+    s->noanim_steps = 0;
     if (counted) clock_start(s);                 /* the clock runs from the first committed move */
     if (a->nsteps > 0 && !s->kbd_peek && s->peek_col >= 0) {
         /* a right-button peek held through a move ends with it: XP only drew the card, and the
@@ -340,7 +348,7 @@ static void commit(FcSession *s, const FcAction *a, const FcBoard *after)
         invalidate(s);
     }
     s->busy++;
-    replay_forward(s, a);
+    replay_forward(s, a, from);
     s->board = *after;                           /* identical; keeps the replay honest */
     s->busy--;
     if (a->nsteps > 0) {                         /* a new action: the undone future is gone */
@@ -416,7 +424,8 @@ static void show_message(FcSession *s, int id, int n, int max)
     s->busy--;
 }
 
-static void click_move(FcSession *s, int col, int pos)     /* ClickMove, §2.4 */
+/* Returns the number of the user's own steps (0: nothing of the selection moved). */
+static int click_move(FcSession *s, int col, int pos)      /* ClickMove, §2.4 */
 {
     int sc = s->sel_col, sp = s->sel_pos;
     if (col < 0 || col > 8) { col = sc; pos = sp; }              /* miss: click on the selection */
@@ -430,13 +439,13 @@ static void click_move(FcSession *s, int col, int pos)     /* ClickMove, §2.4 *
     if (sc != 0 && col != 0 && b.board[col][0] != FC_EMPTY) {    /* tableau -> non-empty tableau */
         int n = fc_cards_to_move(&b, sc, col), max = fc_max_movable_rule(&b, std);
         if (n == 0) {
-            if (!msgs) return;                                     /* silent, selection kept */
+            if (!msgs) return 0;                                   /* silent, selection kept */
             show_message(s, 306, 0, 0);
         } else if (n <= max) {
             if (std) fc_move_cards_std(&b, a, sc, col, n);
             else fc_supermove(&b, a, sc, col);
         } else {
-            if (!msgs) return;
+            if (!msgs) return 0;
             show_message(s, 307, n, max);
         }
     } else {
@@ -454,14 +463,17 @@ static void click_move(FcSession *s, int col, int pos)     /* ClickMove, §2.4 *
                 fc_queue(&b, a, sc, sp, col, pos);
             }
         } else if (movecol != FCS_MOVECOL_CANCEL) {               /* cancel: plain deselect */
-            if (!msgs) return;
+            if (!msgs) return 0;
             show_message(s, 306, 0, 0);
         }
     }
     a->counted = a->nsteps > 0;                                    /* the user's part, before autoplay */
+    int user = a->nsteps;
     fc_autoplay(&b, a, s->cheat == FCS_CHEAT_WIN);
     clear_selection(s);
+    if (s->dropping) s->noanim_steps = user;                       /* extra: a drop's cards are there */
     commit(s, a, &b);
+    return user;
 }
 
 static void do_click(FcSession *s, int col, int pos)
@@ -470,11 +482,147 @@ static void do_click(FcSession *s, int col, int pos)
     else click_select(s, col, pos);
 }
 
+/* ---- Extras (v1.4): single click, drag and drop ------------------------------------------------ */
+
+int fcs_single_dest(const FcSession *s, int *dcol, int *dpos)
+{
+    const FcBoard *b = &s->board;
+    int sc = s->sel_col, sp = s->sel_pos, std = s->extras.standard_supermove, c, i, home = -1, whole = 0;
+    if (!s->sel || sc < 0 || sc > 8) return 0;
+    Card card = b->board[sc][sp];
+    if (card == FC_EMPTY) return 0;
+    int r = fc_rank(card), su = fc_suit(card);
+    if (b->home_rank[su] == r - 1) {                               /* its home cell takes it */
+        if (r > 0) home = b->suit_home_slot[su];
+        else for (i = 4; i < 8 && home < 0; i++) if (b->board[0][i] == FC_EMPTY) home = i;
+    }
+    if (home >= 0 && fc_safe_to_autoplay(b, card, 0)) {            /* 1. home, when safe */
+        *dcol = 0;
+        *dpos = home;
+        return 1;
+    }
+    for (c = 1; c <= 8; c++) {                                     /* 2. a column it fits on */
+        int last = fc_last_index(b, c);
+        if (c == sc || last < 0) continue;
+        if (sc == 0 ? fc_can_stack(card, b->board[c][last])
+                    : (i = fc_cards_to_move(b, sc, c)) > 0 && i <= fc_max_movable_rule(b, std)) {
+            *dcol = c;
+            *dpos = last;
+            return 1;
+        }
+    }
+    if (sc != 0) {                                                 /* the whole column one run? */
+        for (i = sp; i > 0 && fc_can_stack(b->board[sc][i], b->board[sc][i - 1]); i--) {}
+        whole = i == 0;
+    }
+    if (!whole)
+        for (c = 1; c <= 8; c++)                                   /* 3. an empty column */
+            if (c != sc && b->board[c][0] == FC_EMPTY) {
+                *dcol = c;
+                *dpos = -1;
+                return 1;
+            }
+    if (home >= 0) {                                               /* 4. home after all */
+        *dcol = 0;
+        *dpos = home;
+        return 1;
+    }
+    if (sc != 0)
+        for (i = 0; i < 4; i++)                                    /* 5. a free cell */
+            if (b->board[0][i] == FC_EMPTY) {
+                *dcol = 0;
+                *dpos = i;
+                return 1;
+            }
+    return 0;
+}
+
+/* The selection to its best place, if it has one (else it stays selected). */
+static void single_click(FcSession *s)
+{
+    int dc, dp;
+    if (fcs_single_dest(s, &dc, &dp) && click_move(s, dc, dp) > 0) s->click_moved = 1;
+}
+
+int fcs_press(FcSession *s, int col, int pos)
+{
+    if (s->swallow_click) { s->swallow_click = 0; return 0; }     /* activation click, §4.6 */
+    if (!input_ok(s)) return 0;
+    fcs_assist_input(s);
+    s->click_moved = 0;
+    if (s->sel) {
+        do_click(s, col, pos);
+        return 0;
+    }
+    click_select(s, col, pos);
+    return s->sel;
+}
+
+int fcs_release(FcSession *s)
+{
+    if (!input_ok(s) || !s->sel || !s->extras.single_click) return 0;
+    single_click(s);
+    return s->click_moved;
+}
+
+int fcs_drag_cards(const FcSession *s, int col, int pos, int *first)
+{
+    const FcBoard *b = &s->board;
+    if (!s->sel || !input_ok(s)) return 0;
+    if (col == 0) {
+        if (s->sel_col != 0 || pos != s->sel_pos) return 0;
+        *first = pos;
+        return 1;
+    }
+    if (col != s->sel_col || col < 1 || col > 8) return 0;
+    int last = fc_last_index(b, col), lo = last;
+    while (lo > 0 && fc_can_stack(b->board[col][lo], b->board[col][lo - 1])) lo--;
+    if (last < 0 || pos < lo || pos > last) return 0;
+    *first = pos;
+    return last - pos + 1;
+}
+
+int fcs_drop_ok(const FcSession *s, int col, int pos)
+{
+    const FcBoard *b = &s->board;
+    int sc = s->sel_col, mc;
+    if (!s->sel || !input_ok(s) || col < 0 || col > 8) return 0;
+    if (col == 0) {
+        if (pos < 0 || pos > 7 || (sc == 0 && pos == s->sel_pos)) return 0;
+    } else if (col == sc) {
+        return 0;
+    }
+    if (sc != 0 && col != 0 && b->board[col][0] != FC_EMPTY) {
+        int n = fc_cards_to_move(b, sc, col);
+        return n > 0 && n <= fc_max_movable_rule(b, s->extras.standard_supermove);
+    }
+    return check_target(s, b, col, pos, &mc, 1);
+}
+
+int fcs_drop(FcSession *s, int col, int pos)
+{
+    int user;
+    if (!input_ok(s) || !s->sel) return 0;
+    fcs_assist_input(s);
+    s->click_moved = 0;
+    s->dropping = 1;
+    user = click_move(s, col, pos);
+    s->dropping = 0;
+    s->noanim_steps = 0;
+    return user > 0;
+}
+
 void fcs_click(FcSession *s, int col, int pos)
 {
     if (s->swallow_click) { s->swallow_click = 0; return; }       /* activation click, §4.6 */
     if (!input_ok(s)) return;
     fcs_assist_input(s);
+    s->click_moved = 0;
+    if (!s->sel && s->extras.single_click) {                       /* extra: select, then move at once */
+        click_select(s, col, pos);
+        if (s->sel) single_click(s);
+        return;
+    }
     do_click(s, col, pos);
 }
 
@@ -484,6 +632,10 @@ void fcs_dblclick(FcSession *s, int col, int pos)  /* §4.4; no XP repost quirk:
 {
     if (s->swallow_click) { s->swallow_click = 0; return; }
     if (!input_ok(s)) return;
+    if (s->click_moved) {                                          /* extra: the click moved the card */
+        s->click_moved = 0;
+        return;
+    }
     fcs_assist_input(s);
     if (s->opts.dblclick && s->sel && s->sel_col >= 1 && col == s->sel_col) {
         int f = -1;
@@ -508,6 +660,7 @@ void fcs_dblclick(FcSession *s, int col, int pos)  /* §4.4; no XP repost quirk:
 
 void fcs_char(FcSession *s, int ch)
 {
+    s->click_moved = 0;
     if (ch == 'h' || ch == 'H') {                                  /* extra: Hint */
         fcs_assist_hint(s);
         return;
@@ -558,6 +711,7 @@ void fcs_char(FcSession *s, int ch)
 
 void fcs_rbutton_down(FcSession *s, int col, int pos)
 {
+    s->click_moved = 0;
     if (!input_ok(s) || col < 1 || col > 8) return;
     fcs_assist_input(s);
     if (pos >= 0 && pos < fc_last_index(&s->board, col)) {        /* covered cards only */
@@ -688,7 +842,7 @@ static void undo(FcSession *s)                    /* §7.1, one history entry pe
     clear_selection(s);
     FcAction *a = s->hist[--s->nhist];
     s->busy++;
-    for (int i = a->nsteps - 1; i >= 0; i--) {
+    for (int i = a->nsteps - 1; i >= 0 && !s->batch; i--) {   /* (Undo All: no flights) */
         const FcStep *st = &a->steps[i];
         if (UI(s, animate_step)) UI(s, animate_step)(UI(s, ctx), st, 0);
         int left = s->board.cards_left;
@@ -700,17 +854,85 @@ static void undo(FcSession *s)                    /* §7.1, one history entry pe
     s->busy--;
     if (a->counted) {
         s->moves--;
-        status_changed(s);
+        if (!s->batch) status_changed(s);
     }
     stack_push(&s->redo, &s->nredo, &s->redo_cap, a);   /* now owned by the redo stack */
+    if (s->batch) return;                          /* Undo All: told once, at the end */
+    s->redo_group = 0;
     invalidate(s);
     update_menu(s);
     fcs_assist_changed(s, FCS_AS_UNDO, NULL);
 }
 
+/* Extra (v1.4): Undo until the deal, asked first; the actions come back with the next Redo, together. */
+static void undo_all(FcSession *s)
+{
+    int r0;
+    if (!fcs_undo_enabled(s)) return;
+    if (UI(s, confirm)) {
+        s->busy++;
+        int yes = UI(s, confirm)(UI(s, ctx), FCS_STR_UNDO_ALL, fcs_string(FCS_STR_UNDO_ALL));
+        s->busy--;
+        if (!yes || !fcs_undo_enabled(s)) return;
+    }
+    r0 = s->nredo;
+    s->batch++;
+    while (fcs_undo_enabled(s)) undo(s);
+    s->batch--;
+    s->redo_group = s->nredo > r0 ? s->nredo - r0 : 0;
+    status_changed(s);
+    cards_left_changed(s);
+    invalidate(s);
+    update_menu(s);
+    fcs_assist_changed(s, FCS_AS_UNDO, NULL);
+}
+
+/* Extra (v1.4): the Redo after Undo All: the whole group back, not flown, then as after a commit. */
+static void redo_group(FcSession *s)
+{
+    int n = s->redo_group, done = 0;
+    FcBoard before = s->board;
+    s->redo_group = 0;
+    stop_kbd_peek(s);
+    s->peek_col = s->peek_pos = -1;
+    clear_selection(s);
+    while (done < n && s->nredo > 0) {
+        FcAction *a = s->redo[--s->nredo];
+        if (memcmp(&s->board, &a->before, sizeof s->board) != 0) {   /* stale (cannot happen): drop */
+            free(a);
+            redo_clear(s);
+            break;
+        }
+        before = a->before;
+        if (a->counted) {
+            clock_start(s);
+            s->moves++;
+        }
+        s->busy++;
+        replay_forward(s, a, a->nsteps);
+        s->busy--;
+        stack_push(&s->hist, &s->nhist, &s->hist_cap, a);
+        done++;
+    }
+    status_changed(s);
+    invalidate(s);
+    update_menu(s);
+    if (!done) return;
+    if (s->board.cards_left == 0) {
+        win(s);
+        return;
+    }
+    after_commit(s, 1, &before);
+}
+
 static void redo(FcSession *s)                    /* extra: re-apply the last undone action */
 {
     if (!fcs_redo_enabled(s)) return;
+    if (s->redo_group > 0 && s->redo_group <= s->nredo) {
+        redo_group(s);
+        return;
+    }
+    s->redo_group = 0;
     stop_kbd_peek(s);
     s->peek_col = s->peek_pos = -1;
     clear_selection(s);
@@ -725,7 +947,7 @@ static void redo(FcSession *s)                    /* extra: re-apply the last un
     FcBoard before = a->before;    /* a is freed by stack_push on out of memory, or if the game is lost */
     if (counted) clock_start(s);
     s->busy++;
-    replay_forward(s, a);                          /* same steps, same animation as the original */
+    replay_forward(s, a, 0);                       /* same steps, same animation as the original */
     s->busy--;
     stack_push(&s->hist, &s->nhist, &s->hist_cap, a);   /* back onto the undo history */
     if (counted) {
@@ -772,6 +994,9 @@ static void run_command(FcSession *s, int cmd)
     case FCS_CMD_UNDO:
         undo(s);
         break;
+    case FCS_CMD_UNDO_ALL:
+        undo_all(s);
+        break;
     case FCS_CMD_REDO:
         redo(s);
         break;
@@ -792,6 +1017,7 @@ static void run_command(FcSession *s, int cmd)
 void fcs_command(FcSession *s, int cmd)
 {
     if (s->busy) return;
+    s->click_moved = 0;
     if (cmd != FCS_CMD_HINT) fcs_assist_input(s);
     run_command(s, cmd);
 }

@@ -294,6 +294,18 @@ static void test_hits(void)
     HIT(81, 100, 1, SOL_STOCK, -1);
     HIT(82, 100, 0, -1, -1);
 
+    /* v1.2 (click to select): an empty pile's whole rect is a destination; full piles, the stock: no */
+    CHECK(sol_layout_hit_empty(&l, &b, 30, 150) == SOL_TAB0, "empty column %d", sol_layout_hit_empty(&l, &b, 30, 150));
+    CHECK(sol_layout_hit_empty(&l, &b, 30, 390) == SOL_TAB0, "empty column, low");
+    CHECK(sol_layout_hit_empty(&l, &b, 350, 50) == SOL_FOUND0 + 1, "empty foundation");
+    CHECK(sol_layout_hit_empty(&l, &b, 300, 50) == -1, "a full foundation");
+    CHECK(sol_layout_hit_empty(&l, &b, 100, 120) == -1, "a full column");
+    CHECK(sol_layout_hit_empty(&l, &b, 30, 50) == -1, "the stock");
+    CHECK(sol_layout_hit_empty(&l, &b, 88, 150) == -1, "between columns");
+    b.p[SOL_WASTE].n = 0;
+    CHECK(sol_layout_hit_empty(&l, &b, 121, 7) == SOL_WASTE, "the empty waste");
+    set_pile(&b, SOL_WASTE, "7H JC 4D");
+
     /* drop zones: the top card, or the whole pile rect when empty */
     CHECK(rect_eq(sol_layout_drop_zone(&l, &b, fan, SOL_TAB0), 11, 107, 71, 294), "empty column zone");
     CHECK(rect_eq(sol_layout_drop_zone(&l, &b, fan, SOL_TAB0 + 1), 93, 128, 71, 96), "column zone");

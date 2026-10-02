@@ -13,6 +13,9 @@ about 190x257 pixels.
 
 *Game #1 in the client area of a maximized 1920x1080 window, rendered by `make snapshots`.*
 
+The same engine runs **Solitaire HD**, XP's Klondike (`SolitaireHD.exe`, see [Solitaire HD](#solitaire-hd)
+below).
+
 ## Download
 
 Get `FreeCellHD.exe` from [GitHub Releases](https://github.com/ErkoRisthein/xp-cards/releases). The game
@@ -38,8 +41,9 @@ The rules are XP's: the same deals for the same game numbers, the supermove limi
 | F3 | Select game: 1 to 1,000,000, or the special deals -1 and -2 |
 | F4 | Statistics |
 | F5 | Options: messages on illegal moves, quick play (no animation), double-click to a free cell, and the extras below |
-| F10 | Undo |
+| F10 or Ctrl+Z | Undo (Ctrl+Z is new; hold it to undo move after move) |
 | Ctrl+Y | Redo (new) |
+| Game > Undo All | Back to the start of the game, after a question (new); Redo brings it all back |
 | H | Hint (new): the card to move flashes twice, then the place it goes |
 | F6 | Finish (new): send every card home, once the rest is a sure win |
 | F11 or Alt+Enter | Full screen (new); Esc leaves it |
@@ -76,13 +80,79 @@ them on:
 - **Warn when the game can't be won**: a built-in solver checks the position in the background
   after every move and tells you, once, when the game can no longer be won, so you can undo.
 - **Finish automatically**: as soon as the rest is a sure win, every card goes home.
+- **Single click moves a card**: a click sends the card to the best place: home when it is safe there,
+  else the first column it fits on, an empty column, home, a free cell. If there is none, the card
+  stays selected as in XP, and the next click puts it where you want.
+- **Drag and drop cards**: drag a card (or the run below the card you grab) to where it should go. The
+  drop is XP's move to that pile, with XP's supermove limit and "Move to Empty Column" choice; a move XP
+  would refuse slides back. Clicking works as before.
 
 The solver also drives two new Game menu items. **Hint** (H) shows a winning move: the card to move
 flashes twice, then its destination. If the game can no longer be won, it says so. Repeated hints are
 instant while you follow them. **Finish** (F6) is available once every remaining card can go home in
 order, and moves them there as one move.
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: Solitaire, Spider and Hearts.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: Spider and Hearts.
+
+## Solitaire HD
+
+`SolitaireHD.exe` is Windows XP Solitaire (Klondike, `sol.exe`) re-implemented the same way: XP's deals
+(the same random number generator and shuffle), rules, Standard / Vegas / Cumulative / None scoring,
+timed game, menus, dialogs, keyboard interface and win cascade, with the board scaled to the window.
+It uses XP Solitaire's own registry key for its options and card back, so the two stay in sync.
+
+| Input | Action |
+|---|---|
+| Drag | Move cards, as in XP (Options > Outline dragging too) |
+| Double-click | Send a card to its foundation |
+| Right button | Play every card that can go to the foundations |
+| F2 | Deal |
+| Ctrl+Y | Redo (new); Game > Undo is unlimited |
+| Ctrl+Z | Undo (new); hold it to undo action after action |
+| Game > Undo All | Back to the deal, after a question (new); Redo brings it all back |
+| D | Turn over cards from the deck (new) |
+| C | Select Card Back (new) |
+| H | Hint (new) |
+| F6 | Finish (new): every card home, once the stock and the waste are used up and every card is face up |
+| F4 | Statistics (new) |
+| F11 or Alt+Enter | Full screen (new); Esc leaves it |
+| Arrows, Tab, Home, End, Enter, Space, Esc | XP's keyboard play |
+
+Differences from XP: the scaled, resizable window and full screen; unlimited undo and redo; the window
+placement remembered; new card art and 12 new card backs (none animated, as in XP); two deals in the same
+second are not the same deal; and the XP bugs listed in `docs/xp-reference/solitaire/rules.md` §11 are
+fixed.
+
+**Game menu (always there, they change nothing until used).** **Hint** (H) flashes a sensible legal
+move: the cards to move twice, then where they go. It only uses what you can see, never the face-down
+cards or the order of the stock. **Finish** (F6) sends every card home, one flying card at a time, as
+one move you can undo. **Statistics** (F4) shows games played and won, the win percentage, the current
+and longest streaks, the best time and the best score, kept separately for each of the six modes (Draw
+One / Three x Standard / Vegas / None). A game counts once you have made a move; a game you leave
+unfinished counts as lost, unless "Save game on exit" keeps it for the next start.
+
+**Options > Extras**, all off by default, so Solitaire HD plays exactly like XP until you turn them on
+(`HKCU\Software\xp-cards\Solitaire HD`):
+
+- **Turn cards over automatically**: a face-down card left on top of a column turns over by itself,
+  scoring the same 5 points as XP's click (Standard scoring).
+- **Single click moves a card**: a click that does not drag sends the card (and the cards on it) to
+  the best place: a foundation first, then a column. Dragging and double-clicking work as before.
+- **Finish automatically**: Finish runs by itself as soon as it can.
+- **Deal only winnable games**: Deal still uses XP's deals, but skips to the next one that the built-in
+  solver has proven winnable for the current draw and scoring (Vegas: its pass limit).
+- **Save game on exit, resume at start**: the game in progress, with its score, time and undo history,
+  is saved when you exit and comes back at the next start.
+- **Warn when the game can't be won**: a solver checks the position in the background after every move
+  and tells you, once, when the game can no longer be won, so you can undo.
+- **Move cards home automatically**: after each move, every card that is safe on its foundation (an ace
+  or a two, or a card whose rank - 1 of the other colour is already home) flies there, as part of that
+  move (one Undo), scored as usual.
+- **Click to select, click to move**: click a card to select it (it turns inverted), then click where
+  it should go. Dragging still works. With "Single click moves a card" on too, a click moves a card that
+  has a place to go and selects one that has none.
+
+Statistics and the saved game are files in `%APPDATA%\xp-cards\Solitaire HD`.
 
 ## Building
 
@@ -92,7 +162,7 @@ links the GCC runtime statically, so the result is a single file.
 **macOS**
 
     brew install mingw-w64
-    make                  # build/FreeCellHD.exe and build/SolitaireHD.exe (in development)
+    make                  # build/FreeCellHD.exe and build/SolitaireHD.exe
     make freecell         # build/FreeCellHD.exe only
     make release          # the same, stripped (-s), then the XP import check
 
@@ -120,10 +190,13 @@ macOS's own SMB client no longer supports. It needs a Python with [impacket](htt
     make test         # native unit tests of the engine and of the rules, controller and layout (ASan + UBSan)
     make snapshots    # render boards at several sizes to build/snapshots/*.png
     make xpcheck      # every function the exes import must exist on Windows XP SP2 and SP3
-    make e2e          # end-to-end scenarios under Wine (tests/e2e/fchd_*.txt)
+    make e2e          # end-to-end scenarios under Wine (tests/e2e/fchd_*.txt, solhd_*.txt)
+    make sol-xp-compare   # Solitaire with every extra off plays exactly as v1.0 (the same random input)
+    make fc-xp-compare    # FreeCell with the v1.4 extras off plays exactly as 1.3 (the same random input)
+    make seed-tables  # Solitaire: re-solve every XP deal for "Deal only winnable games" (about 40 min)
 
-The game logic and the shared engine (`src/freecell`, `src/engine`, outside their `win32` directories)
-are plain C with no Windows headers, so they are tested natively.
+The game logic and the shared engine (`src/freecell`, `src/solitaire`, `src/engine`, outside their `win32`
+directories) are plain C with no Windows headers, so they are tested natively.
 `make e2e` drives the real exe under Wine: it clicks, presses keys, answers dialogs, reads pixels and the
 registry, and captures screenshots. The driver is documented in [tools/wine/README.md](tools/wine/README.md).
 `make e2e` is set up for the macOS development machine. On Linux, run the smoke scenario under a virtual
@@ -149,16 +222,16 @@ disables Actions on a fork until its owner enables them on the fork's Actions ta
 |---|---|
 | `src/engine` | the card-game engine shared by the games ([docs/ENGINE.md](docs/ENGINE.md)): images, card sprites, drawing, persistence, and in `win32/` the Windows pieces every game uses |
 | `src/freecell` | FreeCell HD: rules, the XP game controller, statistics, the solver and the hint / finish logic, scalable layout, board renderer; `win32/` the window, menus, dialogs, registry, help |
-| `src/solitaire` | Solitaire HD: rules, the XP game controller, the win cascade, scalable layout, board renderer; `win32/` the window, drag and drop, status bar, dialogs, registry, help |
+| `src/solitaire` | Solitaire HD: rules, the XP game controller, the win cascade, scalable layout, board renderer; the extras: fair hint / click-to-move / finish, statistics, saved game, solver and the winnable-deal table; `win32/` the window, drag and drop, status bar, dialogs, registry, help, the solver's worker |
 | `res` | `common/`: the card art shared by the games; `freecell/`, `solitaire/`: resource scripts, king art, icon, cursor, manifests |
-| `tests` | native unit tests (`engine/`, `freecell/`), the snapshot renderer, Wine end-to-end scenarios |
+| `tests` | native unit tests (`engine/`, `freecell/`, `solitaire/`), the snapshot renderer, Wine end-to-end scenarios |
 | `tools` | XP import checker, Wine driver, SMB deploy, asset scripts, CI helpers |
 | `docs` | [design](docs/DESIGN.md), [roadmap](docs/ROADMAP.md), reverse-engineered XP reference |
 
 The original Windows XP binaries in the repository root (`freecell.exe`, `sol.exe`, `spider.exe`,
 `mshearts.exe` and `cards.dll`) come from the upstream archival repository
 [esc0rtd3w/xp-cards](https://github.com/esc0rtd3w/xp-cards). They are Microsoft's, are kept here only as
-the reference for the reverse engineering, and are not part of FreeCell HD.
+the reference for the reverse engineering, and are not part of FreeCell HD or Solitaire HD.
 
 ## Credits
 
@@ -169,6 +242,7 @@ the reference for the reverse engineering, and are not part of FreeCell HD.
 
 ## Disclaimer
 
-FreeCell HD is an independent re-implementation. It is not affiliated with or endorsed by Microsoft.
-FreeCell was created by Jim Horne at Microsoft, after Paul Alfille's 1978 game for the PLATO system.
-Windows and Windows XP are trademarks of Microsoft Corporation.
+FreeCell HD and Solitaire HD are independent re-implementations. They are not affiliated with or endorsed
+by Microsoft. FreeCell was created by Jim Horne at Microsoft, after Paul Alfille's 1978 game for the PLATO
+system; Windows Solitaire was written by Wes Cherry at Microsoft. Windows and Windows XP are trademarks of
+Microsoft Corporation.

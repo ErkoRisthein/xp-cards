@@ -1,0 +1,144 @@
+# FreeCell HD v1.4 end to end (docs/ROADMAP.md 2b): Ctrl+Z (Undo; held, it repeats), Game > Undo All
+# (asks first; one Redo brings everything back, nothing flown), and the two new Options > Extras, off by
+# default: "Single click moves a card" (the best place; nowhere: selected as XP; its double-click
+# ignored) and "Drag and drop cards" (the press selects as XP; the cards follow the pointer; the drop is
+# XP's move to that pile, a refused one slides back and gets XP's message).  Run by run_fchd_e2e.sh.
+#
+# The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card
+# y = 212, step 37, cards 142 x 192; free cells x = 0 142 284 426, home cells x = 696 838 980 1122,
+# y 0..191). Game #1 (top to bottom):
+#   1 JD KD 2S 4C 3S 6D 6S   2 2D KC KS 5C TD 8S 9C   3 9H 9S 9D TS 4S 8D 2H   4 JC 5S QD QH TH QS 6H
+#   5 5D AD JS 4H 8H 6C      6 7H QC AS AC 2C 3D      7 7C KH AH 4D JH 8C      8 5H 3H 3C 7S 7D TC
+# Ids: 115 Undo (F10, Ctrl+Z), 116 Redo, 120 Undo All, 109 Options (228 SingleClick, 229 DragDrop).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+regset "HKCU\Software\xp-cards\FreeCell HD" ShowTimeMoves dword 1    # the move counter, for the checks
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+assert_menu 120 grayed                    # Undo All: no game yet
+
+# ---- Options: the two new check boxes, off by default ------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_text
+assert_dialog_text "[228] Button \"Single &click moves a card\" [ ]"
+assert_dialog_text "[229] Button \"D&rag and drop cards\" [ ]"
+capture_dialog 70_options_v14.bmp
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" SingleClick 0
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" DragDrop 0
+
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+
+# ---- Ctrl+Z: Undo; held, it repeats -------------------------------------------------------------------
+click 1178 500                            # TC (column 8) -> free cell 1
+click 71 96
+click 85 500                              # 6S (column 1) onto 7D (column 8)
+click 1178 500
+click 241 500                             # 9C (column 2) -> free cell 2
+click 213 96
+assert_menubar_text "Moves: 3"
+assert_menu 115 enabled
+assert_menu 120 enabled
+vkey Z ctrl                               # one Undo
+assert_menubar_text "Moves: 2"
+vkey Z ctrl repeat 2                      # held: two more
+assert_menubar_text "Moves: 0"
+assert_menu 115 grayed
+assert_menu 120 grayed
+assert_menu 116 enabled
+capture 71_ctrl_z_held.bmp
+
+# ---- Undo All: asks; No keeps everything; Yes back to the deal at once; one Redo, everything back -------
+vkey Y ctrl
+vkey Y ctrl
+vkey Y ctrl                               # Redo x 3
+assert_menubar_text "Moves: 3"
+command 120
+wait_dialog FreeCell
+dialog_text
+assert_dialog_text "Do you want to undo all your moves and return to the start of the game?"
+capture_dialog 72_undo_all_question.bmp
+dialog_click No
+assert_no_dialog
+assert_menubar_text "Moves: 3"
+command 120
+wait_dialog FreeCell
+dialog_click Yes
+assert_no_dialog
+assert_menubar_text "Moves: 0    Time: 0:"
+assert_menubar_text "Cards Left: 52"
+assert_menu 115 grayed
+assert_menu 120 grayed
+assert_menu 116 enabled
+capture 73_undo_all.bmp
+command 116                               # one Redo: all three
+assert_menubar_text "Moves: 3"
+assert_menu 116 grayed
+capture 74_redo_all.bmp
+command 120
+wait_dialog FreeCell
+dialog_click Yes                          # back to the deal for what follows
+
+# ---- Single click moves a card --------------------------------------------------------------------------
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 228 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" SingleClick 1
+click 1178 500                            # TC: no column, no empty column, not home: free cell 1
+assert_menubar_text "Moves: 1"
+click 85 500                              # 6S: onto 7D (column 8), the first column it fits
+assert_menubar_text "Moves: 2"
+dblclick 866 500                          # 3D (column 6): free cell 2; the double-click is ignored
+assert_menubar_text "Moves: 3"
+capture 75_single_click.bmp
+click 1178 470                            # 7D 6S (column 8): onto 8C (column 7), XP's supermove
+assert_menubar_text "Moves: 4"
+capture 76_single_click_run.bmp
+
+# ---- Drag and drop cards ------------------------------------------------------------------------------
+command 120
+wait_dialog FreeCell
+dialog_click Yes
+command 109
+wait_dialog "FreeCell Options"
+dialog_check 228 0
+dialog_check 229 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" SingleClick 0
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" DragDrop 1
+drag 1178 500 71 96 6                     # TC to free cell 1
+assert_menubar_text "Moves: 1"
+drag 85 500 1178 520 6                    # 6S onto 7D (column 8)
+assert_menubar_text "Moves: 2"
+ldown 1178 380                            # 7D (column 8; 6S on it): the run is lifted ...
+move 1100 420
+move 1022 470
+capture 77_dragging_run.bmp
+lup 1022 470                              # ... and dropped on column 7 (8C): XP's supermove
+assert_menubar_text "Moves: 3"
+capture 78_dropped_run.bmp
+drag 1022 600 241 300 6                   # 6S (column 7) onto 9C (column 2): refused, slides back
+wait_dialog FreeCell
+assert_dialog_text "That move is not allowed."
+dialog_click OK
+assert_no_dialog
+assert_menubar_text "Moves: 3"
+click 1022 600                            # a click still selects (XP), the next one moves:
+click 71 96                               # 6S -> ... free cell 1 is full: refused
+wait_dialog FreeCell
+dialog_click OK
+assert_menubar_text "Moves: 3"
+close Yes                                 # resign
+wait_exit 5000
+regdump "HKCU\Software\xp-cards\FreeCell HD"

@@ -7,6 +7,10 @@
  * minimum size from the layout), the board scales, the placement is remembered, and (v1.1) a
  * borderless full-screen mode (Game > Full Screen, F11 / Alt+Enter, Esc leaves) that keeps the menu bar.
  * Window geometry, placement and full screen are the engine's (engine/win32/window.h).
+ * v1.4: Game > Undo All, Ctrl+Z (Undo, repeating while held: an accelerator); with "Drag and drop
+ * cards" a press selects as XP's click and the cards follow the pointer once it passes the drag
+ * threshold (fcs_press / fcs_drag_cards / fcs_drop); released unmoved it stays XP's click (or, with
+ * "Single click moves a card", moves the card: fcs_release).
  */
 #include "app.h"
 
@@ -74,12 +78,131 @@ static void after_input(App *a)
     solver_deliver(a);                                /* a solver answer held meanwhile */
 }
 
+/* ---- drag and drop (v1.4) ---------------------------------------------------------------------------- */
+
+static void lcapture_set(App *a)
+{
+    if (!a->lcapture && a->hwnd) {
+        SetCapture(a->hwnd);
+        a->lcapture = 1;
+    }
+}
+
+static void lcapture_release(App *a)
+{
+    if (a->lcapture) {
+        a->lcapture = 0;                              /* first: WM_CAPTURECHANGED must not cancel */
+        ReleaseCapture();
+    }
+}
+
+static void arm(App *a, int x, int y, int col, int pos, int on_sel)
+{
+    a->press_armed = 1;
+    a->press_on_sel = on_sel;
+    a->press_x = x;
+    a->press_y = y;
+    a->press_col = col;
+    a->press_pos = pos;
+    lcapture_set(a);
+}
+
+/* The drag ends without a drop (Esc, focus or capture lost, a command): the cards slide back; the
+ * selection stays, as before the drag. */
+static void drag_cancel(App *a, const char *why)
+{
+    int was = a->drag_on;
+    a->press_armed = 0;
+    lcapture_release(a);
+    if (!was)
+        return;
+    view_drag_zip_back(a);
+    view_drag_end(a);
+    ce_log("drag cancelled (%s)", why);
+}
+
+/* The press (extras.drag_drop): nothing selected: XP's selecting click, and a drag may follow; on the
+ * selection's own pile: a drag may follow (released unmoved: XP's click on it); elsewhere: XP's
+ * destination click. */
+static void on_press(App *a, int x, int y)
+{
+    int col, pos, sel0 = a->s.sel;
+    int shit = view_hit(a, x, y, FC_HIT_SOURCE, &col, &pos);
+    if (!a->s.sel) {
+        if (!shit) {
+            col = FCS_MISS;
+            pos = -1;
+        }
+        if (fcs_press(&a->s, col, pos))
+            arm(a, x, y, col, pos, 0);
+    } else if (shit && !a->s.swallow_click && col == a->s.sel_col && (col != 0 || pos == a->s.sel_pos)) {
+        arm(a, x, y, col, pos, 1);
+    } else {
+        if (!view_hit(a, x, y, FC_HIT_DEST, &col, &pos)) {
+            col = FCS_MISS;
+            pos = -1;
+        }
+        fcs_click(&a->s, col, pos);
+    }
+    ce_log("press %d,%d -> col %d pos %d; sel %d -> %d%s", x, y, col, pos, sel0, a->s.sel,
+           a->press_armed ? " (armed)" : "");
+    after_input(a);
+}
+
+/* The button went up over (x, y) while cards are lifted: XP's move to the pile there (a drop XP would
+ * refuse slides back first, then gets XP's message; a cancelled "Move to Empty Column..." slides back). */
+static void on_drop(App *a, int x, int y)
+{
+    int col, pos, ok, moved;
+    a->press_armed = 0;
+    lcapture_release(a);
+    if (!view_hit(a, x, y, FC_HIT_DEST, &col, &pos)) {
+        col = FCS_MISS;
+        pos = -1;
+    }
+    ok = fcs_drop_ok(&a->s, col, pos);
+    if (!ok) {
+        view_drag_zip_back(a);
+        view_drag_end(a);
+    }
+    moved = fcs_drop(&a->s, col, pos);
+    if (ok && !moved)
+        view_drag_zip_back(a);
+    view_drag_end(a);
+    ce_log("drop %d,%d -> col %d pos %d: %s; sel %d", x, y, col, pos, moved ? "moved" : ok ? "cancelled" : "refused",
+           a->s.sel);
+    after_input(a);
+}
+
+/* The button went up without a drag. */
+static void on_release(App *a, int x, int y)
+{
+    int moved = 0, on_sel = a->press_on_sel;
+    a->press_armed = 0;
+    lcapture_release(a);
+    if (input_blocked(a))
+        return;
+    if (on_sel)
+        fcs_click(&a->s, a->press_col, a->press_pos);   /* XP's click on the selection: deselect */
+    else
+        moved = fcs_release(&a->s);
+    ce_log("release %d,%d: %s; sel %d", x, y, on_sel ? "click on the selection" : moved ? "single click moved" : "click",
+           a->s.sel);
+    after_input(a);
+}
+
 static void on_click(App *a, LPARAM lp, int dbl)
 {
     int col, pos, hit;
     int x = (short)LOWORD(lp), y = (short)HIWORD(lp), sel0 = a->s.sel, sw0 = a->s.swallow_click;
     if (input_blocked(a)) {
         ce_log("click %d,%d ignored (modal %d)", x, y, a->in_modal);
+        return;
+    }
+    if (a->drag_on || a->press_armed)
+        return;                                       /* (the button is already down) */
+    if (!dbl && a->s.extras.drag_drop && !a->s.busy) {
+        on_press(a, x, y);
         return;
     }
     hit = view_hit(a, x, y, fcs_has_selection(&a->s) ? FC_HIT_DEST : FC_HIT_SOURCE, &col, &pos);
@@ -100,14 +223,17 @@ static void on_command(App *a, int id)
 {
     switch (id) {
     case IDM_NEWGAME: case IDM_SELECTGAME: case IDM_RESTART: case IDM_UNDO: case IDM_REDO: case IDM_CHEAT:
-    case IDM_HINT: case IDM_FINISH:
+    case IDM_HINT: case IDM_FINISH: case IDM_UNDOALL:
         if (a->in_modal)
             return;
+        drag_cancel(a, "command");
         fcs_command(&a->s, id);                       /* IDM_* == FCS_CMD_* */
+        if (id == IDM_UNDO || id == IDM_UNDOALL || id == IDM_REDO)
+            ce_log("command %d: %d action(s), %d to redo, %d moves", id, a->s.nhist, a->s.nredo, fcs_moves(&a->s));
         after_input(a);
         break;
-    case IDM_STATISTICS: dlg_statistics(a); break;
-    case IDM_OPTIONS: dlg_options(a); break;
+    case IDM_STATISTICS: drag_cancel(a, "command"); dlg_statistics(a); break;
+    case IDM_OPTIONS: drag_cancel(a, "command"); dlg_options(a); break;
     case IDM_FULLSCREEN:
         if (!a->in_modal && !a->s.busy)
             fullscreen_set(a, !a->fs.on);
@@ -226,7 +352,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         on_click(a, lp, 1);
         return 0;
     case WM_RBUTTONDOWN:
-        if (!input_blocked(a)) {
+        if (!input_blocked(a) && !a->drag_on && !a->press_armed) {
             int col, pos;
             if (view_hit(a, (short)LOWORD(lp), (short)HIWORD(lp), FC_HIT_SOURCE, &col, &pos))
                 fcs_rbutton_down(&a->s, col, pos);
@@ -251,14 +377,47 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             fcs_rbutton_up(&a->s);
             after_input(a);
         }
+        if (a->lcapture && (HWND)lp != h) {           /* v1.4: someone took the mouse mid-drag */
+            a->lcapture = 0;
+            drag_cancel(a, "capture lost");
+            after_input(a);
+        }
         return 0;
-    case WM_MOUSEMOVE:
-        if (!input_blocked(a)) {
-            view_mouse_move(a, (short)LOWORD(lp), (short)HIWORD(lp));
+    case WM_MOUSEMOVE: {
+        int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+        if (a->press_armed && !a->drag_on && !input_blocked(a) &&
+            ce_drag_threshold_passed(a->press_x, a->press_y, x, y)) {
+            int first, n = fcs_drag_cards(&a->s, a->press_col, a->press_pos, &first);
+            if (n > 0 && view_drag_begin(a, a->press_col, first, a->press_x, a->press_y)) {
+                ce_log("drag: col %d, %d card(s) from %d", a->press_col, n, first);
+            } else {
+                a->press_armed = 0;                   /* moved, but nothing to lift: no click either */
+                lcapture_release(a);
+            }
+        }
+        if (a->drag_on) {
+            view_drag_move(a, x, y);
+        } else if (!input_blocked(a)) {
+            view_mouse_move(a, x, y);
             if (a->dirty)
                 view_sync(a);                         /* the king turned */
         }
         return 0;
+    }
+    case WM_LBUTTONUP:
+        if (a->drag_on && !a->in_modal && !a->s.busy)
+            on_drop(a, (short)LOWORD(lp), (short)HIWORD(lp));
+        else if (a->press_armed && !a->in_modal && !a->s.busy)
+            on_release(a, (short)LOWORD(lp), (short)HIWORD(lp));
+        else if (!a->drag_on)
+            lcapture_release(a);
+        return 0;
+    case WM_KILLFOCUS:
+        if ((a->drag_on || a->press_armed) && !a->in_modal && !a->s.busy) {
+            drag_cancel(a, "focus lost");
+            after_input(a);
+        }
+        break;
     case WM_SETCURSOR:
         /* the client area shows the cursor we chose (XP: class cursor NULL + SetCursor on moves);
          * borders, caption and menu get the default handling */
@@ -268,13 +427,18 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         break;
     case WM_KEYDOWN:
+        if (wp == VK_ESCAPE && (a->drag_on || a->press_armed) && !a->in_modal && !a->s.busy) {
+            drag_cancel(a, "Esc");                    /* v1.4 */
+            after_input(a);
+            return 0;
+        }
         if (wp == VK_ESCAPE && a->fs.on && !a->in_modal && !a->s.busy) {
             fullscreen_set(a, 0);                     /* Esc leaves full screen */
             return 0;
         }
         break;
     case WM_CHAR:
-        if (!input_blocked(a)) {
+        if (!input_blocked(a) && !a->drag_on && !a->press_armed) {
             fcs_char(&a->s, (int)wp);
             after_input(a);
         }

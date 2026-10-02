@@ -45,6 +45,11 @@ void fc_render_board(CeImage *fb, const FcLayout *l, const FcBoard *b, const FcV
 void fc_render_board_rect(CeImage *fb, const FcLayout *l, const FcBoard *b, const FcView *v,
                           FcCardSet *cs, CeRect r);
 
+/* The cards a drag lifts (extra, v1.4), as one sprite: col 0: the top-row card at slot first; col 1..8:
+ * the cards from index first to the end of the column, at the column's step, as the board shows them.
+ * Transparent around the cards; the caller frees it. NULL without cards (or memory). */
+CeImage *fc_render_stack(FcCardSet *cs, const FcLayout *l, const FcBoard *b, int col, int first);
+
 /* Draw one card sprite at (x, y), optionally inverted (selection look). */
 void fc_render_card(CeImage *fb, FcCardSet *cs, Card c, int x, int y, int inverted);
 
