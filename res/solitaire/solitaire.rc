@@ -155,7 +155,7 @@ BEGIN
     IDS_PRESSESC        "Press Esc or a mouse button to stop..."
     IDS_BONUS           "Bonus: "
     IDS_BYLINE          "Developed for Microsoft by Wes Cherry"
-    IDS_ABOUTTEXT       "A resizable re-creation of Windows XP Solitaire.\r\nCards by Adrian Kennard: cards.revk.uk (CC0)"
+    IDS_ABOUTTEXT       "Resizable HD re-creation of Wes Cherry's XP Solitaire.\r\nCards: Adrian Kennard, cards.revk.uk (CC0)"
     IDS_OUTOFMEMORY     "Out of memory"
     IDS_HELPFAILED      "Unable to load Windows Help application"
     IDS_NODRAGMEM       "Insufficient memory to display card faces when cards move;\n\nselect the Outline dragging box from the Options menu."

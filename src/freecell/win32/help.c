@@ -63,12 +63,12 @@ void help_about(App *a)
     icon = LoadIconW(a->inst, MAKEINTRESOURCEW(IDI_FREECELL));
     modal_begin(a);
     /* "title#first line". The other text sits in a static control below the copyright line that
-     * holds two lines of about 270 px (180 x 20 DLU) on XP; anything longer is clipped, so the art
-     * credit is condensed (Tahoma 8: 230 and 247 px). The full wording is in the version info.
+     * holds two lines of about 270 px (180 x 20 DLU) on XP; anything longer is clipped, so the
+     * original author (Jim Horne) and art credits are condensed (Tahoma 8: 253 and 212 px). The full wording is in the version info.
      * ce_shell_about passes writable copies (XP's ShellAboutW writes into the title). */
     ce_shell_about(a->hwnd, L"FreeCell HD#FreeCell HD",
-                   L"A resizable re-creation of Windows XP FreeCell.\r\n"
-                   L"Card faces by Adrian Kennard: cards.revk.uk (CC0)", icon);
+                   L"Resizable HD re-creation of Jim Horne's XP FreeCell.\r\n"
+                   L"Cards: Adrian Kennard, cards.revk.uk (CC0)", icon);
     modal_end(a);
 }
 

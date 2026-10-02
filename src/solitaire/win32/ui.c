@@ -529,7 +529,7 @@ void help_search(App *a)
 void help_howto(App *a) { help_open(a, L"NTHelp.chm", CE_HH_DISPLAY_TOPIC); }
 
 /* XP: ShellAboutW(hwnd, "Solitaire", "Developed for Microsoft by Wes Cherry", icon 500). Ours names
- * the HD game and the art; ce_shell_about passes writable copies (XP's ShellAboutW writes into the
+ * the HD game, credits the original author (Wes Cherry) and the card art (2 lines fit XP's box); ce_shell_about passes writable copies (XP's ShellAboutW writes into the
  * title: a string literal crashed it on real XP). */
 void help_about(App *a)
 {
@@ -538,7 +538,7 @@ void help_about(App *a)
     if (a->in_modal || !sol_idle(&a->s))
         return;
     load_wstr(a, IDS_ABOUTTEXT, text, 256,
-              L"A resizable re-creation of Windows XP Solitaire.\r\nCards by Adrian Kennard: cards.revk.uk (CC0)");
+              L"Resizable HD re-creation of Wes Cherry's XP Solitaire.\r\nCards: Adrian Kennard, cards.revk.uk (CC0)");
     icon = LoadIconW(a->inst, MAKEINTRESOURCEW(IDI_SOLITAIRE));
     view_sync_now(a);
     modal_begin(a);
