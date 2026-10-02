@@ -120,3 +120,6 @@ docs/DESIGN.md "FreeCell HD extras (v1.4)" and "Solitaire HD extras (v1.2)".
   top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
   clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
   res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.
+- Pip geometry (decided with the user 2026-10-02): HYBRID — XP's pip size and vertical spread and XP's
+  fuller court frame, but the traditional (RevK) pip arrangements per rank (e.g. 8 = 3+2+3, not XP's 2x4).
+  Measured XP geometry comes from the xp-pip-match lab (scratchpad piplab/xp_geometry.json).
