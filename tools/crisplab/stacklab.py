@@ -24,6 +24,7 @@ usage (from the repo root; CRISPLAB_XP = dir of XP cards_bitmap_<id>.png for the
   stacklab.py glance  -v variants.json -o out [--heights 72,96,128,257]   # metrics.json / metrics.md
   stacklab.py sheets  -v variants.json -o out [--heights 96,257]          # stack + full-card sheets
   stacklab.py blind   -v variants.json -o final --only a,b,c,d --seed N   # A-D + XP, mapping.json
+  stacklab.py freeze  --layout '{"file": "font.ttf", ...}' -o glyphs.json  # rank_font -> rank_glyphs file
 
 A variants file is a JSON list of {"name", "layout": {...}, optional "svg_dir"} (svg_dir: read the
 source SVGs from there instead of res/common/cards-svg, e.g. the generator's own splitindex output).
@@ -96,7 +97,35 @@ LAYOUT_DEFAULTS = dict(
     court_frame_top=None,  # extend only the frame rectangle (not the art) to this top edge (fraction of
                            # ch, symmetric at the bottom): room for the court pip above the picture
     ace_scale=1.0,       # the single pip of AC/AD/AH (the AS emblem is left alone)
+    rank_font=None,      # replace the generator's stroked rank glyphs (the V symbols) by filled outlines from
+                         # a TrueType font: a dict, keys FONT_DEFAULTS (needs fontTools; lab use)
+    rank_glyphs=None,    # the same from frozen outlines (stacklab.py freeze): a dict or a JSON file path
+                         # (relative to this directory); no fontTools needed (make_assets.sh)
 )
+
+# rank_font keys. Glyph units: the V symbol's 1000-unit box, y down, ink centred on x = 0, cap ink (the
+# flat-topped letters, synthetic bold included) from -cap/2 to +cap/2 (the baseline).
+FONT_DEFAULTS = dict(
+    file=None,           # .ttf/.otf (absolute, or relative to the repo root or to this directory)
+    var=None,            # variable-font instance, e.g. {"wght": 700, "wdth": 75}; unset axes = defaults
+    features=['lnum'],   # GSUB single substitutions applied to the glyphs (lining figures etc.)
+    cap=1085.0,          # cap-height ink in glyph units (1085 = the generator's 920 + XPLIKE's stroke 165)
+    sx=1.0,              # horizontal scale of every glyph (the use's rank_sx still applies on top)
+    bold=0.0,            # synthetic emboldening: an outline stroke of this width (glyph units), same colour
+    join='round',        # its stroke-linejoin
+    digits_to_cap=True,  # scale the figures so '7' is as tall as 'H'
+    desc_max=None,       # compress outline below the baseline (Q's tail) to at most this depth (glyph units)
+    squash='',           # characters (e.g. "J") squashed whole vertically to fit desc_max instead
+    ten_gap=None,        # '10': ink gap between the 1 and the 0 (glyph units, None = the font's spacing)
+    ten_sx=1.0,          # '10': horizontal squeeze of the pair
+    ten_w=None,          # '10': squeeze further so the pair's ink is at most this wide
+    dx=None,             # {"K": 10, ...}: per-rank x nudge (glyph units)
+    sxs=None,            # {"Q": 0.95, ...}: per-rank extra horizontal scale
+    chars=None,          # {"T": "10", "A": "A", ...}: what to draw per rank (default: the rank's text)
+    glyph=None,          # {"1": "one.alt"}: force a glyph name for a character
+)
+RANK_TEXT = {r: r for r in RANKS}
+RANK_TEXT['T'] = '10'
 
 _NUM = r'(-?[0-9.]+(?:e-?[0-9]+)?)'
 
@@ -126,20 +155,213 @@ def layout_params(layout):
     return L
 
 
-def rank_geometry(L, stroke):
+def rank_geometry(L, stroke, ext=None):
     """(box_x, box_y, box, ink_top, ink_bottom) of the rank glyph: glyph ink y = +-(460 + stroke/2),
     clipped at the symbol's viewBox (+-500, or +-600 with rank_unclip). box is the 1000-unit glyph
-    scale (the use box is 1.2x that with rank_unclip)."""
+    scale (the use box is 1.2x that with rank_unclip). ext = (ascent, descent) of font glyphs (glyph
+    units above/below the box centre, max over the 13 ranks) replaces the stroke rule."""
     box = 50.0 * L['rank_scale']
     u = box / 1000.0
-    half = min(460 + stroke / 2.0, 600 if L['rank_unclip'] else 500) * u
+    if ext is None:
+        half = min(460 + stroke / 2.0, 600 if L['rank_unclip'] else 500) * u
+        asc = desc = half
+    else:
+        asc, desc = ext[0] * u, ext[1] * u
     if L['rank_bottom'] is None:
         by = -156.0
         cy = by + box / 2
     else:
-        cy = TOP + L['rank_bottom'] * CH_U - half
+        cy = TOP + L['rank_bottom'] * CH_U - desc
         by = cy - box / 2
-    return L['rank_cx'] - box / 2, by, box, cy - half, cy + half
+    return L['rank_cx'] - box / 2, by, box, cy - asc, cy + desc
+
+
+# ---- font rank glyphs ---------------------------------------------------------------------------------
+
+_GLYPH_CACHE = {}
+
+
+def _font_path(f):
+    p = Path(f)
+    for c in (p, cl.REPO / p, HERE / p):
+        if c.exists():
+            return c
+    raise FileNotFoundError(f)
+
+
+def _feature_subst(font, tags):
+    """glyph -> glyph map of the GSUB single substitutions under the given feature tags."""
+    m = {}
+    if not tags or 'GSUB' not in font:
+        return m
+    gsub = font['GSUB'].table
+    if not gsub.FeatureList:
+        return m
+    for fr in gsub.FeatureList.FeatureRecord:
+        if fr.FeatureTag not in tags:
+            continue
+        for li in fr.Feature.LookupListIndex:
+            lk = gsub.LookupList.Lookup[li]
+            for st in lk.SubTable:
+                st = getattr(st, 'ExtSubTable', st)
+                if getattr(st, 'mapping', None):
+                    for a, b in st.mapping.items():
+                        m.setdefault(a, b)
+    return m
+
+
+def font_rank_glyphs(spec):
+    """{'glyphs': {rank: svg path d}, 'ext': [ascent, descent, xmin, xmax], 'bold', 'join', 'font'} for a
+    rank_font spec (glyph units, see FONT_DEFAULTS). Cached per spec."""
+    key = json.dumps(spec, sort_keys=True)
+    if key in _GLYPH_CACHE:
+        return _GLYPH_CACHE[key]
+    from fontTools.ttLib import TTFont
+    from fontTools.pens.basePen import BasePen
+    from fontTools.pens.boundsPen import BoundsPen
+    from fontTools.pens.recordingPen import RecordingPen
+    from fontTools.pens.svgPathPen import SVGPathPen
+    F = dict(FONT_DEFAULTS)
+    for k, v in spec.items():
+        if k not in F:
+            raise KeyError('unknown rank_font parameter %r' % k)
+        F[k] = v
+    font = TTFont(_font_path(F['file']))
+    if 'fvar' in font:
+        from fontTools.varLib import instancer
+        loc = {a.axisTag: a.defaultValue for a in font['fvar'].axes}
+        loc.update(F['var'] or {})
+        font = instancer.instantiateVariableFont(font, loc)
+    gs = font.getGlyphSet()
+    cmap = font.getBestCmap()
+    sub = _feature_subst(font, F['features'])
+    forced = F['glyph'] or {}
+
+    def gname(ch):
+        if ch in forced:
+            return forced[ch]
+        g = cmap[ord(ch)]
+        return sub.get(g, g)
+
+    def bounds(g):
+        p = BoundsPen(gs)
+        gs[g].draw(p)
+        return p.bounds
+
+    class MapPen(BasePen):
+        def __init__(self, f, out):
+            BasePen.__init__(self, gs)
+            self.f, self.out = f, out
+
+        def _moveTo(self, p):
+            self.out.moveTo(self.f(p))
+
+        def _lineTo(self, p):
+            self.out.lineTo(self.f(p))
+
+        def _curveToOne(self, a, b, c):
+            self.out.curveTo(self.f(a), self.f(b), self.f(c))
+
+        def _qCurveToOne(self, a, b):
+            self.out.qCurveTo(self.f(a), self.f(b))
+
+        def _closePath(self):
+            self.out.closePath()
+
+        def _endPath(self):
+            self.out.endPath()
+
+    b = float(F['bold'])
+    cap_f = bounds(gname('H'))[3]
+    dig_f = bounds(gname('7'))[3] if F['digits_to_cap'] else cap_f
+    base = F['cap'] / 2 - b / 2
+
+    def outline(ch, sx):
+        """RecordingPen of one character mapped to glyph units (x not yet centred)."""
+        g = gname(ch)
+        k = (F['cap'] - b) / (dig_f if ch.isdigit() else cap_f)
+        ymin = bounds(g)[1]
+        top = dig_f if ch.isdigit() else cap_f
+        rec = RecordingPen()
+        if F['desc_max'] is not None and -ymin * k > F['desc_max'] and ch in (F['squash'] or ''):
+            # squash the whole glyph vertically: top stays on the cap line, the descender ends at desc_max
+            s = (top + F['desc_max'] / k) / (top - ymin)
+            gs[g].draw(MapPen(lambda p: (p[0] * k * sx, base - (top - (top - p[1]) * s) * k), rec))
+            return rec
+        c = 1.0
+        if F['desc_max'] is not None and -ymin * k > F['desc_max']:
+            c = F['desc_max'] / (-ymin * k)
+        gs[g].draw(MapPen(lambda p: (p[0] * k * sx, base - (p[1] * (c if p[1] < 0 else 1.0)) * k), rec))
+        return rec
+
+    def rec_bounds(rec):
+        p = BoundsPen(None)
+        rec.replay(p)
+        return p.bounds
+
+    def moved(rec, dx, sx=1.0):
+        out = RecordingPen()
+        rec.replay(MapPen(lambda p: ((p[0] + dx) * sx, p[1]), out))
+        return out
+
+    glyphs, ext = {}, [0.0, 0.0, 0.0, 0.0]
+    for r in RANKS:
+        text = (F['chars'] or {}).get(r, RANK_TEXT[r])
+        sx = F['sx'] * (F['sxs'] or {}).get(r, 1.0)
+        if len(text) == 1:
+            rec = outline(text, sx)
+            x0, y0, x1, y1 = rec_bounds(rec)
+            rec = moved(rec, -(x0 + x1) / 2)
+        else:                                       # '10': ink-spaced pair, then squeezed
+            parts = [outline(ch, sx) for ch in text]
+            pb = [rec_bounds(p) for p in parts]
+            if F['ten_gap'] is None:                # the font's own spacing (advance of the first glyph)
+                adv = font['hmtx'][gname(text[0])][0] * (F['cap'] - b) / dig_f * sx
+                offs = [0.0, adv]
+            else:
+                offs = [0.0, pb[0][2] + b + F['ten_gap'] - pb[1][0]]
+            x0 = min(pb[i][0] + offs[i] for i in range(len(parts)))
+            x1 = max(pb[i][2] + offs[i] for i in range(len(parts)))
+            tsx = F['ten_sx']
+            if F['ten_w'] is not None and (x1 - x0 + b) * tsx > F['ten_w']:
+                tsx = (F['ten_w'] - b) / (x1 - x0)
+            rec = RecordingPen()
+            for p, o in zip(parts, offs):
+                moved(p, o - (x0 + x1) / 2, tsx).replay(rec)
+        dxr = (F['dx'] or {}).get(r, 0.0)
+        if dxr:
+            rec = moved(rec, dxr)
+        x0, y0, x1, y1 = rec_bounds(rec)
+        pen = SVGPathPen(None, ntos=lambda v: ('%.1f' % v).rstrip('0').rstrip('.'))
+        rec.replay(pen)
+        glyphs[r] = pen.getCommands()
+        ext = [max(ext[0], -(y0 - b / 2)), max(ext[1], y1 + b / 2), min(ext[2], x0 - b / 2), max(ext[3], x1 + b / 2)]
+    res = {'glyphs': glyphs, 'ext': [round(e, 2) for e in ext], 'bold': b, 'join': F['join'],
+           'font': Path(F['file']).name, 'spec': spec}
+    _GLYPH_CACHE[key] = res
+    return res
+
+
+def rank_glyph_set(L):
+    if L['rank_font']:
+        return font_rank_glyphs(L['rank_font'])
+    g = L['rank_glyphs']
+    if g is None:
+        return None
+    if isinstance(g, str):
+        if g not in _GLYPH_CACHE:
+            _GLYPH_CACHE[g] = json.loads(_font_path(g).read_text())
+        return _GLYPH_CACHE[g]
+    return g
+
+
+def glyph_symbol(sym, G, rank):
+    """the V symbol with its stroked path replaced by the filled outline of G (same colour)."""
+    colour = re.search(r'stroke="([^"]+)"', sym).group(1)
+    path = '<path d="%s" fill="%s"' % (G['glyphs'][rank], colour)
+    if G['bold']:
+        path += ' stroke="%s" stroke-width="%g" stroke-linejoin="%s"' % (colour, G['bold'], G['join'])
+    return re.sub(r'<path\b.*?</path>', lambda _: path + '></path>', sym, count=1, flags=re.S)
 
 
 def court_factors(L):
@@ -167,10 +389,13 @@ def layout_svg(svg, code, layout):
     if L['rank_stroke'] is not None:
         sym = re.sub(r'stroke-width="[0-9.]+"', 'stroke-width="%g"' % L['rank_stroke'], sym)
         stroke = float(L['rank_stroke'])
+    G = rank_glyph_set(L)
+    if G is not None:
+        sym = glyph_symbol(sym, G, code[0])
     if L['rank_unclip']:
         sym = sym.replace('viewBox="-500 -500 1000 1000"', 'viewBox="-600 -600 1200 1200"')
     head = head[:m.start()] + sym + head[m.end():]
-    rx, ry, rbox, ink_t, ink_b = rank_geometry(L, stroke)
+    rx, ry, rbox, ink_t, ink_b = rank_geometry(L, stroke, G['ext'][:2] if G else None)
     rank, is_court, is_ace = code[0], code[0] in 'JQK', code[0] == 'A'
     # pip grid: the top row's centre (min y over the 50-unit pips, top half)
     pips = [(_get(t, 'x'), _get(t, 'y'), _get(t, 'height')) for t in re.findall(r'<use\b[^>]*>', body)
@@ -220,7 +445,8 @@ def layout_svg(svg, code, layout):
                 cx = -L['rank_cx'] + L['suit_dx']
             elif L['suit_mode'] == 'side':
                 gap = 4.0 if L['suit_gap'] is None else L['suit_gap']
-                cx = L['rank_cx'] + (285 + stroke / 2) * rbox / 1000 * L['rank_sx'] + gap + sb / 3 + L['suit_dx']
+                right = G['ext'][3] if G else 285 + stroke / 2
+                cx = L['rank_cx'] + right * rbox / 1000 * L['rank_sx'] + gap + sb / 3 + L['suit_dx']
             else:
                 raise ValueError(L['suit_mode'])
             return _set(t, x=cx - sb / 2, y=cy - sb / 2, width=sb, height=sb)
@@ -625,7 +851,7 @@ def visibility(inks, cut):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('cmd', choices=['svg', 'export', 'measure', 'glance', 'sheets', 'blind'])
+    ap.add_argument('cmd', choices=['svg', 'export', 'measure', 'glance', 'sheets', 'blind', 'freeze'])
     ap.add_argument('args', nargs='*')
     ap.add_argument('--variants', '-v')
     ap.add_argument('--only')
@@ -649,6 +875,19 @@ def main(argv=None):
         code = re.search(r'face="([^"]+)"', s).group(1)
         s = layout_svg(edit_card_svg.edit(s, *art), code, json.loads(a.layout))
         Path(dst).write_text(s)
+        return 0
+    if a.cmd == 'freeze':             # rank_font -> frozen rank_glyphs JSON (+ the font's copyright/licence)
+        spec = json.loads(a.layout)
+        spec = spec.get('rank_font', spec)
+        G = dict(font_rank_glyphs(spec))
+        from fontTools.ttLib import TTFont
+        names = TTFont(_font_path(spec['file']))['name']
+        for k, nid in (('copyright', 0), ('licence', 13), ('licence_url', 14), ('family', 1)):
+            n = names.getDebugName(nid)
+            if n:
+                G[k] = n
+        Path(a.out).write_text(json.dumps(G, indent=1) + '\n')
+        print(a.out, G['ext'])
         return 0
     vs = load_variants(a.variants, a.only)
     out = Path(a.out) if a.out else None

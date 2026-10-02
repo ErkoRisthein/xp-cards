@@ -84,3 +84,11 @@ changes to the public domain under **CC0 1.0** as well, so the king art is CC0 a
 | Dmitry Fomin, "English pattern <rank> of <suit>.svg" (52 files) and "English pattern playing cards deck.svg" | CC0. Usable, but not chosen for visual reasons (see `docs/card-art.md`). | e.g. https://commons.wikimedia.org/wiki/File:English_pattern_king_of_hearts.svg, wikitext `{{self|cc-zero}}`, author `[[User:Dmitry Fomin|Дмитрий Фомин (Dmitry Fomin)]]`, date 2017-02-24. The full deck file is also `{{self|Cc-zero}}`. |
 | Byron Knoll, "vector-playing-cards" 1.3 | Public domain. Usable; this is the runner-up. | Google Code archive project.json (https://storage.googleapis.com/google-code-archive/v2/code.google.com/vector-playing-cards/project.json): "These images are released into the public domain - attribution is appreciated but not required." The GitHub mirror notpeter/Vector-Playing-Cards README says "released into the public domain or optionally licensed under the WTFPL". |
 | David Bellot SVG-cards, Chris Aguilar Vector Playing Cards | LGPL. Rejected per the brief and not downloaded. | Licence as stated in the brief (UNVERIFIED here). |
+
+## Rank index glyphs (2026-10-02)
+The rank index letters/digits on the card faces are outlines taken from **Bitter** (weight 800),
+© 2011 The Bitter Project Authors (https://github.com/solmatas/BitterPro), licensed under the
+SIL Open Font License 1.1 — full text in `tools/crisplab/candidates/OFL-Bitter.txt`. The outlines are
+frozen in `tools/crisplab/candidates/rank_bitter800.json` and rendered into the card art by
+`tools/crisplab/stacklab.py` (layout variant XPLIKE_BITTER). The OFL permits embedding glyphs in
+artwork; the font itself is not redistributed as a font.

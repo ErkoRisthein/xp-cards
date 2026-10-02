@@ -32,6 +32,25 @@
     }
   },
   {
+    "name": "XPLIKE_BITTER",
+    "note": "XPLIKE with the rank index set in Bitter 800 (OFL; outlines frozen in rank_bitter800.json): open K/10/8, bold slab like XP; rank ink still ends at 0.145 ch (typolab, docs in the json)",
+    "layout": {
+      "rank_scale": 0.72,
+      "rank_bottom": 0.145,
+      "rank_cx": -95,
+      "suit_mode": "classic",
+      "suit_scale": 0.88,
+      "suit_gap": 2.5,
+      "pip_scale": 1.1,
+      "pip_top": 0.104,
+      "pip_xs": 0.94,
+      "court_top": 0.113,
+      "court_sx": 1.035,
+      "rank_unclip": true,
+      "rank_glyphs": "candidates/rank_bitter800.json"
+    }
+  },
+  {
     "name": "XPLIKE_SPLIT",
     "note": "fitted rank + full-size suit in the top-right corner + XP-raised pips; courts as generated",
     "layout": {
