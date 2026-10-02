@@ -37,7 +37,7 @@ COURT_FRAME_W=${COURT_FRAME_W:-1.5}
 # Card layout for stacked legibility (docs/ROADMAP.md 2e): a named variant from
 # tools/crisplab/candidates/stack.json (default XPLIKE: XP-like index/pip positions); stacklab.py applies
 # the art edit above (index 130, courts 1.6x #223, frame 1.5) and then this layout.
-CARD_VARIANT=${CARD_VARIANT:-XPLIKE_BITTER}
+CARD_VARIANT=${CARD_VARIANT:-XPLIKE_BITTER_HYBRID}
 CARD_LAYOUT=$("$PYTHON" -c 'import json,sys; print(json.dumps(next(v["layout"] for v in json.load(open("tools/crisplab/candidates/stack.json")) if v["name"]==sys.argv[1])))' "$CARD_VARIANT")
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fcassets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT

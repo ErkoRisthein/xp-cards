@@ -51,6 +51,60 @@
     }
   },
   {
+    "name": "XPLIKE_BITTER_XPPIPS",
+    "note": "XPLIKE_BITTER (index untouched) with XP's pip geometry measured from cards.dll (candidates/xp_pips.json, tools/crisplab/xppips.py): per-rank XP arrangements (8 = 2x4, turned bottom pips) at XP's pip ink height 15/96 (RevK shapes, aspect kept); court frame at XP's line (col 12.5/71, row 11.5/96), court pip at XP's size 0.5 px inside the frame on the generator's side with its top at 0.120 (on the frame line like the generator's; XP 0.1354) so the Solitaire strip shows as much court pip as XPLIKE_BITTER; A of C/D/H pip = a body pip (15/96); AS emblem x0.85 (XP's ink-box area) centred at XP's 0.4635",
+    "layout": {
+      "rank_scale": 0.66,
+      "rank_bottom": 0.14,
+      "rank_cx": -95,
+      "suit_mode": "classic",
+      "suit_scale": 0.88,
+      "suit_gap": 9,
+      "rank_unclip": true,
+      "rank_glyphs": "candidates/rank_bitter800.json",
+      "xp_pips": "candidates/xp_pips.json",
+      "pip_h": 0.15625,
+      "pip_gain": 1.0,
+      "court_frame": [
+        0.17606,
+        0.11979
+      ],
+      "court_pip_h": 0.15625,
+      "court_pip_top": 0.12,
+      "court_pip_inset": 0.00704,
+      "ace_h": 0.15625,
+      "ace_spade_scale": 0.85,
+      "ace_spade_cy": 0.46354
+    }
+  },
+  {
+    "name": "XPLIKE_BITTER_XPPIPS_G105",
+    "note": "XPLIKE_BITTER_XPPIPS with every pip 5% larger (pip_gain 1.05): closer to XP's visual weight at 96, tighter 10/9 at 257",
+    "layout": {
+      "rank_scale": 0.66,
+      "rank_bottom": 0.14,
+      "rank_cx": -95,
+      "suit_mode": "classic",
+      "suit_scale": 0.88,
+      "suit_gap": 9,
+      "rank_unclip": true,
+      "rank_glyphs": "candidates/rank_bitter800.json",
+      "xp_pips": "candidates/xp_pips.json",
+      "pip_h": 0.15625,
+      "pip_gain": 1.05,
+      "court_frame": [
+        0.17606,
+        0.11979
+      ],
+      "court_pip_h": 0.15625,
+      "court_pip_top": 0.12,
+      "court_pip_inset": 0.00704,
+      "ace_h": 0.15625,
+      "ace_spade_scale": 0.85,
+      "ace_spade_cy": 0.46354
+    }
+  },
+  {
     "name": "XPLIKE_SPLIT",
     "note": "fitted rank + full-size suit in the top-right corner + XP-raised pips; courts as generated",
     "layout": {
@@ -102,5 +156,32 @@
       "court_top": 0.113,
       "court_sx": 1.035
     }
+  },
+  {
+    "name": "XPLIKE_BITTER_HYBRID",
+    "layout": {
+      "rank_scale": 0.66,
+      "rank_bottom": 0.14,
+      "rank_cx": -95,
+      "suit_mode": "classic",
+      "suit_scale": 0.88,
+      "suit_gap": 9,
+      "rank_unclip": true,
+      "rank_glyphs": "candidates/rank_bitter800.json",
+      "xp_pips": "candidates/xp_pips_hybrid.json",
+      "pip_h": 0.15625,
+      "pip_gain": 1.0,
+      "court_frame": [
+        0.17606,
+        0.11979
+      ],
+      "court_pip_h": 0.15625,
+      "court_pip_top": 0.12,
+      "court_pip_inset": 0.00704,
+      "ace_h": 0.15625,
+      "ace_spade_scale": 0.85,
+      "ace_spade_cy": 0.46354
+    },
+    "note": "XPLIKE_BITTER (index untouched) with XP's pip geometry measured from cards.dll (candidates/xp_pips.json, tools/crisplab/xppips.py): per-rank XP arrangements (8 = 2x4, turned bottom pips) at XP's pip ink height 15/96 (RevK shapes, aspect kept); court frame at XP's line (col 12.5/71, row 11.5/96), court pip at XP's size 0.5 px inside the frame on the generator's side with its top at 0.120 (on the frame line like the generator's; XP 0.1354) so the Solitaire strip shows as much court pip as XPLIKE_BITTER; A of C/D/H pip = a body pip (15/96); AS emblem x0.85 (XP's ink-box area) centred at XP's 0.4635"
   }
 ]

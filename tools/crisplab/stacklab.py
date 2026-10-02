@@ -8,7 +8,9 @@ HD by 9 ch / 46, so only the top strip of each covered card shows. This tool:
              deterministically: rank-index glyph scale/stroke/position, index-suit placement
              (classic = under the rank, split = top-right corner as the generator's 'splitindex',
              side = right of the rank, none), body-pip grid scale (2-10), court picture scale and
-             court-pip size, ace pip scale. Applied after tools/edit_card_svg.py's art edit.
+             court-pip size, ace pip scale; or XP's measured geometry (xp_pips: per-rank pip centres,
+             sizes and turned pips, plus court frame/pip and ace sizes, from candidates/xp_pips.json made
+             by xppips.py from the cards.dll bitmaps). Applied after tools/edit_card_svg.py's art edit.
   2. GLANCE  renders every card through the crisp runtime pipeline (crisplab's model of
              cardset.c/image.c, candidate 'art+darkbias+sharpen+clamp' = v1.1.1 as shipped), crops the
              strip that a stacked column shows, and measures how far each strip is from the nearest
@@ -101,6 +103,25 @@ LAYOUT_DEFAULTS = dict(
                          # a TrueType font: a dict, keys FONT_DEFAULTS (needs fontTools; lab use)
     rank_glyphs=None,    # the same from frozen outlines (stacklab.py freeze): a dict or a JSON file path
                          # (relative to this directory); no fontTools needed (make_assets.sh)
+    xp_pips=None,        # 2-10: drop the generator's pip grid and place the pips per rank at XP's measured centres:
+                         # a dict or JSON file path (relative to this directory; candidates/xp_pips.json, measured
+                         # from cards.dll) with 'ranks' {rank: [[cx, cy, rot], ...]} (fractions of the card width /
+                         # height; rot = turned 180 degrees), 'pip_h' and 'quirks'. pip_scale, pip_top, pip_xs and
+                         # pip_ys then do not apply to 2-10
+    pip_h=None,          # xp_pips: body-pip ink height as a fraction of ch (None: the file's pip_h, XP 15/96); the
+                         # RevK suit symbols' ink is 5/6 of their box for all four suits, aspect kept
+    pip_gain=1.0,        # scale of the pip sizes given as heights (pip_h, ace_h, court_pip_h) about their centres
+    xp_quirks=False,     # xp_pips: also XP's per-card deviations (file 'quirks': its 8D is 2-1-2-1-2)
+    court_frame=None,    # [x, y]: the court frame line's top-left corner as fractions of (cw, ch) (XP: column 12.5
+                         # of 71, row 11.5 of 96); sets the picture's sx, sy (court_scale/court_top/court_sx unused)
+    court_pip_h=None,    # court pip ink height as a fraction of ch (instead of 48.4 * sy * court_pip_scale)
+    court_pip_cx=None,   # court pip centre x as a fraction of cw for a pip on the left (XP's K: 21.5 / 71); a pip
+                         # the generator puts on the right (most J/Q, as XP) is mirrored. None: moved with the picture
+    court_pip_inset=None,  # alternative to court_pip_cx: the court pip's outer ink edge this far (fraction of cw)
+                           # inside the frame line's centre (XP: 1.5 px of 71, a 1-px gap after the 1-px line)
+    ace_h=None,          # A of C/D/H: pip ink height as a fraction of ch (instead of ace_scale)
+    ace_spade_scale=1.0, # AS emblem (the generator's 204-unit spade with its dashed outline): scale about its centre
+    ace_spade_cy=None,   # AS emblem: centre y as a fraction of ch (None: the card centre)
 )
 
 # rank_font keys. Glyph units: the V symbol's 1000-unit box, y down, ink centred on x = 0, cap ink (the
@@ -124,6 +145,8 @@ FONT_DEFAULTS = dict(
     chars=None,          # {"T": "10", "A": "A", ...}: what to draw per rank (default: the rank's text)
     glyph=None,          # {"1": "one.alt"}: force a glyph name for a character
 )
+# half the ink width of the RevK suit symbols as a fraction of their box (1200-unit viewBox; ink height 1000)
+SUIT_INK_HALF_W = {'S': 355 / 1200, 'C': 466.5 / 1200, 'H': 400 / 1200, 'D': 397 / 1200}
 RANK_TEXT = {r: r for r in RANKS}
 RANK_TEXT['T'] = '10'
 
@@ -365,6 +388,9 @@ def glyph_symbol(sym, G, rank):
 
 
 def court_factors(L):
+    if L['court_frame'] is not None:          # the frame rect is x -72..72, y -116..116 (line centre)
+        fx, fy = L['court_frame']
+        return (0.5 - fx) * 240.0 / 72.0, (0.5 - fy) * CH_U / 116.0
     if L['court_top'] is not None:
         sy = (TOP + L['court_top'] * CH_U) / -116.0
         sx = L['court_sx'] if L['court_sx'] is not None else sy
@@ -454,14 +480,25 @@ def layout_svg(svg, code, layout):
             x, y = _get(t, 'x'), _get(t, 'y')
             cx, cy = (x + h / 2) * sx, (y + h / 2) * sy + L['court_pip_dy']
             nb = h * sy * L['court_pip_scale']
+            if L['court_pip_h'] is not None:
+                nb = L['court_pip_h'] * CH_U * 1.2 * L['pip_gain']
+            if L['court_pip_cx'] is not None:      # the generator's side kept (J/Q mostly right, K left)
+                cx = math.copysign((0.5 - L['court_pip_cx']) * 240.0, x + h / 2)
+            if L['court_pip_inset'] is not None:   # outer ink edge this far inside the frame line
+                hw = SUIT_INK_HALF_W[code[1]] * nb
+                cx = math.copysign(72.0 * sx - L['court_pip_inset'] * 240.0 - hw, x + h / 2)
             if L['court_pip_top'] is not None:
                 cy = TOP + L['court_pip_top'] * CH_U + nb * 5 / 12
             return _set(t, x=cx - nb / 2, y=cy - nb / 2, width=nb, height=nb)
+        if is_ace and href.startswith('S') and h is not None and abs(h - 204) < 1e-6:   # the AS emblem
+            nb = 204 * L['ace_spade_scale']
+            cy = 0.0 if L['ace_spade_cy'] is None else TOP + L['ace_spade_cy'] * CH_U
+            return _set(t, x=-nb / 2, y=cy - nb / 2, width=nb, height=nb)
         if href.startswith('S') and h is not None and abs(h - 50) < 1e-6:       # body pip / ace pip
             x, y = _get(t, 'x'), _get(t, 'y')
             cx, cy = x + 25, y + 25
             if is_ace:
-                nb = 50 * L['ace_scale']
+                nb = 50 * L['ace_scale'] if L['ace_h'] is None else L['ace_h'] * CH_U * 1.2 * L['pip_gain']
                 return _set(t, x=cx - nb / 2, y=cy - nb / 2, width=nb, height=nb)
             nb = 50 * L['pip_scale']
             cx, cy = cx * L['pip_xs'], cy * ys
@@ -479,12 +516,54 @@ def layout_svg(svg, code, layout):
             return t
         return t
 
+    X = xp_geometry(L) if not is_ace and not is_court else None
+    if X is not None:     # XP's arrangement: remove the generator's body pips (50-unit S uses), placed below
+        body = re.sub(r'<use\b[^>]*></use>', lambda m: '' if re.search(r'href="#S', m.group(0)) and abs(
+            (_get(m.group(0), 'height') or 0) - 50) < 1e-6 else m.group(0), body)
     body = re.sub(r'<use\b[^>]*>', use, body)
+    if X is not None:
+        body = xp_place_pips(body, code, L, X)
     if is_court and L['court_frame_top'] is not None:
         ft = TOP + L['court_frame_top'] * CH_U
         head = re.sub(r'<rect id="X[^"]*"[^>]*>', lambda m: _set(m.group(0).replace('<rect', '<use', 1),
                       y=ft, height=-2 * ft).replace('<use', '<rect', 1), head)
     return head + '</defs>' + body
+
+
+def xp_geometry(L):
+    g = L['xp_pips']
+    if g is None:
+        return None
+    if isinstance(g, str):
+        if g not in _GLYPH_CACHE:
+            _GLYPH_CACHE[g] = json.loads(_font_path(g).read_text())
+        return _GLYPH_CACHE[g]
+    return g
+
+
+def xp_pips_of(code, L, X):
+    """[(cx, cy, rot)] (fractions of the card) of a 2-10 card under xp_pips."""
+    if L['xp_quirks'] and code in X.get('quirks', {}):
+        return X['quirks'][code]
+    return X['ranks'][code[0]]
+
+
+def xp_place_pips(body, code, L, X):
+    """insert the body pips of a 2-10 card at the xp_pips centres: upright pips before the generator's
+    rotate(180) group, turned ones inside it (coordinates negated, so the group turns them back in place)."""
+    ph = (L['pip_h'] if L['pip_h'] is not None else X['pip_h']) * L['pip_gain']
+    nb = ph * CH_U * 1.2                          # suit symbol ink = 1000 of its 1200-unit box
+    href = '#S%s%s' % (code[1], code[0])
+    up, turned = [], []
+    for cx, cy, rot in xp_pips_of(code, L, X):
+        x, y = (cx - 0.5) * 240.0, (cy - 0.5) * CH_U
+        if rot:
+            x, y = -x, -y
+        t = _set('<use xlink:href="%s">' % href, height=nb, width=nb, x=x - nb / 2, y=y - nb / 2) + '</use>'
+        (turned if rot else up).append(t)
+    g = '<g transform="rotate(180)">'
+    i = body.index(g)
+    return body[:i] + ''.join(up) + g + ''.join(turned) + body[i + len(g):]
 
 
 # ---- variants -----------------------------------------------------------------------------------------
