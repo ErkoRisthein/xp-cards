@@ -34,6 +34,11 @@ INDEX_STROKE=${INDEX_STROKE:-130}
 COURT_MULT=${COURT_MULT:-1.6}
 COURT_COLOUR=${COURT_COLOUR:-#223}
 COURT_FRAME_W=${COURT_FRAME_W:-1.5}
+# Card layout for stacked legibility (docs/ROADMAP.md 2e): a named variant from
+# tools/crisplab/candidates/stack.json (default XPLIKE: XP-like index/pip positions); stacklab.py applies
+# the art edit above (index 130, courts 1.6x #223, frame 1.5) and then this layout.
+CARD_VARIANT=${CARD_VARIANT:-XPLIKE_BITTER_HYBRID}
+CARD_LAYOUT=$("$PYTHON" -c 'import json,sys; print(json.dumps(next(v["layout"] for v in json.load(open("tools/crisplab/candidates/stack.json")) if v["name"]==sys.argv[1])))' "$CARD_VARIANT")
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/fcassets.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
@@ -69,8 +74,7 @@ solicon() { "$PYTHON" res/solitaire/icon/make_icon.py res/solitaire/icon res/sol
 cards() {
     for f in res/common/cards-svg/??.svg; do
         n=$(basename "$f" .svg)
-        "$PYTHON" tools/edit_card_svg.py "$f" "$TMP/$n.svg" "$INDEX_STROKE" "$COURT_MULT" "$COURT_COLOUR" \
-            "$COURT_FRAME_W"
+        "$PYTHON" tools/crisplab/stacklab.py svg "$f" "$TMP/$n.svg" --layout "$CARD_LAYOUT"
         rsvg-convert -h 560 "$TMP/$n.svg" -o "$TMP/$n.png"
         optimise "$TMP/$n.png" "res/common/cards/$n.png" 15
         printf '%s ' "$n"

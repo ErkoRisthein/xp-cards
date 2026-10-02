@@ -130,7 +130,7 @@ docs/DESIGN.md "Motion (2d)".
   res/common/cards via stacklab.py svg --layout XPLIKE in make_assets.sh, refresh tests/card_golden.h.
 
 ## Bugs / TODO
-- [fix in script, assets not yet regenerated] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
+- [FIXED with the XPLIKE regeneration] Rank glyphs (0, 3, 5, 6, 8, 9, Q...) were shaved ~1 px flat at
   top/bottom: thickening the rank stroke (80 -> 130) made it overflow the glyph <symbol> viewBox, which
   clips. tools/edit_card_svg.py now sets overflow="visible" on the rank symbols; regenerate
   res/common/cards together with the XPLIKE layout (2e) and check stacklab's own rank transform too.
@@ -138,3 +138,6 @@ docs/DESIGN.md "Motion (2d)".
   game on exit" / "Always continue saved game"); the Windows 7 prompts move to their own opt-in checkbox
   "As&k before saving or resuming" (AskSaveGame, default off) — gate in session.c (new game ~1258,
   sol_exit_choice, sol_offer_resume), Options row after SaveGame, tests + solhd_extras/solhd_win7 e2e.
+- Pip geometry (decided with the user 2026-10-02): HYBRID — XP's pip size and vertical spread and XP's
+  fuller court frame, but the traditional (RevK) pip arrangements per rank (e.g. 8 = 3+2+3, not XP's 2x4).
+  Measured XP geometry comes from the xp-pip-match lab (scratchpad piplab/xp_geometry.json).

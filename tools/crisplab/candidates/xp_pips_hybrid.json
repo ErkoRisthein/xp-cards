@@ -1,0 +1,341 @@
+{
+ "doc": "Windows XP cards.dll pip geometry (71x96 bitmaps), measured by tools/crisplab/xppips.py and symmetrised (columns snapped to one left/centre/right x for all ranks, every pip set made symmetric under the 180-degree turn). Fractions of the card: x of the width, y of the height. ranks: [cx, cy, rot] per pip (rot = drawn turned 180 degrees). quirks: cards whose XP arrangement differs from their rank (8D is 2-1-2-1-2 in XP). pip_h: XP pip ink height (15 px of 96, every suit). court_frame: the frame line's centre (top-left corner; XP: the 1-px line in column 12 / row 11). court_pip: XP's K pip (top-left, inside the frame; XP J/Q have theirs top-right). ace: A of C/D/H pip = a body pip at the centre; ace_spade: the ornate AS ink box. | HYBRID (decided with the user 2026-10-02): XP geometry, but the traditional 3+2+3 eight for every suit (XP's own 8D layout) instead of XP's 2x4.",
+ "source_px": [
+  71,
+  96
+ ],
+ "pip_h": 0.15625,
+ "pip_w": {
+  "C": 0.2112676056338028,
+  "D": 0.18309859154929578,
+  "H": 0.2112676056338028,
+  "S": 0.2112676056338028
+ },
+ "columns": [
+  0.31472,
+  0.5,
+  0.68528
+ ],
+ "ranks": {
+  "2": [
+   [
+    0.5,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.81771,
+    true
+   ]
+  ],
+  "3": [
+   [
+    0.5,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.5,
+    false
+   ],
+   [
+    0.5,
+    0.81771,
+    true
+   ]
+  ],
+  "4": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "5": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.5,
+    false
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "6": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.31472,
+    0.5,
+    false
+   ],
+   [
+    0.68528,
+    0.5,
+    false
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "7": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.35156,
+    false
+   ],
+   [
+    0.31472,
+    0.5,
+    false
+   ],
+   [
+    0.68528,
+    0.5,
+    false
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "8": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.34896,
+    false
+   ],
+   [
+    0.31472,
+    0.5,
+    false
+   ],
+   [
+    0.68528,
+    0.5,
+    false
+   ],
+   [
+    0.5,
+    0.65104,
+    true
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "9": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.31472,
+    0.39453,
+    false
+   ],
+   [
+    0.68528,
+    0.39453,
+    false
+   ],
+   [
+    0.5,
+    0.5,
+    false
+   ],
+   [
+    0.31472,
+    0.60547,
+    true
+   ],
+   [
+    0.68528,
+    0.60547,
+    true
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ],
+  "T": [
+   [
+    0.31472,
+    0.18229,
+    false
+   ],
+   [
+    0.68528,
+    0.18229,
+    false
+   ],
+   [
+    0.5,
+    0.29167,
+    false
+   ],
+   [
+    0.31472,
+    0.39844,
+    false
+   ],
+   [
+    0.68528,
+    0.39844,
+    false
+   ],
+   [
+    0.31472,
+    0.60156,
+    true
+   ],
+   [
+    0.68528,
+    0.60156,
+    true
+   ],
+   [
+    0.5,
+    0.70833,
+    true
+   ],
+   [
+    0.31472,
+    0.81771,
+    true
+   ],
+   [
+    0.68528,
+    0.81771,
+    true
+   ]
+  ]
+ },
+ "quirks": {},
+ "court_frame": [
+  0.17606,
+  0.11979
+ ],
+ "court_frame_outer": [
+  0.16901408450704225,
+  0.11458333333333333,
+  0.8309859154929577,
+  0.8854166666666666
+ ],
+ "court_pip": {
+  "cx": 0.30282,
+  "top": 0.13542,
+  "h": 0.15625,
+  "side_by_rank": {
+   "J": "right",
+   "Q": "right",
+   "K": "left"
+  }
+ },
+ "ace_h": 0.15625,
+ "ace_spade": {
+  "x0": 0.23943661971830985,
+  "y0": 0.2604166666666667,
+  "x1": 0.7887323943661971,
+  "y1": 0.6666666666666666,
+  "cx": 0.5140845070422535,
+  "cy": 0.4635416666666667,
+  "w": 0.5492957746478874,
+  "h": 0.40625
+ }
+}
