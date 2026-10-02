@@ -454,6 +454,61 @@ static void test_render_hint(FcCardSet *cs)
     ce_image_free(b);
 }
 
+/* v1.4 drag and drop: the lifted cards' sprite over the board without them is the board itself (to the
+ * rounding of compositing twice), for a column run (also a compressed column); a free cell's card lifted
+ * leaves the empty cell under it. */
+static void test_render_stack(FcCardSet *cs)
+{
+    static const int sizes[3][2] = { { 632, 427 }, { 1264, 854 }, { 632, 300 } };
+    for (int k = 0; k < 3; k++) {
+        int W = sizes[k][0], H = sizes[k][1], worst = 0;
+        CeImage *a = ce_image_new(W, H), *b = ce_image_new(W, H);
+        FcBoard bd;
+        FcView v, w;
+        FcLayout l;
+        clear(&bd);
+        fill_col(&bd, 2, k == 2 ? 16 : 7);
+        bd.board[0][1] = 51;
+        fc_layout_compute(&l, W, H);
+        fc_render_prepare(cs, &l, 1);
+        for (int t = 0; t < 2; t++) {
+            int col = t ? 0 : 2, first = t ? 1 : 3;
+            CeImage *st = fc_render_stack(cs, &l, &bd, col, first);
+            CeRect r = fc_layout_card_rect(&l, &bd, col, first);
+            CHECK(st != NULL, "stack sprite");
+            if (!st) continue;
+            CHECK(st->w == l.cw && st->h == (t ? l.ch : (fc_last_index(&bd, 2) - first) * fc_layout_col_step(&l, &bd, 2) + l.ch),
+                  "stack size %dx%d", st->w, st->h);
+            fc_view_init(&v);
+            fc_view_init(&w);
+            w.hide_col = col;
+            w.hide_pos = first;
+            if (t) {                            /* a free cell: the empty cell (its bevel) shows under it */
+                FcBoard e = bd;
+                e.board[0][first] = FC_EMPTY;
+                fc_render_board(a, &l, &e, &v, cs);
+                ce_blit(a, st, r.x, r.y);
+            } else {
+                fc_render_board(a, &l, &bd, &v, cs);
+            }
+            fc_render_board(b, &l, &bd, &w, cs);
+            ce_blit(b, st, r.x, r.y);
+            for (int i = 0; i < W * H; i++)
+                for (int sh = 0; sh < 24; sh += 8) {
+                    int d = (int)((a->px[i] >> sh) & 255) - (int)((b->px[i] >> sh) & 255);
+                    if (d < 0) d = -d;
+                    if (d > worst) worst = d;
+                }
+            ce_image_free(st);
+        }
+        CHECK(worst <= 1, "%dx%d: the lifted stack over the board differs by %d", W, H, worst);
+        CHECK(fc_render_stack(cs, &l, &bd, 0, 0) == NULL, "an empty free cell: no sprite");
+        CHECK(fc_render_stack(cs, &l, &bd, 4, 0) == NULL, "an empty column: no sprite");
+        ce_image_free(a);
+        ce_image_free(b);
+    }
+}
+
 static void test_cardset(FcCardSet *cs)
 {
     const CeImage *a, *b2;
@@ -757,6 +812,7 @@ int main(void)
         test_cardset(cs);
         test_render_rect(cs);
         test_render_hint(cs);
+        test_render_stack(cs);
         test_bevel_cache_render(cs);
         test_cardset_rules(res ? res : "res");
         fc_cardset_free(cs);

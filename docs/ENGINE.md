@@ -22,6 +22,8 @@ src/engine/win32/      Win32 shell pieces (XP SP2 APIs only); shell.h includes t
                        mouse-over test, message loop
   backbuf.{h,c}        CeBackBuf: DIB back buffer + scratch DIB, WM_PAINT, live-resize quality
   anim.{h,c}           CeAnimClock: timeBeginPeriod(1), frame pacing, straight flights (ce_anim_fly)
+  drag.{h,c}           CeDrag: cards dragged with the mouse (the lifted stack's sprite over the back
+                       buffer, the zip-back of a refused drop, the drag threshold)
   menubar.{h,c}        CeMenuBarText: text at the right end of the menu bar ("Cards Left")
   window.{h,c}         window sizes, first-run rect, WindowPlacement load/fix/save, CeFullScreen
   regstore.{h,c}       registry CeStore (REG_BINARY or REG_DWORD, entpack.ini migration),
@@ -86,6 +88,14 @@ update the menu check mark and redraw the menu bar) and `ce_fullscreen_fit` on W
 WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE: `ce_backbuf_enter_sizemove` / `ce_backbuf_exit_sizemove` (returns 1:
 lay out again at quality 1); WM_PAINT: `ce_backbuf_paint`; WM_ERASEBKGND: return 1. An animation frame
 is `ce_backbuf_present(bb, dc, region, sprite, x, y, w, h)` (flicker-free, the back buffer untouched).
+
+**Dragging.** `CeDrag` (Solitaire HD's drag, used by FreeCell HD's opt-in drag and drop too): the game
+renders its board without the lifted cards and gives `ce_drag_begin` their sprite, rect and the grab
+point; `ce_drag_move` follows the pointer (each move one flicker-free frame of the union of the old and
+new rect), `ce_drag_paint` in WM_PAINT, `ce_drag_zip_back` slides a refused drop home (`ce_anim_fly`),
+`ce_drag_end` invalidates the sprite's rect and frees it; `ce_drag_threshold_passed` (SM_CXDRAG /
+SM_CYDRAG) tells a drag from a click. Without a sprite only the position is kept (Solitaire's "Outline
+dragging" draws the drag as part of its board).
 
 **Animation.** `ce_anim_fly` moves one sprite in a straight line, XP's AnimateCard (frames of
 `px_per_frame`, paced at `frame_ms`, late frames dropped, never the landing frame), stopping when the

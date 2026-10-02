@@ -159,6 +159,30 @@ void fc_render_board(CeImage *fb, const FcLayout *l, const FcBoard *b, const FcV
     fc_render_board_rect(fb, l, b, v, cs, r);
 }
 
+CeImage *fc_render_stack(FcCardSet *cs, const FcLayout *l, const FcBoard *b, int col, int first)
+{
+    CeImage *img;
+    int n, step = 0, i;
+    if (!cs || !l || !b || col < 0 || col > 8 || first < 0)
+        return NULL;
+    if (col == 0) {
+        if (first > 7 || b->board[0][first] == FC_EMPTY)
+            return NULL;
+        n = 1;
+    } else {
+        n = last_index(b, col) - first + 1;
+        if (n <= 0)
+            return NULL;
+        step = fc_layout_col_step(l, b, col);
+    }
+    img = ce_image_new(l->cw, (n - 1) * step + l->ch);        /* transparent */
+    if (!img)
+        return NULL;
+    for (i = 0; i < n; i++)
+        fc_render_card(img, cs, col == 0 ? b->board[0][first] : b->board[col][first + i], 0, i * step, 0);
+    return img;
+}
+
 void fc_render_card(CeImage *fb, FcCardSet *cs, Card k, int x, int y, int inverted)
 {
     const CeImage *s;

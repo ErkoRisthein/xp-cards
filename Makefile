@@ -16,6 +16,8 @@
 #   make sol-xp-compare  Solitaire: random play through v1.0's session (git XP_REF, default 5dc1896) and
 #                   today's with every extra off; the logs of callbacks, registry and state must be
 #                   identical (tests/solitaire/sol_xp_compare.c; XP_GAMES games, default 400)
+#   make fc-xp-compare   FreeCell: the same against 1.3's session (git FC_REF, default 904243b) with the
+#                   v1.4 extras off (tests/freecell/fc_xp_compare.c; FC_GAMES games, default 300)
 #   make snapshots  render board snapshots (native): FreeCell to build/snapshots/*.png, Solitaire to
 #                   build/snapshots/solitaire/*.png (SOL_XP_SHOTS=<dir of XP sol.exe captures> adds
 #                   side-by-side comparisons); snapshots-freecell / snapshots-solitaire: one of them
@@ -94,7 +96,7 @@ TEST_HEADERS := $(HEADERS) $(wildcard tests/*.h tests/*/*.h)
 
 .PHONY: all freecell solitaire release release-freecell release-solitaire test test-engine test-freecell \
         test-solitaire \
-        solver-bench seed-tables sol-xp-compare snapshots snapshots-freecell snapshots-solitaire xpcheck xpcheck-freecell xpcheck-solitaire e2e e2e-freecell e2e-solitaire \
+        solver-bench seed-tables sol-xp-compare fc-xp-compare snapshots snapshots-freecell snapshots-solitaire xpcheck xpcheck-freecell xpcheck-solitaire e2e e2e-freecell e2e-solitaire \
         deploy clean
 
 all: $(EXES)
@@ -202,6 +204,27 @@ sol-xp-compare: tests/solitaire/sol_xp_compare.c $(ENGINE_SRC) $(SOL_SRC) $(HEAD
 	@cmp $(SOL_XP_DIR)/old.log $(SOL_XP_DIR)/new.log && \
 	    echo "sol-xp-compare: identical, $$(wc -l < $(SOL_XP_DIR)/new.log | tr -d ' ') log lines \
 	    ($$(grep -c '^st ' $(SOL_XP_DIR)/new.log) inputs, $$(grep -c 'cascade' $(SOL_XP_DIR)/new.log) wins)"
+
+# The FreeCell extras-off proof: 1.3's session and rules (git show FC_REF) and today's, the same random input.
+FC_REF   ?= 904243b
+FC_GAMES ?= 300
+FC_XP_DIR := $(BUILD)/fcxpcompare
+FC_CMP_FILES := game session assist solver stats wondeals
+
+fc-xp-compare: tests/freecell/fc_xp_compare.c $(ENGINE_SRC) $(FC_SRC) $(HEADERS)
+	@rm -rf $(FC_XP_DIR)/old && mkdir -p $(FC_XP_DIR)/old/freecell
+	@for f in $(FC_CMP_FILES); do for x in h c; do \
+	    git show $(FC_REF):src/freecell/$$f.$$x > $(FC_XP_DIR)/old/freecell/$$f.$$x || exit 1; done; done
+	$(HOSTCC) -I$(FC_XP_DIR)/old $(BENCHCFLAGS) -o $(FC_XP_DIR)/old_run tests/freecell/fc_xp_compare.c \
+	    $(foreach f,$(FC_CMP_FILES),$(FC_XP_DIR)/old/freecell/$(f).c) src/engine/store.c
+	$(HOSTCC) $(BENCHCFLAGS) -DFC_NEW_API -o $(FC_XP_DIR)/new_run tests/freecell/fc_xp_compare.c \
+	    $(foreach f,$(FC_CMP_FILES),src/freecell/$(f).c) src/engine/store.c
+	$(FC_XP_DIR)/old_run $(FC_GAMES) > $(FC_XP_DIR)/old.log
+	$(FC_XP_DIR)/new_run $(FC_GAMES) > $(FC_XP_DIR)/new.log
+	@cmp $(FC_XP_DIR)/old.log $(FC_XP_DIR)/new.log && \
+	    echo "fc-xp-compare: identical, $$(wc -l < $(FC_XP_DIR)/new.log | tr -d ' ') log lines \
+	    ($$(grep -c '^st ' $(FC_XP_DIR)/new.log) inputs, $$(grep -c 'youwin' $(FC_XP_DIR)/new.log) wins, \
+	    $$(grep -c 'youlose' $(FC_XP_DIR)/new.log) losses, $$(grep -c '^solve_done' $(FC_XP_DIR)/new.log) solver answers)"
 
 snapshots: snapshots-freecell snapshots-solitaire
 

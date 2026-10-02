@@ -798,11 +798,13 @@ static int same_game(const SolSession *a, const SolSession *b)
         ok = x->type == y->type && x->src == y->src && x->dst == y->dst && x->n == y->n && x->nsteps == y->nsteps &&
              x->autoturn == y->autoturn && !memcmp(x->steps, y->steps, 2u * x->nsteps) &&
              !memcmp(x->board, y->board, SOL_PACKED_SIZE) && x->waste_fan == y->waste_fan && x->score == y->score &&
-             x->recycles == y->recycles && x->clock_pen == y->clock_pen;
+             x->recycles == y->recycles && x->clock_pen == y->clock_pen && x->nauto == y->nauto &&
+             !memcmp(x->autos, y->autos, x->nauto);
     }
     for (int i = 0; ok && i < a->nredo; i++)
-        ok = !memcmp(a->redo[i].board, b->redo[i].board, SOL_PACKED_SIZE) && a->redo[i].type == b->redo[i].type;
-    return ok;
+        ok = !memcmp(a->redo[i].board, b->redo[i].board, SOL_PACKED_SIZE) && a->redo[i].type == b->redo[i].type &&
+             a->redo[i].nauto == b->redo[i].nauto && !memcmp(a->redo[i].autos, b->redo[i].autos, a->redo[i].nauto);
+    return ok && a->redo_group == b->redo_group;
 }
 
 static void test_save_resume(void)
@@ -818,13 +820,20 @@ static void test_save_resume(void)
         start(&a, &fa, &ra, modes[mi], 100 + mi);
         sol_attach_stats(&a, NULL);
         extras_on(&a, mi & 1, 0, 0);
+        a.extras.auto_home = mi >= 2;                         /* v1.2: the auto-home sequences are saved too */
         play_some(&a, 7u + (unsigned)mi, 120);
         if (!a.dealt) sol_command(&a, SOL_CMD_DEAL), play_some(&a, 8, 30);
-        sol_undo(&a);
-        sol_undo(&a);                                         /* something to redo */
+        if (mi == 4) {
+            sol_undo_all(&a);                                 /* an Undo All group to save */
+            CHECK(a.redo_group > 0);
+        } else {
+            sol_undo(&a);
+            sol_undo(&a);                                     /* something to redo */
+        }
         CHECK(sol_game_save(&a, &io));
         start(&b, &fb, &rb, modes[mi], -1);                   /* a fresh start, nothing dealt */
         extras_on(&b, mi & 1, 0, 0);                          /* the settings are the registry's, not the file's */
+        b.extras.auto_home = mi >= 2;
         int inval = fb.ninval;
         CHECK_EQ(sol_game_load(&b, &io), SOL_LOAD_OK);
         CHECK(same_game(&a, &b));
@@ -1096,6 +1105,408 @@ static void test_warning(void)
     sol_free(&s);
 }
 
+
+/* ---- v1.2: move cards home automatically ------------------------------------------------------------ */
+
+static void extra_set(SolSession *s, int *field, int on)
+{
+    SolExtras x = s->extras;
+    *(int *)((char *)&x + ((char *)field - (char *)&s->extras)) = on;
+    sol_set_extras(s, &x);
+}
+
+static void test_auto_home(void)
+{
+    SolSession s;
+    Fake f;
+    Reg r;
+    /* the rule: aces and twos always; a higher card once both foundations of the other colour hold its
+     * rank - 1 */
+    {
+        SolBoard b;
+        int src, dst;
+        sol_board_clear(&b);
+        set_pile(&b, SOL_WASTE, "3H");
+        set_pile(&b, F(0), "AH 2H");
+        set_pile(&b, F(1), "AC 2C");
+        set_pile(&b, F(2), "AS");
+        CHECK(!sol_auto_home_step(&b, &src, &dst));          /* 3H: spades hold only the ace */
+        set_pile(&b, F(2), "AS 2S");
+        CHECK(sol_auto_home_step(&b, &src, &dst));
+        CHECK(src == SOL_WASTE && dst == F(0));
+        set_pile(&b, SOL_WASTE, "");
+        set_pile(&b, T(2), "#5D 2D");                        /* a two: its ace is not home yet */
+        CHECK(!sol_auto_home_step(&b, &src, &dst));
+        set_pile(&b, T(1), "#4D AD");                        /* an ace: always, to the leftmost free foundation */
+        CHECK(sol_auto_home_step(&b, &src, &dst));
+        CHECK(src == T(1) && dst == F(3));
+        set_pile(&b, T(1), "#4D");                           /* face down: never */
+        CHECK(!sol_auto_home_step(&b, &src, &dst));
+        set_pile(&b, F(3), "AD");
+        CHECK(sol_auto_home_step(&b, &src, &dst));           /* now 2D */
+        CHECK(src == T(2) && dst == F(3));
+        set_pile(&b, T(2), "#5D 3C");                        /* 3C: hearts AH 2H, diamonds AD: no */
+        CHECK(!sol_auto_home_step(&b, &src, &dst));
+        set_pile(&b, F(3), "AD 2D");
+        CHECK(sol_auto_home_step(&b, &src, &dst));
+        CHECK(src == T(2) && dst == F(1));
+    }
+
+    /* a draw starts a cascade: 2C, then (turned over) 2S, then 3D, each flown; the turns in between;
+     * one action, scored as XP's foundation moves and turns */
+    start(&s, &f, &r, 0x01, 1);                               /* Draw One, Standard, untimed */
+    board(&s, SOL_STOCK, "#QS", F(0), "AC", F(1), "AD 2D", F(2), "AS", T(0), "#9C 2C", T(1), "#8S 2S",
+          T(2), "KH 3D", T(3), "#7H 4H", T(4), "5S", -1);
+    s.score = 0;
+    SolBoard before = s.board;
+    sol_press(&s, SOL_STOCK, s.board.p[SOL_STOCK].n - 1, 0);
+    CHECK(pile_is(&s.board, SOL_WASTE, "QS"));
+    CHECK(pile_is(&s.board, F(0), "AC"));                     /* off: nothing moves by itself */
+    CHECK_EQ(f.nanim, 0);
+    sol_undo(&s);
+    CHECK(sol_board_equal(&s.board, &before));
+    s.score = 0;
+    extras_on(&s, 1, 0, 0);
+    extra_set(&s, &s.extras.auto_home, 1);
+    s.nhist = s.nredo = 0;
+    sol_press(&s, SOL_STOCK, s.board.p[SOL_STOCK].n - 1, 0);
+    CHECK(pile_is(&s.board, F(0), "AC 2C"));
+    CHECK(pile_is(&s.board, F(2), "AS 2S"));
+    CHECK(pile_is(&s.board, F(1), "AD 2D 3D"));
+    CHECK(pile_is(&s.board, T(0), "9C"));
+    CHECK(pile_is(&s.board, T(1), "8S"));
+    CHECK(pile_is(&s.board, T(2), "KH"));
+    CHECK(pile_is(&s.board, T(3), "#7H 4H"));                 /* no hearts home */
+    CHECK_EQ(f.nanim, 3);
+    CHECK(f.anim[0][0] == T(0) && f.anim[0][1] == F(0));
+    CHECK(f.anim[1][0] == T(1) && f.anim[1][1] == F(2));
+    CHECK(f.anim[2][0] == T(2) && f.anim[2][1] == F(1));
+    CHECK_EQ(s.score, 3 * 10 + 2 * 5);
+    CHECK_EQ(s.nhist, 1);
+    CHECK_EQ(s.hist[0].type, SOL_ACT_DRAW);
+    CHECK_EQ(s.hist[0].nauto, 5);
+    CHECK_EQ(s.hist[0].autos[1], SOL_AUTO_TURN | T(0));
+    SolBoard after = s.board;
+    /* one Undo step back; nothing moves after the Undo; Redo replays it all (not flown) */
+    CHECK(sol_undo(&s));
+    CHECK(sol_board_equal(&s.board, &before));
+    CHECK_EQ(f.nanim, 3);
+    CHECK(sol_redo(&s));
+    CHECK(sol_board_equal(&s.board, &after));
+    CHECK_EQ(f.nanim, 3);
+    CHECK_EQ(s.score, 3 * 10 + 2 * 5);                        /* (the Undo's -2 was floored at 0) */
+    sol_free(&s);
+
+    /* after a drop, a double-click, a turn and a right-click autoplay too; Vegas +5 a card */
+    start(&s, &f, &r, 0x11, 1);                               /* Draw One, Vegas, untimed */
+    board(&s, F(0), "AH", T(0), "#9C 2H", T(1), "3S", T(2), "#4C 4D", T(3), "#5C AS", -1);
+    extras_on(&s, 0, 0, 0);
+    extra_set(&s, &s.extras.auto_home, 1);
+    int base = s.score;
+    CHECK(sol_begin_drag(&s, T(0), 1));
+    CHECK(sol_drop(&s, T(1)));                                /* 2H onto 3S: 2H could go home: it does */
+    CHECK(pile_is(&s.board, F(0), "AH 2H"));
+    CHECK(pile_is(&s.board, T(3), "#5C"));                    /* AS (an ace) too */
+    CHECK(pile_is(&s.board, F(1), "AS"));
+    CHECK_EQ(s.score, base + 2 * 5);
+    CHECK(pile_is(&s.board, T(0), "#9C"));                    /* no auto-turn */
+    CHECK_EQ(sol_press(&s, T(0), 0, 0), SOL_PRESS_DONE);      /* the turn: 9C, nothing for home */
+    CHECK_EQ(s.nhist, 2);
+    sol_free(&s);
+
+    /* the win: the last card drawn goes home by itself */
+    start(&s, &f, &r, 0x01, 1);
+    board_exact(&s, SOL_STOCK, "#KC", F(0), "AC 2C 3C 4C 5C 6C 7C 8C 9C TC JC QC",
+                F(1), "AD 2D 3D 4D 5D 6D 7D 8D 9D TD JD QD KD", F(2), "AH 2H 3H 4H 5H 6H 7H 8H 9H TH JH QH KH",
+                F(3), "AS 2S 3S 4S 5S 6S 7S 8S 9S TS JS QS KS", -1);
+    extra_set(&s, &s.extras.auto_home, 1);
+    CHECK_EQ(sol_press(&s, SOL_STOCK, 0, 0), SOL_PRESS_DONE);
+    CHECK(s.won);
+    CHECK_EQ(f.ncascade, 1);
+    CHECK_EQ(f.nanim, 1);
+    sol_free(&s);
+
+    /* a safe card taken down from a foundation goes straight back (it could hold no card in play) */
+    start(&s, &f, &r, 0x01, 1);
+    board(&s, F(0), "AH 2H 3H", F(1), "AC 2C", F(2), "AS 2S", T(0), "#9C 4S", -1);
+    extra_set(&s, &s.extras.auto_home, 1);
+    s.score = 50;
+    CHECK(sol_begin_drag(&s, F(0), 2));
+    CHECK(sol_drop(&s, T(0)));                                /* 3H onto 4S: -15, then home again: +10 */
+    CHECK(pile_is(&s.board, F(0), "AH 2H 3H"));
+    CHECK(pile_is(&s.board, T(0), "#9C 4S"));
+    CHECK_EQ(s.score, 45);
+    CHECK_EQ(s.nhist, 1);
+    sol_free(&s);
+}
+
+/* ---- v1.2: click to select, click to move ------------------------------------------------------------ */
+
+static int answer_yes = 1, nconfirm;
+static int f_confirm(void *ctx, int id, const char *text)
+{
+    nconfirm++;
+    CHECK_EQ(id, SOL_MSG_UNDO_ALL);
+    CHECK_STR(text, "Do you want to undo all your moves and return to the start of the game?");
+    return answer_yes;
+}
+
+static void test_click_select(void)
+{
+    SolSession s;
+    Fake f;
+    Reg r;
+    int p, i;
+    start(&s, &f, &r, 0x01, 1);
+    board(&s, SOL_STOCK, "#9H", SOL_WASTE, "QH 2D", T(0), "#3C 6H 5S", T(1), "", T(3), "#4C 7C", T(4), "8D",
+          F(0), "AD", -1);
+    /* off: a click selects nothing */
+    CHECK_EQ(sol_press(&s, T(0), 1, 0), SOL_PRESS_DRAG);
+    CHECK_EQ(sol_click(&s), SOL_CLICK_NONE);
+    CHECK(sol_dragging(&s));
+    sol_cancel_drag(&s);
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    extra_set(&s, &s.extras.click_select, 1);
+    /* a click selects 6H 5S (inverted); a press on 7C moves them there (one action, as a drop) */
+    CHECK_EQ(sol_press(&s, T(0), 1, 0), SOL_PRESS_DRAG);
+    int inval = f.ninval;
+    CHECK_EQ(sol_click(&s), SOL_CLICK_SELECTED);
+    CHECK(!sol_dragging(&s));
+    CHECK(f.ninval > inval);
+    sol_selection(&s, &p, &i);
+    CHECK(p == T(0) && i == 1);
+    CHECK_EQ(s.nhist, 0);
+    CHECK_EQ(sol_press(&s, T(3), 1, 0), SOL_PRESS_DONE);
+    CHECK(pile_is(&s.board, T(3), "#4C 7C 6H 5S"));
+    CHECK(pile_is(&s.board, T(0), "#3C"));
+    CHECK_EQ(s.nhist, 1);
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    CHECK(sol_undo(&s));
+    /* a press on the selection's own pile only deselects: its click selects nothing */
+    sol_press(&s, T(0), 1, 0);
+    sol_click(&s);
+    CHECK_EQ(sol_press(&s, T(0), 2, 0), SOL_PRESS_DRAG);
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    CHECK_EQ(sol_click(&s), SOL_CLICK_NONE);
+    CHECK(sol_dragging(&s));
+    CHECK(!sol_drop(&s, s.target));                           /* the UI drops on no target: back */
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    /* a press on a pile that does not take them: deselected, and the press acts as usual */
+    sol_press(&s, T(0), 2, 0);
+    sol_click(&s);                                            /* 5S selected */
+    CHECK_EQ(sol_press(&s, T(4), 0, 0), SOL_PRESS_DRAG);      /* 8D: not for 5S; picked up instead */
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    CHECK_EQ(s.drag_pile, T(4));
+    CHECK_EQ(sol_click(&s), SOL_CLICK_SELECTED);              /* and now 8D is selected */
+    sol_selection(&s, &p, &i);
+    CHECK(p == T(4) && i == 0);
+    CHECK_EQ(sol_press(&s, T(1), -1, 0), SOL_PRESS_NONE);     /* an empty column: only a king; deselected */
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    /* the waste's card to its foundation, scored */
+    s.score = 0;
+    sol_press(&s, SOL_WASTE, 1, 0);
+    sol_click(&s);
+    CHECK_EQ(sol_press(&s, F(0), 0, 0), SOL_PRESS_DONE);
+    CHECK(pile_is(&s.board, F(0), "AD 2D"));
+    CHECK_EQ(s.score, 10);
+    /* the stock: deselects and draws */
+    sol_press(&s, T(4), 0, 0);
+    sol_click(&s);
+    int h = s.nhist;
+    CHECK_EQ(sol_press(&s, SOL_STOCK, s.board.p[SOL_STOCK].n - 1, 0), SOL_PRESS_DONE);
+    CHECK_EQ(s.nhist, h + 1);
+    CHECK(pile_is(&s.board, SOL_WASTE, "QH 9H"));
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    /* a foundation's card can be selected and put back on the tableau */
+    sol_press(&s, F(0), 1, 0);
+    CHECK_EQ(sol_click(&s), SOL_CLICK_SELECTED);
+    CHECK_EQ(sol_press(&s, T(3), 1, 0), SOL_PRESS_DRAG);      /* 7C does not take 2D: deselected; 7C picked up */
+    sol_cancel_drag(&s);
+    /* keys, commands, autoplay and turning the option off end a selection */
+    for (int k = 0; k < 4; k++) {
+        sol_press(&s, T(0), 1, 0);
+        CHECK_EQ(sol_click(&s), SOL_CLICK_SELECTED);
+        if (k == 0) sol_key(&s, SOL_KEY_LEFT, 0);
+        else if (k == 1) sol_command(&s, SOL_CMD_UNDO);
+        else if (k == 2) sol_autoplay(&s);
+        else extra_set(&s, &s.extras.click_select, 0);
+        sol_selection(&s, &p, &i);
+        CHECK_EQ(p, -1);
+    }
+    extra_set(&s, &s.extras.click_select, 1);
+    /* the double-click: XP's (home first), the selection does not stand in the way */
+    board(&s, SOL_WASTE, "2D", T(0), "#3C 6H 5S", F(0), "AD", -1);
+    sol_press(&s, SOL_WASTE, 0, 0);
+    sol_click(&s);
+    CHECK_EQ(sol_dblclick(&s, SOL_WASTE, 0, 0), SOL_PRESS_DONE);
+    CHECK(pile_is(&s.board, F(0), "AD 2D"));
+    sol_selection(&s, &p, &i);
+    CHECK_EQ(p, -1);
+    /* with "Single click moves a card" too: a click moves when there is a place, selects when not */
+    extras_on(&s, 0, 1, 0);
+    board(&s, SOL_WASTE, "2D", T(0), "#3C 6H 5S", T(3), "#4C 7C", F(0), "AD", -1);
+    sol_press(&s, SOL_WASTE, 0, 0);
+    CHECK_EQ(sol_click(&s), SOL_CLICK_MOVED);                 /* 2D home */
+    sol_press(&s, T(0), 2, 0);
+    CHECK_EQ(sol_click(&s), SOL_CLICK_SELECTED);              /* 5S: nowhere to go */
+    CHECK_EQ(sol_press(&s, T(0), 1, 0), SOL_PRESS_DRAG);      /* its own pile: deselects ... */
+    CHECK_EQ(sol_click(&s), SOL_CLICK_NONE);                  /* ... and the click does not move 6H */
+    sol_drop(&s, -1);
+    CHECK(pile_is(&s.board, T(0), "#3C 6H 5S"));
+    sol_free(&s);
+}
+
+/* ---- v1.2: Undo All, Draw (D) ---------------------------------------------------------------------- */
+
+static void test_undo_all(void)
+{
+    SolSession s, t;
+    Fake f, ft;
+    Reg r, rt;
+    static const uint32_t modes[3] = { 0x0B, 0x13, 0x2B };
+    for (int m = 0; m < 3; m++) {
+        start(&s, &f, &r, modes[m], 200 + m);
+        start(&t, &ft, &rt, modes[m], 200 + m);
+        s.ui.confirm = f_confirm;
+        play_some(&s, 31u + (unsigned)m, 60);
+        play_some(&t, 31u + (unsigned)m, 60);
+        for (int k = 0; k < 9; k++) sol_timer(&s, SOL_TIMER_CLOCK), sol_timer(&t, SOL_TIMER_CLOCK);
+        if (!s.dealt || s.nhist < 3) {
+            printf("  undo all: game %d ended early\n", m);
+            fails++;
+            continue;
+        }
+        sol_undo(&s);
+        sol_undo(&t);                                         /* an action already on the redo stack */
+        SolBoard end = s.board;
+        int n = s.nhist, end_score = s.score, r0 = s.nredo;
+        /* No: nothing changes */
+        answer_yes = 0;
+        nconfirm = 0;
+        sol_command(&s, SOL_CMD_UNDO_ALL);
+        CHECK_EQ(nconfirm, 1);
+        CHECK_EQ(s.nhist, n);
+        CHECK(sol_board_equal(&s.board, &end));
+        /* Yes: back to the deal, the score as after that many Undos */
+        answer_yes = 1;
+        int solve = f.nsolve;
+        sol_command(&s, SOL_CMD_UNDO_ALL);
+        CHECK_EQ(nconfirm, 2);
+        CHECK_EQ(s.nhist, 0);
+        CHECK_EQ(s.nredo, n + r0);
+        CHECK_EQ(s.redo_group, n);
+        SolBoard d;
+        sol_deal_board(&d, s.seed, NULL);
+        CHECK(sol_board_equal(&s.board, &d));
+        while (sol_undo(&t)) {}
+        CHECK_EQ(s.score, t.score);
+        CHECK(f.nsolve <= solve + 1);                         /* (no warning: no search at all) */
+        CHECK(!sol_undo_enabled(&s));
+        sol_command(&s, SOL_CMD_UNDO_ALL);                    /* nothing to undo: no question */
+        CHECK_EQ(nconfirm, 2);
+        /* one Redo: everything back */
+        CHECK(sol_redo(&s));
+        CHECK(sol_board_equal(&s.board, &end));
+        CHECK_EQ(s.nhist, n);
+        CHECK_EQ(s.nredo, r0);
+        CHECK_EQ(s.redo_group, 0);
+        for (int k = 0; k < n; k++) sol_redo(&t);
+        CHECK_EQ(s.score, t.score);
+        if (m == 1) CHECK_EQ(s.score, end_score);              /* Vegas: Undo costs nothing */
+        CHECK(sol_redo(&s));                                  /* then the single action, alone */
+        CHECK_EQ(s.nredo, r0 - 1);
+        /* Undo All, then a new action: the group is gone */
+        sol_undo_all(&s);
+        CHECK(s.redo_group > 0);
+        sol_press(&s, SOL_STOCK, 0, 0);
+        CHECK_EQ(s.redo_group, 0);
+        CHECK_EQ(s.nredo, 0);
+        /* never while dragging */
+        int nh = s.nhist;
+        CHECK(sol_begin_drag(&s, SOL_WASTE, s.board.p[SOL_WASTE].n - 1));
+        sol_command(&s, SOL_CMD_UNDO_ALL);
+        CHECK_EQ(nconfirm, 3 - 1 + 0);                        /* (2: not asked) */
+        CHECK_EQ(s.nhist, nh);
+        sol_cancel_drag(&s);
+        sol_free(&s);
+        sol_free(&t);
+    }
+
+    /* Draw (D): a press on the stock, including the recycle; nothing while dragging */
+    start(&s, &f, &r, 0x01, 3);
+    int st = s.board.p[SOL_STOCK].n;
+    sol_command(&s, SOL_CMD_DRAW);
+    CHECK_EQ(s.board.p[SOL_STOCK].n, st - 1);
+    CHECK_EQ(s.board.p[SOL_WASTE].n, 1);
+    CHECK(s.input);                                           /* the clock may start */
+    CHECK_EQ(s.nhist, 1);
+    CHECK(sol_begin_drag(&s, SOL_WASTE, 0));
+    sol_command(&s, SOL_CMD_DRAW);
+    CHECK_EQ(s.board.p[SOL_WASTE].n, 1);
+    sol_cancel_drag(&s);
+    for (int k = 0; k < st - 1; k++) sol_command(&s, SOL_CMD_DRAW);
+    CHECK_EQ(s.board.p[SOL_STOCK].n, 0);
+    sol_command(&s, SOL_CMD_DRAW);                            /* the recycle */
+    CHECK_EQ(s.board.p[SOL_STOCK].n, st);
+    CHECK_EQ(s.recycles, 1);
+    sol_free(&s);
+}
+
+/* A version 1 file (Solitaire HD 1.1) still loads: the version 2 image without the group and the
+ * nauto bytes (all 0 here). */
+static void test_save_v1(void)
+{
+    SolSession a, b;
+    Fake fa, fb;
+    Reg ra, rb;
+    uint8_t *img, *v1;
+    size_t len, k = 0, at, n1;
+    start(&a, &fa, &ra, 0x0B, 77);
+    play_some(&a, 5, 40);
+    if (!a.dealt) sol_command(&a, SOL_CMD_DEAL), play_some(&a, 6, 20);
+    sol_undo(&a);
+    CHECK(sol_game_serialize(&a, &img, &len));
+    v1 = malloc(len);
+    /* header, the fixed part up to the redo count */
+    at = 12 + 4 + 6 + SOL_PACKED_SIZE + 7 * 4 + 2 * 4;
+    memcpy(v1, img, at);
+    k = at;
+    size_t q = at + 4;                                        /* skip the group */
+    for (int i = 0; i < a.nhist + a.nredo; i++) {
+        const SolAction *x = i < a.nhist ? &a.hist[i] : &a.redo[i - a.nhist];
+        CHECK_EQ(x->nauto, 0);
+        memcpy(v1 + k, img + q, 7);                           /* type .. waste fan */
+        k += 7;
+        q += 8;                                               /* + nauto */
+        size_t rest = 2u * x->nsteps + SOL_PACKED_SIZE + 12;
+        memcpy(v1 + k, img + q, rest);
+        k += rest;
+        q += rest;
+    }
+    CHECK_EQ(q, len - 4);
+    n1 = k + 4;
+    v1[4] = 1, v1[5] = v1[6] = v1[7] = 0;                     /* version 1 */
+    uint32_t pl = (uint32_t)(n1 - 16), crc;
+    for (int z = 0; z < 4; z++) v1[8 + z] = (uint8_t)(pl >> (8 * z));
+    crc = ce_crc32(v1 + 12, n1 - 16);
+    for (int z = 0; z < 4; z++) v1[k + (size_t)z] = (uint8_t)(crc >> (8 * z));
+    start(&b, &fb, &rb, 0x0B, -1);
+    CHECK_EQ(sol_game_restore(&b, v1, n1), SOL_LOAD_OK);
+    CHECK(same_game(&a, &b));
+    CHECK_EQ(img[4], 2);                                      /* written as version 2 */
+    free(img);
+    free(v1);
+    sol_free(&a);
+    sol_free(&b);
+}
+
 /* ---- the registry values --------------------------------------------------------------------------- */
 
 static void test_extras_store(void)
@@ -1105,17 +1516,21 @@ static void test_extras_store(void)
     CeStore st = reg_store(&r);
     SolExtras x;
     sol_extras_load(&x, &st);
-    CHECK(!x.auto_turn && !x.click_move && !x.auto_finish && !x.winnable_only && !x.save_game && !x.warn_unwinnable);
+    CHECK(!x.auto_turn && !x.click_move && !x.auto_finish && !x.winnable_only && !x.save_game && !x.warn_unwinnable &&
+          !x.auto_home && !x.click_select);
     x.auto_turn = 1;
     x.save_game = 5;
+    x.click_select = 1;
     sol_extras_save(&x, &st);
     CHECK_EQ(reg_find(&r, "AutoTurn") >= 0 ? r.val[reg_find(&r, "AutoTurn")].v : 99, 1);
     CHECK_EQ(r.val[reg_find(&r, "SaveGame")].v, 1);
     CHECK_EQ(r.val[reg_find(&r, "ClickToMove")].v, 0);
-    CHECK_EQ(r.n, 6);
+    CHECK_EQ(r.val[reg_find(&r, "AutoHome")].v, 0);
+    CHECK_EQ(r.val[reg_find(&r, "ClickSelect")].v, 1);
+    CHECK_EQ(r.n, 8);
     SolExtras y;
     sol_extras_load(&y, &st);
-    CHECK(y.auto_turn && y.save_game && !y.click_move && !y.warn_unwinnable);
+    CHECK(y.auto_turn && y.save_game && !y.click_move && !y.warn_unwinnable && !y.auto_home && y.click_select);
     /* the session never writes them into XP's key */
     SolSession s;
     Fake f;
@@ -1141,5 +1556,9 @@ int main(void)
     test_winnable();
     test_warning();
     test_extras_store();
+    test_auto_home();
+    test_click_select();
+    test_undo_all();
+    test_save_v1();
     return test_summary("test_sol_extras");
 }

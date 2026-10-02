@@ -11,7 +11,9 @@
  * F11 / Alt+Enter, Esc leaves it), Redo (Ctrl+Y), and the v1.1 extras: Hint (H), Finish (F6),
  * Statistics (F4); with their options, a click that does not drag (released within the system's drag
  * threshold) moves the card (click-to-move; its double-click is then ignored), the game saved at exit
- * and resumed at start-up.
+ * and resumed at start-up. v1.2: Undo All, Ctrl+Z (Undo, repeating while held: an accelerator), D (draw),
+ * C (Select Card Back); with their options, cards home automatically and click to select (the click
+ * selects, the next press on a pile that takes the cards moves them: sol_click / sol_press).
  */
 #include "app.h"
 
@@ -166,22 +168,24 @@ static void drag_cancel(App *a, int zip, const char *why)
     ce_log("drag cancelled (%s)", why);
 }
 
-/* The button went up: drop on the target the last move found, or slide back. With click-to-move
- * (extra), a press released without leaving the drag threshold is a click: the cards go to the best
- * place for them (assist.h), if any. */
+/* The button went up: drop on the target the last move found, or slide back. With click-to-move or
+ * click-to-select (extras), a press released without leaving the drag threshold is a click: the cards
+ * go to the best place for them (assist.h), if any, or become the selection (sol_click). */
 static void drag_drop(App *a)
 {
     int t = a->s.target, ok;
     if (a->click_armed) {
-        int c = sol_click_target(&a->s);
+        int src = a->s.drag_pile, idx = a->s.drag_index, to = sol_click_target(&a->s), c;
         a->click_armed = 0;
-        if (c >= 0) {
-            int src = a->s.drag_pile, idx = a->s.drag_index;
-            release_capture(a);
-            ok = sol_drop(&a->s, c);
-            a->click_moved = ok;
-            ce_log("click move: pile %d card %d -> %d, %s; score %d", src, idx, c, ok ? "moved" : "refused",
-                   a->s.score);
+        release_capture(a);
+        c = sol_click(&a->s);
+        if (c == SOL_CLICK_MOVED) {
+            a->click_moved = 1;
+            ce_log("click move: pile %d card %d -> %d, moved; score %d", src, idx, to, a->s.score);
+            return;
+        }
+        if (c == SOL_CLICK_SELECTED) {
+            ce_log("click select: pile %d card %d", src, idx);
             return;
         }
     }
@@ -213,6 +217,8 @@ static void on_button(App *a, LPARAM lp, int dbl)
     if (!view_hit(a, x, y, &pile, &card)) {
         pile = SOL_MISS;
         card = -1;
+        if (a->s.csel_pile >= 0 && a->have_layout)    /* extra: an empty pile is a destination too */
+            pile = sol_layout_hit_empty(&a->L, &a->s.board, x, y);
     }
     a->press_valid = 1;
     a->press_x = x;
@@ -223,7 +229,7 @@ static void on_button(App *a, LPARAM lp, int dbl)
         SetCapture(a->hwnd);
         a->lcapture = 1;
         sol_drag_over(&a->s, -1);                     /* the view tracks the target: none until a move */
-        if (a->s.extras.click_move) {                 /* a click, unless the pointer moves away */
+        if (a->s.extras.click_move || a->s.extras.click_select) {   /* a click, unless the pointer moves away */
             a->click_armed = 1;
             a->click_x = x;
             a->click_y = y;
@@ -269,12 +275,14 @@ static void on_command(App *a, int id)
 {
     switch (id) {
     case IDM_DEAL: case IDM_UNDO: case IDM_REDO: case IDM_FORCEWIN: case IDM_HINT: case IDM_FINISH:
+    case IDM_UNDOALL:
         if (a->in_modal || a->s.busy || !a->gfx)
             return;
         if (id == IDM_FORCEWIN)
             drag_cancel(a, 0, "force win");
         sol_command(&a->s, id);                       /* IDM_* == SOL_CMD_* */
-        ce_log("command %d: seed %u, score %d", id, a->s.seed, a->s.score);
+        ce_log("command %d: seed %u, score %d, %d action(s), %d to redo", id, a->s.seed, a->s.score, a->s.nhist,
+               a->s.nredo);
         after_input(a);
         break;
     case IDM_DECK: dlg_deck(a); break;
@@ -315,6 +323,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         a->hwnd = h;
         a->menu = GetMenu(h);
         a->menu_undo = a->menu_redo = a->menu_idle = -1;
+        a->menu_undoall = -1;
         ui_make(a, &ui);
         sol_init(&a->s, &ui, &st);                    /* Options, Back, iCurrency from XP's key */
         a->app_store = storage_app_store();
@@ -332,9 +341,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             }
             sol_attach_stats(&a->s, &stats);
             a->menu_hint = a->menu_finish = -1;
-            ce_log("extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d; statistics %s", x.auto_turn,
-                   x.click_move, x.auto_finish, x.winnable_only, x.save_game, x.warn_unwinnable,
-                   r > 0 ? "loaded" : r < 0 ? "damaged" : "none");
+            ce_log("extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, select %d; "
+                   "statistics %s", x.auto_turn, x.click_move, x.auto_finish, x.winnable_only, x.save_game,
+                   x.warn_unwinnable, x.auto_home, x.click_select, r > 0 ? "loaded" : r < 0 ? "damaged" : "none");
         }
         if (a->s.opts.status_bar)
             a->status = CreateWindowExW(0, SOL_STATUS_CLASS, L"", WS_CHILD | WS_BORDER | WS_VISIBLE, 0, 0, 0,
@@ -446,6 +455,18 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             after_input(a);
             return 0;
         }
+        if ((wp == 'd' || wp == 'D') && !input_blocked(a) && !sol_dragging(&a->s)) {
+            a->click_moved = 0;
+            sol_command(&a->s, SOL_CMD_DRAW);         /* extra (v1.2): a click on the deck */
+            ce_log("draw (D): stock %d, waste %d; score %d", a->s.board.p[SOL_STOCK].n, a->s.board.p[SOL_WASTE].n,
+                   a->s.score);
+            after_input(a);
+            return 0;
+        }
+        if ((wp == 'c' || wp == 'C') && !input_blocked(a) && !sol_dragging(&a->s)) {
+            dlg_deck(a);                              /* extra (v1.2): Game > Deck... */
+            return 0;
+        }
         break;
     case WM_TIMER:
         if (wp == SOL_TIMER_CLOCK) {
@@ -466,6 +487,7 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
 
     case WM_INITMENU:
         a->menu_undo = a->menu_redo = a->menu_idle = -1;
+        a->menu_undoall = -1;
         menu_update(a);
         return 0;
     case WM_MENUSELECT:

@@ -1,0 +1,149 @@
+# Solitaire HD v1.2 end to end (docs/ROADMAP.md 2b): the keys D (draw) and C (Select Card Back), Ctrl+Z
+# (Undo; held, it repeats), Game > Undo All (asks first; one Redo brings everything back), and the two
+# new Options > Extras, off by default: "Move cards home automatically" (the safe cards fly home after
+# an action, as part of it: one Undo) and "Click to select, click to move" (a click selects, inverted;
+# the next click on a pile moves the cards there; dragging still works).  Run by run_solhd_e2e.sh.
+#
+# Deal 64 at 1264 x 854 (geometry in solhd_smoke.txt; foundations x = 555 732 909 1086, y = 10):
+#   col 1 AH   col 2 #7H 4S   col 3 # # TD   col 4 # # # KC   col 5 # # # # 5D   col 6 # # # # # AC
+#   col 7 # # # # # # 2H; the stock from its top: 7D 7S 6H 8H TH 3D ...  Options 0x09: Draw Three,
+#   Standard, untimed (exact scores). Ids: 1105 Undo All, 1101 Redo, 1001 Undo, 1003 Options; the
+#   Extras 327 AutoHome, 328 ClickSelect.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regset HKCU\Software\Microsoft\Solitaire Options dword 9
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+sync                                          # (in its message loop before the first command)
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+assert_menu 1001 grayed
+assert_menu 1105 grayed                       # Undo All: nothing to undo
+
+# ---- Options: the two new check boxes, off by default ------------------------------------------------
+command 1003
+wait_dialog Options
+dialog_text
+assert_dialog_text "[327] Button \"Move cards &home automatically\" [ ]"
+assert_dialog_text "[328] Button \"Click to select, click to &move\" [ ]"
+capture_dialog 70_options_v12.bmp
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AutoHome 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" ClickSelect 0
+assert_pixel 277 443 000000                   # no new deal (4S still in col 2)
+
+# ---- D draws, Ctrl+Z undoes (held: repeats), C opens Select Card Back -------------------------------
+assert_pixel 400 120 008000                   # the waste is empty
+key d                                         # 7D 7S 6H
+assert_pixel 400 120 FFFFFF                   # 6H on the waste
+capture 71_key_d.bmp
+key D
+key d
+assert_menu 1001 enabled
+assert_menu 1105 enabled
+vkey Z ctrl                                   # Undo
+assert_menu 1001 enabled
+vkey Z ctrl repeat 2                          # held: two more
+assert_pixel 400 120 008000                   # the waste is empty again
+assert_menu 1001 grayed
+assert_menu 1101 enabled
+vkey Y ctrl
+vkey Y ctrl
+vkey Y ctrl                                   # Redo x 3
+assert_menu 1101 grayed
+assert_pixel 400 120 FFFFFF
+key c
+wait_dialog "Select Card Back"
+capture_dialog 72_key_c.bmp
+dialog_click Cancel
+assert_no_dialog
+
+# ---- Undo All: asks; No keeps everything; Yes goes back to the deal; one Redo, everything back ----------
+drag 277 337 808 387 4                        # 4S onto 5D
+assert_pixel 277 443 008000
+assert_pixel 732 480 000000                   # 4S on 5D
+command 1105
+wait_dialog Solitaire
+dialog_text
+assert_dialog_text "Do you want to undo all your moves and return to the start of the game?"
+capture_dialog 73_undo_all_question.bmp
+dialog_click No
+assert_no_dialog
+assert_pixel 277 443 008000                   # nothing undone
+command 1105
+wait_dialog Solitaire
+dialog_click Yes
+assert_no_dialog
+assert_pixel 277 443 000000                   # 4S back in col 2
+assert_pixel 400 120 008000                   # the waste empty: the deal
+assert_menu 1001 grayed
+assert_menu 1105 grayed
+assert_menu 1101 enabled
+capture 74_undo_all.bmp
+command 1101                                  # one Redo: all four actions
+assert_pixel 277 443 008000
+assert_pixel 732 480 000000
+assert_pixel 400 120 FFFFFF
+assert_menu 1101 grayed
+capture 75_redo_all.bmp
+command 1105
+wait_dialog Solitaire
+dialog_click Yes                              # back to the deal for what follows
+
+# ---- Move cards home automatically: after a draw, AH, AC and 2H fly home (+10 each), one Undo -----------
+command 1003
+wait_dialog Options
+dialog_check 327 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AutoHome 1
+assert_pixel 600 60 008000                    # foundation 1 empty: nothing moves until an action
+assert_pixel 60 400 FFFFFF                    # AH still in col 1
+key d                                         # a draw; then the cascade
+wait 600
+assert_pixel 600 60 FFFFFF                    # AH, then 2H on foundation 1
+assert_pixel 777 60 FFFFFF                    # AC on foundation 2
+assert_pixel 100 331 008000                   # col 1 empty
+assert_pixel 929 381 E2EBFB                   # col 6: a face-down card on top (the Sky back)
+assert_window_text "30 "
+capture 76_auto_home.bmp
+vkey Z ctrl                                   # one Undo: the draw and the three cards
+assert_pixel 600 60 008000
+assert_pixel 777 60 008000
+assert_pixel 60 400 FFFFFF
+assert_pixel 400 120 008000
+
+# ---- Click to select, click to move ---------------------------------------------------------------------
+command 1003
+wait_dialog Options
+dialog_check 327 0
+dialog_check 328 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" AutoHome 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" ClickSelect 1
+click 277 337                                 # 4S: selected, inverted
+assert_pixel 277 443 FFFFFF                   # still in col 2, its black frame inverted ...
+assert_pixel 210 420 000000                   # ... and its white margin
+capture 77_click_selected.bmp
+click 277 337                                 # its own pile: deselected
+assert_pixel 210 420 FFFFFF
+click 277 337                                 # selected again ...
+assert_pixel 210 420 000000
+click 808 330                                 # ... and 5D (col 5) takes it
+assert_pixel 277 443 008000
+assert_pixel 732 480 000000                   # 4S on 5D
+assert_pixel 739 470 FFFFFF                   # not inverted any more
+capture 78_click_moved.bmp
+click 100 300                                 # AH selected; a click on the empty foundation 1 moves it
+click 631 100
+assert_pixel 600 60 FFFFFF
+assert_pixel 100 331 008000
+assert_window_text "10 "
+drag 985 320 808 14 4                         # dragging still works: AC to foundation 2
+assert_pixel 777 60 FFFFFF
+assert_window_text "20 "
+close
+regdump "HKCU\Software\xp-cards\Solitaire HD"

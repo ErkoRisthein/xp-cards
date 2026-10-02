@@ -29,6 +29,9 @@ Reference material (reverse-engineered from the XP binaries in this repo):
    * v1.2, on the solver (see "Hint, warning and Finish"): **Game > Hint** (H) and **Game > Finish**
      (F6, enabled only on a sure win) are new menu items that change nothing until used; the options
      **"Warn when the game can't be won"** and **"Finish automatically"** are off by default.
+   * v1.4 (see "FreeCell HD extras (v1.4)"): **Game > Undo All** and **Ctrl+Z** (Undo, repeating while
+     held) are always there; the options **"Single click moves a card"** and **"Drag and drop cards"**
+     are off by default.
 3. Fix XP bugs listed in rules.md §11 instead of replicating them. Also fix the missing spaces in
    "lose.There" and "cards.You", and drop the stray `%` in the statistics strings (render what XP
    shows on screen).
@@ -102,7 +105,9 @@ right-button peek) — exactly as XP. FreeCell descends from Paul Alfille's 1978
 touch-screen terminals (touch the card, then the target), and Jim Horne's Windows version kept that
 model. It also fits the rules: you only say *where* a card goes and the game computes how many cards
 a supermove takes (rules.md §2.3), while dragging would require grabbing exactly the right card of
-a run. Drag-and-drop is planned as an optional mode once Solitaire builds the drag code (ROADMAP §1b).
+a run. Since v1.4 two opt-in modes exist on top of it ("FreeCell HD extras (v1.4)"): a single click
+that moves the card to its best place, and drag and drop on Solitaire HD's (now the engine's) drag
+code, whose drop is still XP's move to that pile (XP counts the cards).
 
 ## Card encoding and board model
 
@@ -264,6 +269,56 @@ tested with a fake UI (`tests/test_assist.c`); the Win32 layer adds a worker thr
   the cache). At the solver section's 20x the Athlon XP needs about 2 s for that proof, in the
   background; the e2e line of #31364 needed a single search (the moves follow its cached solution).
 
+## FreeCell HD extras (v1.4)
+
+The UX batch of ROADMAP §2b, under the extras policy. The session (`src/freecell/session.c`) does the
+rules and is unit tested (`tests/freecell/test_session.c`); the Win32 layer only maps the mouse.
+
+* **Undo All** (Game > Undo All, `FCS_CMD_UNDO_ALL`, enabled with Undo): asks first, as XP asks to
+  resign (the beep, "Do you want to undo all your moves and return to the start of the game?", Yes /
+  No; `ui.confirm`). Yes undoes every action back to the deal at once, without flights (a whole game of
+  flights would take many seconds); the move counter is as after that many Undos. The actions undone
+  form one group on top of the redo stack: the next **Redo** brings them all back, again without
+  flights, and then settles as after a commit (Finish automatically, XP's no-moves check, the warning).
+  A new action, a deal, a win or a loss drops the group with the redo stack.
+* **Ctrl+Z** is a second accelerator for Undo (F10 stays). An accelerator repeats while it is held
+  (each auto-repeated key-down is translated), so holding Ctrl+Z undoes move after move, each flown back
+  unless Quick play is on.
+* **Single click moves a card** (`SingleClick`): a click on a card while nothing is selected selects
+  it as XP's click and then makes XP's move to its best place (`fcs_single_dest`), first that applies:
+  1. its home cell, when it may go there and is safe there (XP's autoplay rule, rules.md §3);
+  2. the leftmost non-empty column it fits on; from a column that is XP's move to that column (the run
+     part that fits, within the supermove limit of the current rule);
+  3. the leftmost empty column, unless the whole column is one ordered run (that would gain nothing);
+     a run gets XP's "Move to Empty Column..." dialog;
+  4. its home cell, when it may go there but is not safe;
+  5. the leftmost empty free cell (from a column).
+  Nowhere: the card stays selected, exactly as XP's click, so the next click places it. A click while
+  something is selected is XP's destination click. The double-click that follows a click which moved a
+  card is ignored (it would move the next card); keys and commands are unchanged.
+* **Drag and drop cards** (`DragDrop`): the press selects as XP's click (`fcs_press`); once the pointer
+  passes the system's drag threshold the cards from the pressed one to the bottom of its column (only
+  when they form an ordered run; a free cell's card alone, `fcs_drag_cards`) are lifted: hidden from the
+  board and floated over the back buffer as one sprite (`fc_render_stack`, the engine's `CeDrag`,
+  Solitaire's drag). The cursor shows XP's destination arrows meanwhile. The drop is XP's move of the
+  selection to the pile under the pointer (`FC_HIT_DEST`'s wide zones) as a click there would make it:
+  the supermove limit, the messages, the Move-to-Empty-Column dialog, autoplay; XP decides how many cards
+  go, as for a click. A drop XP would refuse (`fcs_drop_ok`: an illegal pile, too many cards, the own
+  pile, nowhere) slides back first, then gets XP's message (with messages off the card stays selected,
+  as XP). The dropped cards are not flown (they are already there); the autoplay that follows is. A
+  press released without moving keeps XP's click; with Single click on too it moves the card then
+  (`fcs_release`). A press on the selected pile can start a drag of it; released unmoved it is XP's
+  click on the selection (deselect). Esc, a lost capture or focus, a command or a resize puts the cards
+  back; solver answers wait until the drag is over.
+* **With both off, nothing changes.** `make fc-xp-compare` builds FreeCell HD 1.3's session and rules
+  (git 904243b: game, session, assist, solver, stats, wondeals) and today's, feeds both the same random
+  input (clicks, legal click pairs, double-clicks, keys, the peek, mouse moves, the activation click,
+  every timer, New / Select / Restart with the dialogs answered at random, Undo, Redo, the cheat, Hint,
+  Finish, Exit, Options changes of XP's three and the v1.1 / v1.2 extras, the background solver's
+  answers) and compares the logs of every UI callback, registry access and the observable state byte
+  for byte: 300 games, 110793 inputs, 1263074 identical lines (168 wins, 525 losses, 4443 solver
+  answers). Today's build also sets the new `confirm` callback: one call of it would be a difference.
+
 ## Solitaire HD extras (v1.1)
 
 Solitaire HD v1.0 is XP's sol.exe (`docs/xp-reference/solitaire/`); v1.1 adds extras under the extras
@@ -347,10 +402,12 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   current draw and pass limit (Standard / None: unlimited passes; Vegas: draw one 1 pass, draw three 3).
   The table (`winnable_seeds.c`, 2 bits per seed, 32 KiB) was made by `make seed-tables`: every seed
   solved by the full-information solver for the four cases, every solution replayed through the session
-  to a win; a deal the search could not settle within its budget counts as not winnable (the table's
-  "unsolvable" entries predate the solver's proof check, below, and include a few winnable deals: never
-  offered, which is harmless; `make seed-tables` refreshes them). Winnable: draw one 29079 (88.7%), draw
-  three 25325 (77.3%), draw one Vegas 5752 (17.6%), draw three Vegas 16464 (50.2%).
+  to a win; a deal the search could not settle within its budget counts as not winnable. Regenerated
+  with the fixed solver (its proof check, below) on 2026-10-02: 4620 s on 11 threads, 0 replay failures.
+  Winnable: draw one 29099 (88.8%), draw three 25331 (77.3%), draw one Vegas 5782 (17.6%), draw three
+  Vegas 16510 (50.4%); proven unwinnable 1244 / 3287 / 16410 / 8783, the rest undecided within the
+  budgets (the old table's extra "unsolvable" entries were unchecked proofs: 6 to 46 more deals per
+  case were winnable after all and are offered now).
 * **Warn when the game can't be won**: the deal and every position after an action, Undo or Redo are
   solved in the background by the full-information solver (`solver.h`: weighted best-first over session
   actions with macro talon moves, safe foundation moves, 32-byte canonical states, a fixed node pool:
@@ -361,6 +418,51 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   nothing. Win32 as FreeCell's: one below-normal worker thread (`src/solitaire/win32/solve.c`), a newer
   request cancels the running one, answers delivered only when no dialog is up and the session is idle
   (not dragging cards either: the message waits for the drop).
+
+## Solitaire HD extras (v1.2)
+
+The UX batch of ROADMAP §2b on Solitaire HD, under the same policy; the session (`session.c`) does it
+all and `make sol-xp-compare` still proves the extras-off session identical to v1.0's.
+
+* **Always there:** Game > **Undo All** (asks first: "Do you want to undo all your moves and return to
+  the start of the game?", Yes / No; then as that many Undos, so the score is the same; the actions
+  undone form one group that the next **Redo** brings back whole), **Ctrl+Z** (Undo; XP's Undo had no
+  key; it repeats while held, an accelerator), **D** (draw: a click on the deck, also the recycle;
+  WM_CHAR like H), **C** (Game > Deck..., the Select Card Back dialog), F4 (Statistics, since v1.1). The
+  Undo item shows Ctrl+Z, the Deck item C.
+* **Move cards home automatically** (`AutoHome`): XP FreeCell's autoplay rule on Klondike's
+  foundations (`sol_auto_home_step`): after every committed action (a drop, a click move, a
+  double-click, a draw, a recycle, a turn, autoplay, Redo replays; not after Undo) every face-up card on
+  top of the waste or a column that a foundation takes goes there if it is an ace or a two, or once both
+  foundations of the other colour hold its rank - 1 (then no card it could hold is still in play). One
+  card at a time (the waste first, then the columns left to right, each to the leftmost foundation that
+  takes it), flown like Finish's cards, with "Turn cards over automatically" turning what each uncovers;
+  it cascades until no card is safe. It is part of the action (one undo step; `SolAction.autos` records
+  the sequence of cards and turns, which Redo replays exactly), scored as XP scores foundation moves
+  (Standard +10, Vegas +5), and a draw or a turn that ends in a full set of foundations wins (XP never
+  wins on a stock click; this can). A safe card taken down from a foundation goes straight back.
+* **Click to select, click to move** (`ClickSelect`): a click on a card (a press released within the
+  drag threshold, `sol_click`) selects it and the cards on it, drawn inverted as XP FreeCell's
+  selection (the view's selection overlay, as the hint's flash). The next press on a pile that takes them
+  (on any of its cards, or on an empty pile's place: `sol_layout_hit_empty`) moves them there, as an
+  ordinary drop (one action, scored); a press on the selection's own pile only
+  deselects (its click selects nothing); a press anywhere else deselects and acts as usual (the deck
+  draws, a face-down card turns over, a card is picked up). Dragging works alongside (a press that moves
+  is a drag), the double-click still sends a card home, the keyboard plays as in XP (any key ends a
+  selection, as do commands, autoplay and the Options).
+* **Both click options on:** "Single click moves a card" goes first: a click moves the card when it has
+  a place to go (`sol_click_dest`) and selects it only when it has none, so the next click can put it
+  where the player wants.
+* **The saved game** is version 2 (`savegame.h`): each action carries its auto-home sequence and the file
+  the Undo All group; version 1 files (Solitaire HD 1.1) still load.
+* Tests: `tests/solitaire/test_sol_extras.c` (the safe rule, a cascade with turns in between, flights,
+  scores, one Undo and an exact Redo, the win on a draw, the bounce from a foundation; selection, its
+  destination press, deselecting, the stock, keys and commands ending it, the foundation's card, the
+  double-click, the precedence with single click; Undo All asked, No, Yes, the score as that many
+  Undos, the group Redo, a new action dropping it, never while dragging; D; the version 2 file and a
+  version 1 file), `test_sol_playout.c` (the extras-on games also play auto-home, click selections, Undo
+  All and its Redo and D: no safe card is left after an action, Undo All lands on the deal and its Redo on
+  the position before it), `tests/e2e/solhd_ux.txt` (Wine).
 
 ## Persistence
 
@@ -375,7 +477,8 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   a `CeRegStore` per key, REG_BINARY for XP's key and REG_DWORD for ours; `CeAppFile` for the file);
   `src/freecell/win32/storage.c` names them.
 * The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
-  `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2).
+  `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2),
+  `SingleClick`, `DragDrop` (v1.4). Solitaire HD's v1.2 options: `AutoHome`, `ClickSelect`.
 * Solitaire HD: Options and Back in XP sol.exe's own key and format (`HKCU\Software\Microsoft\Solitaire`,
   shared with sol.exe); window placement, full screen and the v1.1 extras' options in
   `HKCU\Software\xp-cards\Solitaire HD`; the statistics and the saved game in
@@ -423,6 +526,18 @@ Use the `cards.revk.uk` link (it redirects to https://www.me.uk/cards/).
   polled with the driver's `wait_pixel`), the next hint after following it, the warning, the unwinnable
   deal, Finish by hand and automatically on #31364 via the solver's embedded click line, the options'
   registry values across a restart.
+* v1.4 (`make test`, `tests/freecell/test_session.c`): Single click (each step of the destination order,
+  the free cell's card, nowhere: selected, the next click, the run onto a column, the dialog for an empty
+  column, the ignored double-click, off = XP), drag and drop (the press, the cards a drag lifts, the
+  drop's legality, the drop not flown but its autoplay flown, a free cell's card, refused drops with
+  messages on and off, the supermove limit, the dialog's Cancel and Move column, the release with and
+  without Single click), Undo All (asked, No, Yes, no flights, the move counter, the group Redo, then the
+  single Redo, a new action dropping the group); a third random playout with Single click, drags, drops
+  and Undo All; `tests/freecell/test_layout.c` checks the lifted stack's sprite over the board without
+  it (`fc_render_stack`). `make fc-xp-compare` (above). `tests/e2e/fchd_ux.txt` (Wine): the Options,
+  Ctrl+Z held (auto-repeated key-downs), Undo All's question and its Redo, single clicks (a free cell, a
+  column, the ignored double-click, a run), drags (a card to a free cell, onto a column, a run lifted
+  and captured mid-drag, a refused drop and its message).
 * `make snapshots` — native renders of the board to PNG at several window sizes/states for review.
 * `make xpcheck` — verifies every import of the exes exists on Windows XP SP2.
 * `tools/wine/` — end-to-end driver run under Wine (launch, click, capture the client area).

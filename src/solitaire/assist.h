@@ -44,6 +44,13 @@
  * over, as in XP). The move is an ordinary drop (scored and undone as one), so with "turn cards over
  * automatically" the card it uncovers is turned over too.
  *
+ * AUTO-HOME (sol_auto_home_step, the "Move cards home automatically" extra): XP FreeCell's autoplay rule
+ * on Klondike's foundations. A face-up card on top of the waste or of a tableau column goes home when a
+ * foundation takes it and it is safe there: an ace or a two always; any other card when both
+ * foundations of the other colour already hold its rank - 1 (then no card it could hold is still in
+ * play). One card per call: the waste's first, then the columns left to right, each to the leftmost
+ * foundation that takes it; the session calls it again until it finds none.
+ *
  * FINISH (sol_finish_ready / sol_finish_step): with the stock and the waste empty and every tableau card
  * face up, the game is a sure win: the lowest card left is always on top of its column (each column is
  * a descending run), so playing the lowest card home, again and again, wins.
@@ -74,6 +81,9 @@ int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out);
 
 /* Where a click on card index of pile sends the cards index..top (see above); -1: nowhere. */
 int sol_click_dest(const SolBoard *b, int pile, int index);
+
+/* The next card that is safe to go home (see AUTO-HOME above). Returns 0 if none. */
+int sol_auto_home_step(const SolBoard *b, int *src, int *dst);
 
 /* The stock and the waste are empty, every tableau card is face up, and cards are left to play. */
 int sol_finish_ready(const SolBoard *b);

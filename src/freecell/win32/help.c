@@ -23,9 +23,12 @@ static const WCHAR how_to_play[] =
     L"covered card to see it.\n\n"
     L"Hint (H) flashes a card to move, then where it goes. When the rest is a sure win, Finish (F6) "
     L"sends every card home. Options can warn when the game can no longer be won, and finish "
-    L"automatically.\n\n"
+    L"automatically. With \"Single click moves a card\" a click sends a card to its best place; with "
+    L"\"Drag and drop cards\" cards can be dragged where they should go. Game > Undo All goes back to "
+    L"the start of the game.\n\n"
     L"Keyboard: 1-8 select or move to a column, 0 a free cell, 9 home. H Hint, F6 Finish, F2 New "
-    L"Game, F3 Select Game, F10 Undo, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it).";
+    L"Game, F3 Select Game, F10 or Ctrl+Z Undo (hold Ctrl+Z to undo more), Ctrl+Y Redo, F11 or "
+    L"Alt+Enter Full Screen (Esc leaves it).";
 
 static void builtin_help(App *a)
 {

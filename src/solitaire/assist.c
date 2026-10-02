@@ -216,6 +216,28 @@ int sol_click_dest(const SolBoard *b, int pile, int index)
     return first;
 }
 
+int sol_auto_home_step(const SolBoard *b, int *src, int *dst)
+{
+    int home[4];
+    home_counts(b, home);
+    for (int t = SOL_WASTE; t < SOL_NPILES; t++) {
+        int f, r, red;
+        SolCard c;
+        if (sol_is_found(t) || (f = home_dest(b, t)) < 0)
+            continue;
+        c = b->p[t].c[b->p[t].n - 1];
+        r = sol_rank(c);
+        red = sol_suit(c) == 1 || sol_suit(c) == 2;
+        /* home[] counts the cards: >= r means the other colour's rank - 1 is there */
+        if (r <= 1 || (home[red ? 0 : 1] >= r && home[red ? 3 : 2] >= r)) {
+            *src = t;
+            *dst = f;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int sol_finish_ready(const SolBoard *b)
 {
     int left = 0;

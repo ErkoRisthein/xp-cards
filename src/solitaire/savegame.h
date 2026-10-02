@@ -8,12 +8,15 @@
  *
  * File (%APPDATA%\xp-cards\Solitaire HD\game.bin through a CeBlobIO, written atomically; an empty file
  * means no saved game; all integers little-endian):
- *   "SOLG", u32 version 1, u32 payload length, the payload, u32 CRC-32 of the payload.
+ *   "SOLG", u32 version 2, u32 payload length, the payload, u32 CRC-32 of the payload.
  *   payload: u32 Options (packed, rules.md §10: the draw, scoring and timed of the game), u8 draw,
  *     scoring, waste fan, undo_fresh, counted, reserved; 65-byte packed board; i32 score, ticks,
- *     recycles, clock_pen, carry; u32 seed, rng; u32 history count, redo count; then each action
- *     (history oldest first, then the redo stack bottom first): u8 type, src, dst, n, nsteps, autoturn,
- *     waste fan, then nsteps x (src, dst), the 65-byte board before it, i32 score, recycles, clock_pen.
+ *     recycles, clock_pen, carry; u32 seed, rng; u32 history count, redo count, Undo All group (the top
+ *     actions of the redo stack that go back together); then each action (history oldest first, then
+ *     the redo stack bottom first): u8 type, src, dst, n, nsteps, autoturn, waste fan, nauto, then
+ *     nsteps x (src, dst), nauto x the auto-home sequence (session.h SolAction.autos), the 65-byte
+ *     board before it, i32 score, recycles, clock_pen.
+ *   Version 1 (Solitaire HD 1.1) is read too: no group, no nauto (none).
  * Rejected as a whole when damaged (magic, version, lengths, CRC, a board that is not a Klondike
  * position, values out of range), and ignored when it was saved with other Options than the current
  * ones (Draw, Scoring or Timed game changed meanwhile, e.g. by XP's sol.exe, which shares them).

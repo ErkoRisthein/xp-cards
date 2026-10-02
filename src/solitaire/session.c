@@ -47,6 +47,7 @@ const char *sol_message_text(int id)
     case SOL_MSG_NO_HINT:         return "No hint is available.";
     case SOL_MSG_UNWINNABLE:      return "This game can no longer be won. Use Undo to go back.";
     case SOL_MSG_UNWINNABLE_DEAL: return "This game cannot be won.";
+    case SOL_MSG_UNDO_ALL:        return "Do you want to undo all your moves and return to the start of the game?";
     }
     return "";
 }
@@ -57,6 +58,16 @@ static void ui_message(SolSession *s, int id)
     s->busy++;                          /* a modal box: input and commands wait */
     s->ui.message(s->ui.ctx, id, sol_message_text(id));
     s->busy--;
+}
+
+static int ui_confirm(SolSession *s, int id)
+{
+    int r;
+    if (!s->ui.confirm) return 1;
+    s->busy++;
+    r = s->ui.confirm(s->ui.ctx, id, sol_message_text(id));
+    s->busy--;
+    return r != 0;
 }
 
 /* ---- Score and clock ----------------------------------------------------------------------------- */
@@ -117,12 +128,17 @@ static void begin_action(SolSession *s, int type)
 }
 
 static void stats_note(SolSession *s);
+static void csel_clear(SolSession *s);
 
 static void commit_action(SolSession *s, int keep_redo)
 {
     stack_push(&s->hist, &s->nhist, &s->hist_cap, &s->work);
-    if (!keep_redo) s->nredo = 0;
+    if (!keep_redo) {
+        s->nredo = 0;
+        s->redo_group = 0;
+    }
     s->undo_fresh = 1;
+    csel_clear(s);                      /* extra: an action ends a click selection */
     stats_note(s);                      /* extra: the game counts as played from its first action */
 }
 
@@ -130,6 +146,7 @@ static void clear_history(SolSession *s)
 {
     s->nhist = 0;
     s->nredo = 0;
+    s->redo_group = 0;
 }
 
 /* ---- Board operations (no history) --------------------------------------------------------------- */
@@ -204,6 +221,69 @@ static void replay_turns(SolSession *s, uint8_t bits)
             do_turn(s, SOL_TAB0 + k);
             s->work.autoturn |= (uint8_t)(1u << k);
         }
+    }
+}
+
+/* ---- Extra (auto_home): safe cards home after an action, as part of it ---------------------------- */
+
+static void record_auto(SolSession *s, unsigned op)
+{
+    if (s->work.nauto < SOL_MAX_AUTO) s->work.autos[s->work.nauto++] = (uint8_t)op;
+}
+
+/* auto_turn during the cascade: the turns go into the sequence (a column can turn more than once). */
+static void auto_turn_seq(SolSession *s)
+{
+    if (!s->extras.auto_turn) return;
+    for (int k = 0; k < 7; k++) {
+        const SolPile *p = &s->board.p[SOL_TAB0 + k];
+        if (p->n && !sol_is_up(p->c[p->n - 1])) {
+            do_turn(s, SOL_TAB0 + k);
+            record_auto(s, SOL_AUTO_TURN | (unsigned)(SOL_TAB0 + k));
+        }
+    }
+}
+
+/* After an action and its auto-turns (still being built): every card that is safe to go home flies
+ * there (ui.animate_move, before the move, as Finish's), one at a time, the auto-turns after each.
+ * Returns the cards moved. */
+static int auto_home(SolSession *s)
+{
+    int src, dst, moved = 0;
+    if (!s->extras.auto_home) return 0;
+    while (s->work.nauto + 8 <= SOL_MAX_AUTO && sol_auto_home_step(&s->board, &src, &dst)) {
+        if (s->ui.animate_move) {
+            s->busy++;                  /* the flight: commands and input wait */
+            s->ui.animate_move(s->ui.ctx, src, dst);
+            s->busy--;
+        }
+        move_cards(s, src, dst, 1);
+        record_auto(s, (unsigned)(src * 4 + (dst - SOL_FOUND0)));
+        moved++;
+        if (sol_is_won(&s->board)) break;
+        auto_turn_seq(s);
+    }
+    return moved;
+}
+
+/* Redo: the sequence again, exactly (each step checked; it always fits right after its Undo). */
+static void replay_autos(SolSession *s, const SolAction *a)
+{
+    for (int i = 0; i < a->nauto && i < SOL_MAX_AUTO; i++) {
+        unsigned op = a->autos[i];
+        if (op & SOL_AUTO_TURN) {
+            int t = (int)(op & 0x7F);
+            const SolPile *p = &s->board.p[t < SOL_NPILES ? t : 0];
+            if (!sol_is_tab(t) || !p->n || sol_is_up(p->c[p->n - 1])) return;
+            do_turn(s, t);
+        } else {
+            int src = (int)(op >> 2), dst = SOL_FOUND0 + (int)(op & 3);
+            const SolPile *p = &s->board.p[src < SOL_NPILES ? src : 0];
+            if (src >= SOL_NPILES || !p->n || !sol_is_up(p->c[p->n - 1]) ||
+                !sol_can_drop(&s->board, dst, src, p->n - 1)) return;
+            move_cards(s, src, dst, 1);
+        }
+        record_auto(s, op);
     }
 }
 
@@ -294,6 +374,22 @@ static void hint_stop(SolSession *s)
     ui_invalidate(s);
 }
 
+/* ---- Click selection (extra, click_select) --------------------------------------------------------- */
+
+static void csel_clear(SolSession *s)
+{
+    if (s->csel_pile < 0) return;
+    s->csel_pile = -1;
+    s->csel_index = 0;
+    ui_invalidate(s);
+}
+
+void sol_selection(const SolSession *s, int *pile, int *index)
+{
+    *pile = s->csel_pile;
+    *index = s->csel_pile >= 0 ? s->csel_index : -1;
+}
+
 /* ---- The unwinnable warning (extra) ---------------------------------------------------------------- */
 
 enum { SOL_AS_DEAL = 1, SOL_AS_MOVE = 2, SOL_AS_UNDO = 3 };
@@ -350,6 +446,7 @@ static void win(SolSession *s)
     if (s->opts.scoring != SOL_SCORING_STANDARD) s->bonus = 0;
     stats_win(s);
     hint_stop(s);
+    csel_clear(s);
     req_drop(s);
     clear_history(s);
     clear_drag(s);
@@ -417,6 +514,7 @@ void sol_init(SolSession *s, const SolSessionUI *ui, const CeStore *store)
     if (ui) s->ui = *ui;
     if (store) s->store = *store;
     clear_drag(s);
+    s->csel_pile = -1;
     /* LoadOptions 0x1001504 */
     sol_options_unpack(&s->opts, ce_store_get(&s->store, SOL_REG_OPTIONS, SOL_OPTIONS_DEFAULT));
     if (s->store.get && s->store.get(s->store.ctx, SOL_REG_BACK, &v)) {
@@ -445,6 +543,7 @@ void sol_deal(SolSession *s, unsigned seed, int from_options)
 {
     stats_abandon(s);                   /* extra: an unfinished game that counted is lost */
     hint_stop(s);
+    csel_clear(s);
     clear_drag(s);
     seed &= 0x7FFF;
     s->seed = seed;
@@ -479,6 +578,7 @@ void sol_deal(SolSession *s, unsigned seed, int from_options)
 void sol_restored(SolSession *s)
 {
     hint_stop(s);
+    csel_clear(s);
     clear_drag(s);
     s->seeded = 1;
     s->dealt = 1;
@@ -516,14 +616,16 @@ void sol_new_deal(SolSession *s, int from_options)
 
 static int stock_press(SolSession *s, int mods)
 {
+    int home;
     if (s->board.p[SOL_STOCK].n == 0) {
         if (!recycle_allowed(s)) return SOL_PRESS_NONE;
         begin_action(s, SOL_ACT_RECYCLE);
         do_recycle(s);
         auto_turn(s);
+        home = auto_home(s);
         commit_action(s, 0);
         ui_invalidate(s);
-        settle(s);
+        if (!(home && check_win(s))) settle(s);   /* (XP never wins on a stock click; auto_home can) */
         return SOL_PRESS_DONE;
     }
     /* StockHitTest 0x1004625: Ctrl+Alt+Shift draws a single card */
@@ -531,10 +633,28 @@ static int stock_press(SolSession *s, int mods)
     begin_action(s, SOL_ACT_DRAW);
     s->work.n = (uint8_t)do_draw(s, n);
     auto_turn(s);
+    home = auto_home(s);
     commit_action(s, 0);
     ui_invalidate(s);
-    settle(s);
+    if (!(home && check_win(s))) settle(s);
     return SOL_PRESS_DONE;
+}
+
+/* A move of the cards src[idx..top] onto dst, already checked: one action, then (extras) the turns and
+ * the cards home that follow it, the win or settle. */
+static void do_move(SolSession *s, int src, int idx, int dst)
+{
+    int n = s->board.p[src].n - idx;
+    begin_action(s, SOL_ACT_MOVE);
+    s->work.src = (uint8_t)src;
+    s->work.dst = (uint8_t)dst;
+    s->work.n = (uint8_t)n;
+    move_cards(s, src, dst, n);
+    auto_turn(s);
+    auto_home(s);
+    commit_action(s, 0);
+    ui_invalidate(s);
+    if (!check_win(s)) settle(s);
 }
 
 int sol_press(SolSession *s, int pile, int index, int mods)
@@ -542,18 +662,32 @@ int sol_press(SolSession *s, int pile, int index, int mods)
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s)) return SOL_PRESS_NONE;
     start_input(s);                     /* any press on the table starts the clock */
+    s->csel_block = 0;
+    if (s->csel_pile >= 0) {            /* extra (click_select): the press after a click selection */
+        int sp = s->csel_pile, si = s->csel_index;
+        csel_clear(s);
+        if (pile == sp) {
+            s->csel_block = 1;          /* on the selection's pile: only deselects (no new click selection) */
+        } else if (pile >= 0 && pile < SOL_NPILES && si < s->board.p[sp].n &&
+                   sol_can_drop(&s->board, pile, sp, si)) {
+            do_move(s, sp, si, pile);   /* the destination */
+            return SOL_PRESS_DONE;
+        }                               /* else: deselected, and the press acts as usual */
+    }
     if (pile == SOL_STOCK) return stock_press(s, mods);
     if (pile < 0 || pile >= SOL_NPILES) return SOL_PRESS_NONE;
     SolPile *p = &s->board.p[pile];
     /* TableauHitTest 0x10042EF: a press on a face-down top card turns it over */
     if (sol_is_tab(pile) && p->n > 0 && index == p->n - 1 && !sol_is_up(p->c[index])) {
+        int home;
         begin_action(s, SOL_ACT_TURN);
         s->work.src = (uint8_t)pile;
         do_turn(s, pile);
         auto_turn(s);                   /* (others left face down, e.g. before the option was on) */
+        home = auto_home(s);
         commit_action(s, 0);
         ui_invalidate(s);
-        settle(s);
+        if (!(home && check_win(s))) settle(s);
         return SOL_PRESS_DONE;
     }
     return sol_begin_drag(s, pile, index) ? SOL_PRESS_DRAG : SOL_PRESS_NONE;
@@ -567,6 +701,7 @@ int sol_begin_drag(SolSession *s, int pile, int index)
     if (index < 0 || index >= p->n || !sol_is_up(p->c[index])) return 0;
     /* the waste gives only its top card; so does a foundation (XP picked up a run from its edge) */
     if ((pile == SOL_WASTE || sol_is_found(pile)) && index != p->n - 1) return 0;
+    csel_clear(s);                      /* extra: a drag replaces a click selection */
     start_input(s);
     s->drag_pile = pile;
     s->drag_index = index;
@@ -613,15 +748,8 @@ int sol_drop(SolSession *s, int pile)
         ui_invalidate(s);
         return 0;
     }
-    begin_action(s, SOL_ACT_MOVE);
-    s->work.src = (uint8_t)src;
-    s->work.dst = (uint8_t)pile;
-    s->work.n = (uint8_t)n;
-    move_cards(s, src, pile, n);
-    auto_turn(s);
-    commit_action(s, 0);
-    ui_invalidate(s);
-    if (!check_win(s)) settle(s);
+    (void)n;
+    do_move(s, src, idx, pile);
     return 1;
 }
 
@@ -644,15 +772,7 @@ int sol_dblclick(SolSession *s, int pile, int index, int mods)
             for (int f = SOL_FOUND0; f < SOL_FOUND0 + 4; f++) {
                 if (!sol_can_drop(&s->board, f, pile, index)) continue;
                 start_input(s);
-                begin_action(s, SOL_ACT_MOVE);
-                s->work.src = (uint8_t)pile;
-                s->work.dst = (uint8_t)f;
-                s->work.n = 1;
-                move_cards(s, pile, f, 1);
-                auto_turn(s);
-                commit_action(s, 0);
-                ui_invalidate(s);
-                if (!check_win(s)) settle(s);
+                do_move(s, pile, index, f);
                 return SOL_PRESS_DONE;
             }
         }
@@ -667,6 +787,7 @@ int sol_autoplay(SolSession *s)
     int total = 0, moved, won = 0;
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s)) return 0;
+    csel_clear(s);
     begin_action(s, SOL_ACT_AUTOPLAY);
     do {
         moved = 0;
@@ -689,6 +810,10 @@ int sol_autoplay(SolSession *s)
     } while (moved && !won);
     if (!total) return 0;
     auto_turn(s);
+    if (!won) {
+        total += auto_home(s);          /* extra: what the turns uncovered */
+        won = sol_is_won(&s->board);
+    }
     commit_action(s, 0);
     ui_invalidate(s);
     if (won) win(s);
@@ -701,6 +826,7 @@ int sol_autoplay(SolSession *s)
 int sol_undo(SolSession *s)
 {
     if (!sol_undo_enabled(s)) return 0;
+    csel_clear(s);
     SolAction a = s->hist[--s->nhist];
     sol_board_unpack(&s->board, a.board);
     s->waste_fan = a.waste_fan;
@@ -716,10 +842,29 @@ int sol_undo(SolSession *s)
     s->undo_fresh = 0;
     score_event(s, SOL_EV_CLOCK);       /* XP's Undo charge: Standard -2 (floored at 0) */
     stack_push(&s->redo, &s->nredo, &s->redo_cap, &a);
+    if (s->batch) return 1;             /* Undo All: told once, at the end */
+    s->redo_group = 0;                  /* (an Undo All group is never under a single Undo) */
     ui_invalidate(s);
     ui_status(s);
     assist_changed(s, SOL_AS_UNDO);
     return 1;
+}
+
+int sol_undo_all(SolSession *s)
+{
+    int n = 0, r0;
+    if (!sol_undo_enabled(s)) return 0;
+    hint_stop(s);
+    csel_clear(s);
+    r0 = s->nredo;
+    s->batch++;
+    while (sol_undo(s)) n++;            /* as that many Undos: the same score and clock penalties */
+    s->batch--;
+    s->redo_group = s->nredo - r0;      /* (fewer if the redo stack ran out of memory) */
+    ui_invalidate(s);
+    ui_status(s);
+    assist_changed(s, SOL_AS_UNDO);
+    return n;
 }
 
 /* Is action a performable on the current position? (It always is right after its Undo.) */
@@ -753,12 +898,14 @@ static int replay_ok(const SolSession *s, const SolAction *a)
     return 0;
 }
 
-int sol_redo(SolSession *s)
+/* Redo the top action of the redo stack; last = 0 inside an Undo All group (the UI is told, the win
+ * checked and the position settled after the group's last action only). */
+static int redo_one(SolSession *s, int last)
 {
-    if (!sol_redo_enabled(s)) return 0;
     SolAction a = s->redo[s->nredo - 1];
     if (!replay_ok(s, &a)) {            /* cannot happen; never replay onto a wrong position */
         s->nredo = 0;
+        s->redo_group = 0;
         return 0;
     }
     s->nredo--;
@@ -779,11 +926,33 @@ int sol_redo(SolSession *s)
         break;
     }
     replay_turns(s, a.autoturn);
+    replay_autos(s, &a);
     commit_action(s, 1);
+    if (!last) return 1;
     ui_invalidate(s);
-    if (!((a.type == SOL_ACT_MOVE || a.type == SOL_ACT_AUTOPLAY || a.type == SOL_ACT_FINISH) && check_win(s)))
+    if (!((a.type == SOL_ACT_MOVE || a.type == SOL_ACT_AUTOPLAY || a.type == SOL_ACT_FINISH || a.nauto) &&
+          check_win(s)))
         settle(s);
     return 1;
+}
+
+int sol_redo(SolSession *s)
+{
+    if (!sol_redo_enabled(s)) return 0;
+    csel_clear(s);
+    if (s->redo_group > 0 && s->redo_group <= s->nredo) {
+        /* extra: what Undo All undid comes back whole */
+        int n = s->redo_group, done = 0;
+        s->redo_group = 0;
+        while (done < n && redo_one(s, done == n - 1)) done++;
+        if (done > 0 && done < n) {     /* (cannot happen: a stale group) */
+            ui_invalidate(s);
+            settle(s);
+        }
+        return done > 0;
+    }
+    s->redo_group = 0;
+    return redo_one(s, 1);
 }
 
 /* ---- Keyboard (§9.1, KeyHit 0x1002EB8) ----------------------------------------------------------- */
@@ -850,6 +1019,7 @@ int sol_key(SolSession *s, int key, int mods)
 {
     if (s->busy) return 0;
     hint_stop(s);
+    csel_clear(s);                      /* extra: the keyboard plays as in XP */
     switch (key) {
     case SOL_KEY_HOME:  set_col(s, SOL_STOCK); break;
     case SOL_KEY_END:   set_col(s, SOL_NPILES - 1); break;
@@ -920,11 +1090,21 @@ void sol_command(SolSession *s, int cmd)
 {
     if (s->busy) return;
     hint_stop(s);
+    if (cmd != SOL_CMD_DRAW) csel_clear(s);
     switch (cmd) {
     case SOL_CMD_DEAL:
         if (!sol_dragging(s)) sol_new_deal(s, 0);   /* XP grays Deal while a card is dragged */
         break;
     case SOL_CMD_UNDO:     sol_undo(s); break;
+    case SOL_CMD_UNDO_ALL:                          /* extra: asks first */
+        if (sol_undo_enabled(s) && ui_confirm(s, SOL_MSG_UNDO_ALL)) sol_undo_all(s);
+        break;
+    case SOL_CMD_DRAW:                              /* extra (D): a press on the stock */
+        if (s->dealt && !sol_dragging(s)) {
+            int n = s->board.p[SOL_STOCK].n;
+            sol_press(s, SOL_STOCK, n ? n - 1 : -1, 0);
+        }
+        break;
     case SOL_CMD_REDO:     sol_redo(s); break;
     case SOL_CMD_FORCEWIN: force_win(s); break;
     case SOL_CMD_HINT:     sol_hint(s); break;
@@ -937,6 +1117,7 @@ int sol_apply_options(SolSession *s, const SolOptions *in)
 {
     SolOptions o = *in;
     hint_stop(s);
+    csel_clear(s);
     o.status_bar = o.status_bar != 0;
     o.timed = o.timed != 0;
     o.outline = o.outline != 0;
@@ -970,8 +1151,9 @@ void sol_set_back(SolSession *s, int back)
 
 /* ---- Extras: settings, Hint, Finish, click-to-move ---------------------------------------------- */
 
-static const char *const extra_names[6] = { "AutoTurn", "ClickToMove", "AutoFinish", "WinnableOnly", "SaveGame",
-                                            "WarnUnwinnable" };
+#define NEXTRAS 8
+static const char *const extra_names[NEXTRAS] = { "AutoTurn", "ClickToMove", "AutoFinish", "WinnableOnly",
+                                                  "SaveGame", "WarnUnwinnable", "AutoHome", "ClickSelect" };
 
 static int *extra_field(SolExtras *x, int i)
 {
@@ -981,20 +1163,22 @@ static int *extra_field(SolExtras *x, int i)
     case 2: return &x->auto_finish;
     case 3: return &x->winnable_only;
     case 4: return &x->save_game;
-    default: return &x->warn_unwinnable;
+    case 5: return &x->warn_unwinnable;
+    case 6: return &x->auto_home;
+    default: return &x->click_select;
     }
 }
 
 void sol_extras_load(SolExtras *x, const CeStore *store)
 {
     memset(x, 0, sizeof *x);
-    for (int i = 0; i < 6; i++) *extra_field(x, i) = ce_store_get(store, extra_names[i], 0) != 0;
+    for (int i = 0; i < NEXTRAS; i++) *extra_field(x, i) = ce_store_get(store, extra_names[i], 0) != 0;
 }
 
 void sol_extras_save(const SolExtras *x, const CeStore *store)
 {
     SolExtras t = *x;
-    for (int i = 0; i < 6; i++) ce_store_set(store, extra_names[i], *extra_field(&t, i) ? 1u : 0u);
+    for (int i = 0; i < NEXTRAS; i++) ce_store_set(store, extra_names[i], *extra_field(&t, i) ? 1u : 0u);
     ce_store_flush(store);
 }
 
@@ -1002,8 +1186,9 @@ void sol_set_extras(SolSession *s, const SolExtras *x)
 {
     int warn_was = s->extras.warn_unwinnable;
     SolExtras t = *x;
-    for (int i = 0; i < 6; i++) *extra_field(&t, i) = *extra_field(&t, i) != 0;
+    for (int i = 0; i < NEXTRAS; i++) *extra_field(&t, i) = *extra_field(&t, i) != 0;
     s->extras = t;
+    if (!t.click_select) csel_clear(s);
     if (warn_was && !t.warn_unwinnable) req_drop(s);
     else if (!warn_was && t.warn_unwinnable && s->dealt && !s->busy)
         assist_changed(s, s->nhist == 0 && s->nredo == 0 ? SOL_AS_DEAL : SOL_AS_UNDO);   /* silent */
@@ -1078,6 +1263,24 @@ int sol_click_target(const SolSession *s)
 {
     if (!s->extras.click_move || !sol_dragging(s) || !s->dealt || s->busy) return -1;
     return sol_click_dest(&s->board, s->drag_pile, s->drag_index);
+}
+
+int sol_click(SolSession *s)
+{
+    int t;
+    if (!sol_dragging(s) || !s->dealt || s->busy) return SOL_CLICK_NONE;
+    if (s->csel_block) {                /* the press only deselected */
+        s->csel_block = 0;
+        return SOL_CLICK_NONE;
+    }
+    if ((t = sol_click_target(s)) >= 0)
+        return sol_drop(s, t) ? SOL_CLICK_MOVED : SOL_CLICK_NONE;
+    if (!s->extras.click_select) return SOL_CLICK_NONE;
+    s->csel_pile = s->drag_pile;        /* the drag's cards, picked up by the usual rules */
+    s->csel_index = s->drag_index;
+    clear_drag(s);
+    ui_invalidate(s);
+    return SOL_CLICK_SELECTED;
 }
 
 /* ---- Queries ------------------------------------------------------------------------------------- */

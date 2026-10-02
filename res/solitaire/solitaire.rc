@@ -4,6 +4,8 @@
  *   - the extras Game > Redo (Ctrl+Y) and Game > Full Screen (F11, Alt+Enter), and (v1.1) Game > Hint
  *     (H), Game > Finish (F6) and Game > Statistics... (F4) with their dialog, with their status-bar
  *     help strings; the Options dialog's "Extras" group (right of XP's controls, which are unchanged);
+ *   - (v1.2) Game > Undo All, Ctrl+Z for Undo (shown on the Undo item; XP's Undo had no key), the C key
+ *     on the Deck item, two more Extras;
  *   - no context help ("?" / DS_CONTEXTHELP: we cannot ship sol.hlp);
  *   - Select Card Back shows our 12 backs in buttons of the card's shape (XP stretched its 71 x 96
  *     backs to 33 x 62): 34 x 42 DLU instead of 26 x 42, so the dialog is 230 DLU wide instead of 178;
@@ -29,11 +31,12 @@ BEGIN
     BEGIN
         MENUITEM "&Deal\t F2",              IDM_DEAL            /* sic: space after the tab */
         MENUITEM SEPARATOR
-        MENUITEM "&Undo",                   IDM_UNDO
+        MENUITEM "&Undo\tCtrl+Z",           IDM_UNDO            /* (XP: "&Undo", no key) */
+        MENUITEM "Undo &All",               IDM_UNDOALL         /* extra (v1.2) */
         MENUITEM "&Redo\tCtrl+Y",           IDM_REDO            /* extra */
         MENUITEM "&Hint\tH",                IDM_HINT            /* extra (v1.1): WM_CHAR 'h' / 'H' */
         MENUITEM "F&inish\tF6",             IDM_FINISH          /* extra (v1.1; "F" = Full Screen) */
-        MENUITEM "De&ck...",                IDM_DECK
+        MENUITEM "De&ck...\tC",             IDM_DECK            /* (XP: no key; C is WM_CHAR, v1.2) */
         MENUITEM "&Options...",             IDM_OPTIONS
         MENUITEM "&Statistics...\tF4",      IDM_STATISTICS      /* extra (v1.1) */
         MENUITEM "&Full Screen\tF11",       IDM_FULLSCREEN      /* extra */
@@ -60,6 +63,7 @@ BEGIN
     VK_RETURN, IDM_FULLSCREEN, VIRTKEY, ALT                     /* extra */
     VK_F4,     IDM_STATISTICS, VIRTKEY                          /* extra (v1.1) */
     VK_F6,     IDM_FINISH,     VIRTKEY                          /* extra (v1.1) */
+    "Z",       IDM_UNDO,       VIRTKEY, CONTROL                 /* extra (v1.2); repeats while held */
 END
 
 /* Dialogs: plain DIALOG templates, "MS Shell Dlg" 8, XP's positions (x/y from the main window's
@@ -87,8 +91,8 @@ BEGIN
     CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 120, 94, 40, 14
 END
 
-/* Options: XP's 134 x 101 (controls unchanged) plus the "Extras" group to their right: 302 x 101. */
-IDD_OPTIONS DIALOG 50, 31, 302, 101
+/* Options: XP's 134 x 101 (controls unchanged) plus the "Extras" group to their right: 302 x 127. */
+IDD_OPTIONS DIALOG 50, 31, 302, 127
 STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Options"
 FONT 8, "MS Shell Dlg"
@@ -107,7 +111,7 @@ BEGIN
     CONTROL "Score", IDC_CUMSCORE, "Static", SS_LEFT | WS_GROUP, 84, 68, 20, 12
     CONTROL "OK", IDOK, "Button", BS_DEFPUSHBUTTON | WS_GROUP | WS_TABSTOP, 36, 84, 36, 14
     CONTROL "Cancel", IDCANCEL, "Button", BS_PUSHBUTTON | WS_GROUP | WS_TABSTOP, 76, 84, 40, 14
-    CONTROL "Extras", IDC_EXTRAS_GROUP, "Button", BS_GROUPBOX | WS_GROUP, 138, 4, 160, 92
+    CONTROL "Extras", IDC_EXTRAS_GROUP, "Button", BS_GROUPBOX | WS_GROUP, 138, 4, 160, 118
     CONTROL "T&urn cards over automatically", IDC_AUTOTURN, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 15, 150, 12
     CONTROL "Single clic&k moves a card", IDC_CLICKMOVE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
@@ -120,6 +124,10 @@ BEGIN
             144, 67, 150, 12
     CONTROL "&Warn when the game can't be won", IDC_WARNUNWINNABLE, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
             144, 80, 150, 12
+    CONTROL "Move cards &home automatically", IDC_AUTOHOME, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+            144, 93, 150, 12
+    CONTROL "Click to select, click to &move", IDC_CLICKSELECT, "Button", BS_AUTOCHECKBOX | WS_TABSTOP,
+            144, 106, 150, 12
 END
 
 /* Statistics (extra, v1.1): the mode, then the labels and the values; OK, Reset. */
@@ -163,9 +171,11 @@ BEGIN
     IDM_HINT            "Show a possible move"
     IDM_FINISH          "Move all the cards to the foundations"
     IDM_STATISTICS      "Show the statistics of your games"
+    IDM_UNDOALL         "Undo all moves back to the start of the game"
     IDS_MSG_NOHINT      "No hint is available."
     IDS_MSG_UNWINNABLE  "This game can no longer be won. Use Undo to go back."
     IDS_MSG_UNWINNABLE_DEAL "This game cannot be won."
+    IDS_MSG_UNDOALL     "Do you want to undo all your moves and return to the start of the game?"
     1120                "Draw One, Standard"
     1121                "Draw One, Vegas"
     1122                "Draw One, None"

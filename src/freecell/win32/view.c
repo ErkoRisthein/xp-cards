@@ -18,6 +18,12 @@
  * against timeGetTime at FC_FRAME_MS each (late frames are dropped, the landing frame never is), with
  * the system timer at 1 ms (timeBeginPeriod) while cards fly: a plain Sleep(10) lasts a whole clock
  * tick on XP (10–15.6 ms), which made flights up to twice as slow as designed.
+ *
+ * Drag and drop (v1.4, extras.drag_drop) is the engine's (engine/win32/drag.h, Solitaire HD's drag):
+ * the lifted cards are hidden from the board (FcView hide_*: the column from the first lifted card on,
+ * or the free cell) and float over the back buffer as one sprite (fc_render_stack); a refused drop
+ * slides them back at the flights' speed. When the drop is followed by autoplay, the first flight
+ * puts the dropped cards down (they are already at their place in the board).
  */
 #include "app.h"
 
@@ -78,6 +84,15 @@ void view_resize(App *a, int w, int h)
         return;
     if (a->have_layout && a->L.client_w == w && a->L.client_h == h && a->quality == q)
         return;                                       /* e.g. WM_SIZE after a restore: nothing new */
+    if (a->drag_on || a->press_armed) {               /* v1.4: a drag cannot survive a new layout */
+        ce_drag_free(&a->drag);
+        a->drag_on = a->press_armed = 0;
+        if (a->lcapture) {
+            a->lcapture = 0;
+            ReleaseCapture();
+        }
+        ce_log("drag abandoned (new layout)");
+    }
     t0 = ce_now_ms();
     if (!ce_backbuf_ensure(&a->bb, w, h))
         return;                                       /* out of memory: keep the old view */
@@ -129,6 +144,10 @@ static void view_state(App *a, FcView *v)
     v->no_game = vs.no_game;
     v->hide_col = a->hide_col;
     v->hide_pos = a->hide_pos;
+    if (a->drag_on && a->hide_col < 0) {             /* v1.4: the lifted cards */
+        v->hide_col = a->drag_col;
+        v->hide_pos = a->drag_first;
+    }
     v->hint_col = vs.hint_col;
     v->hint_pos = vs.hint_pos;
 }
@@ -269,7 +288,8 @@ void view_paint(App *a)
     dc = BeginPaint(a->hwnd, &ps);
     if (!dc)
         return;
-    ce_backbuf_paint(&a->bb, dc, &ps.rcPaint, a->have_layout, green_brush);
+    if (!(a->drag_on && a->have_layout && ce_drag_paint(&a->drag, &a->bb, dc, &ps.rcPaint)))
+        ce_backbuf_paint(&a->bb, dc, &ps.rcPaint, a->have_layout, green_brush);
     EndPaint(a->hwnd, &ps);
 }
 
@@ -302,10 +322,18 @@ void view_animate_step(App *a, const FcStep *st, int forward)
     FlightCtx fl;
     HDC dc;
     double t0;
+    int dropped = 0;
+    CeRect drop_r = ce_rect(0, 0, 0, 0);
     if (a->s.opts.quick || !a->have_layout || !a->cs || !a->bb.bits || !a->hwnd || IsIconic(a->hwnd) ||
         !IsWindowVisible(a->hwnd))
         return;
     t0 = ce_now_ms();
+    if (a->drag_on) {                                 /* v1.4: autoplay after a drop: the dropped cards are */
+        drop_r = ce_drag_rect(&a->drag);              /* in the board now; the first frame shows them there */
+        ce_drag_free(&a->drag);
+        a->drag_on = 0;
+        dropped = 1;
+    }
     fcol = forward ? st->src_col : st->dst_col;
     fpos = forward ? st->src_pos : st->dst_pos;
     tcol = forward ? st->dst_col : st->src_col;
@@ -341,6 +369,8 @@ void view_animate_step(App *a, const FcStep *st, int forward)
     if (dc) {
         for (i = 0; i < n; i++)                       /* ... with the card still at its source */
             ce_backbuf_present(&a->bb, dc, r[i], sprite, from.x, from.y, a->L.cw, a->L.ch);
+        if (dropped && ce_rect_clip(&drop_r, a->bb.fb.w, a->bb.fb.h))
+            ce_backbuf_present(&a->bb, dc, drop_r, sprite, from.x, from.y, a->L.cw, a->L.ch);
         /* XP's AnimateCard: frames i = 1..N-1 at from + d*i/N, then the destination */
         drawn = ce_anim_fly(&a->anim, &a->bb, dc, from, to, a->L.anim_px_per_frame, FC_FRAME_MS, sprite,
                             flight_abort, &fl, &frames);
@@ -352,6 +382,65 @@ void view_animate_step(App *a, const FcStep *st, int forward)
         view_invalidate_all(a);                       /* resized mid-flight: start over cleanly */
     ce_log("flight %d,%d -> %d,%d: %d frames (%d drawn), %.1f ms", fcol, fpos, tcol, tpos, frames, drawn,
            ce_now_ms() - t0);
+}
+
+/* ---- drag and drop (v1.4) ---------------------------------------------------------------------------- */
+
+int view_drag_begin(App *a, int col, int first, int px, int py)
+{
+    CeImage *sp;
+    CeRect r;
+    if (!a->have_layout || !a->cs || !a->bb.bits || !a->hwnd)
+        return 0;
+    sp = fc_render_stack(a->cs, &a->L, &a->s.board, col, first);
+    if (!sp)
+        return 0;
+    r = fc_layout_card_rect(&a->L, &a->s.board, col, first);
+    ce_drag_begin(&a->drag, sp, r.x, r.y, sp->w, sp->h, px, py);
+    a->drag_on = 1;
+    a->drag_col = col;
+    a->drag_first = first;
+    view_sync(a);                                     /* the board without them; WM_PAINT adds the sprite */
+    ce_log("drag begin: col %d pos %d at %d,%d grab %d,%d", col, first, r.x, r.y, a->drag.grab_dx,
+           a->drag.grab_dy);
+    return 1;
+}
+
+void view_drag_move(App *a, int x, int y)
+{
+    if (!a->drag_on)
+        return;
+    ce_drag_move(&a->drag, &a->bb, a->hwnd, x, y);
+    view_mouse_move(a, x, y);                         /* XP's destination cursors, the king */
+    if (a->dirty)
+        view_sync(a);
+}
+
+void view_drag_zip_back(App *a)
+{
+    CeRect to;
+    FlightCtx fl;
+    int frames = 0, drawn;
+    double t0 = ce_now_ms();
+    if (!a->drag_on || !a->have_layout || !a->hwnd || IsIconic(a->hwnd) || !IsWindowVisible(a->hwnd))
+        return;
+    to = fc_layout_card_rect(&a->L, &a->s.board, a->drag_col, a->drag_first);
+    fl.a = a;
+    fl.gen = a->layout_gen;
+    drawn = ce_drag_zip_back(&a->drag, &a->anim, &a->bb, a->hwnd, to.x, to.y, a->L.anim_px_per_frame, FC_FRAME_MS,
+                             flight_abort, &fl, &frames);
+    ce_anim_idle(&a->anim);
+    ce_log("zip back col %d pos %d: %d frames (%d drawn), %.1f ms", a->drag_col, a->drag_first, frames, drawn,
+           ce_now_ms() - t0);
+}
+
+void view_drag_end(App *a)
+{
+    if (!a->drag_on)
+        return;
+    ce_drag_end(&a->drag, a->hwnd);                   /* its rect is repainted from the back buffer ... */
+    a->drag_on = 0;
+    view_sync(a);                                     /* ... which shows the cards again (or moved) */
 }
 
 /* ---- mouse / cursor ------------------------------------------------------------------------------- */

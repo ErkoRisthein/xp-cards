@@ -41,8 +41,9 @@ The rules are XP's: the same deals for the same game numbers, the supermove limi
 | F3 | Select game: 1 to 1,000,000, or the special deals -1 and -2 |
 | F4 | Statistics |
 | F5 | Options: messages on illegal moves, quick play (no animation), double-click to a free cell, and the extras below |
-| F10 | Undo |
+| F10 or Ctrl+Z | Undo (Ctrl+Z is new; hold it to undo move after move) |
 | Ctrl+Y | Redo (new) |
+| Game > Undo All | Back to the start of the game, after a question (new); Redo brings it all back |
 | H | Hint (new): the card to move flashes twice, then the place it goes |
 | F6 | Finish (new): send every card home, once the rest is a sure win |
 | F11 or Alt+Enter | Full screen (new); Esc leaves it |
@@ -79,6 +80,12 @@ them on:
 - **Warn when the game can't be won**: a built-in solver checks the position in the background
   after every move and tells you, once, when the game can no longer be won, so you can undo.
 - **Finish automatically**: as soon as the rest is a sure win, every card goes home.
+- **Single click moves a card**: a click sends the card to the best place: home when it is safe there,
+  else the first column it fits on, an empty column, home, a free cell. If there is none, the card
+  stays selected as in XP, and the next click puts it where you want.
+- **Drag and drop cards**: drag a card (or the run below the card you grab) to where it should go. The
+  drop is XP's move to that pile, with XP's supermove limit and "Move to Empty Column" choice; a move XP
+  would refuse slides back. Clicking works as before.
 
 The solver also drives two new Game menu items. **Hint** (H) shows a winning move: the card to move
 flashes twice, then its destination. If the game can no longer be won, it says so. Repeated hints are
@@ -101,6 +108,10 @@ It uses XP Solitaire's own registry key for its options and card back, so the tw
 | Right button | Play every card that can go to the foundations |
 | F2 | Deal |
 | Ctrl+Y | Redo (new); Game > Undo is unlimited |
+| Ctrl+Z | Undo (new); hold it to undo action after action |
+| Game > Undo All | Back to the deal, after a question (new); Redo brings it all back |
+| D | Turn over cards from the deck (new) |
+| C | Select Card Back (new) |
 | H | Hint (new) |
 | F6 | Finish (new): every card home, once the stock and the waste are used up and every card is face up |
 | F4 | Statistics (new) |
@@ -134,6 +145,12 @@ unfinished counts as lost, unless "Save game on exit" keeps it for the next star
   is saved when you exit and comes back at the next start.
 - **Warn when the game can't be won**: a solver checks the position in the background after every move
   and tells you, once, when the game can no longer be won, so you can undo.
+- **Move cards home automatically**: after each move, every card that is safe on its foundation (an ace
+  or a two, or a card whose rank - 1 of the other colour is already home) flies there, as part of that
+  move (one Undo), scored as usual.
+- **Click to select, click to move**: click a card to select it (it turns inverted), then click where
+  it should go. Dragging still works. With "Single click moves a card" on too, a click moves a card that
+  has a place to go and selects one that has none.
 
 Statistics and the saved game are files in `%APPDATA%\xp-cards\Solitaire HD`.
 
@@ -175,6 +192,7 @@ macOS's own SMB client no longer supports. It needs a Python with [impacket](htt
     make xpcheck      # every function the exes import must exist on Windows XP SP2 and SP3
     make e2e          # end-to-end scenarios under Wine (tests/e2e/fchd_*.txt, solhd_*.txt)
     make sol-xp-compare   # Solitaire with every extra off plays exactly as v1.0 (the same random input)
+    make fc-xp-compare    # FreeCell with the v1.4 extras off plays exactly as 1.3 (the same random input)
     make seed-tables  # Solitaire: re-solve every XP deal for "Deal only winnable games" (about 40 min)
 
 The game logic and the shared engine (`src/freecell`, `src/solitaire`, `src/engine`, outside their `win32`

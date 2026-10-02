@@ -63,10 +63,9 @@ typedef struct App {
     int        drag_on;
     int        drag_pile, drag_card;
     int        drag_outline;    /* "Outline dragging" for this drag */
-    int        grab_dx, grab_dy;/* pointer minus the first dragged card's top-left */
-    int        drag_x, drag_y;  /* top-left of the first dragged card */
-    int        drag_w, drag_h;  /* the stack's size */
-    CeImage   *drag_sprite;     /* normal dragging: the lifted stack, floated over the back buffer */
+    CeDrag     drag;            /* the stack: its rect (x, y: the first dragged card's top-left), the grab
+                                   offset, and in normal dragging the lifted stack's sprite, floated over
+                                   the back buffer (engine/win32/drag.h; NULL in outline mode) */
     int        press_valid, press_x, press_y;   /* a mouse press is being handled (the grab point) */
     int        lcapture;        /* SetCapture for a mouse drag */
 
@@ -82,9 +81,11 @@ typedef struct App {
 
     int        menu_undo, menu_redo, menu_idle;   /* menu item states as last set (-1 = unknown) */
     int        menu_hint, menu_finish;
+    int        menu_undoall;    /* v1.2 */
 
     /* extras (v1.1) */
-    int        click_armed;     /* a mouse press began a drag that has not moved past the drag threshold */
+    int        click_armed;     /* a mouse press began a drag that has not moved past the drag threshold
+                                   (click-to-move / click-to-select: its release is a click) */
     int        click_x, click_y;
     int        click_moved;     /* the last click moved cards (click-to-move): its double-click is ignored */
     struct SolveJob *solve_ready;   /* a solver answer waiting to be delivered (solve.c) */

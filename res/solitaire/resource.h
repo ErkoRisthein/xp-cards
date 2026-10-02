@@ -25,6 +25,9 @@
 #define IDM_HINT            1102    /* Game > Hint (H, WM_CHAR) = SOL_CMD_HINT */
 #define IDM_FINISH          1103    /* Game > Finish (F6) = SOL_CMD_FINISH */
 #define IDM_STATISTICS      1104    /* Game > Statistics... (F4) */
+/* Extras (v1.2) */
+#define IDM_UNDOALL         1105    /* Game > Undo All (asks first) = SOL_CMD_UNDO_ALL */
+/* (1106 = SOL_CMD_DRAW, the D key: no menu item) */
 
 /* Numeric resources */
 #define IDR_MENU            1       /* menu (XP: MAKEINTRESOURCE(1)) */
@@ -60,6 +63,8 @@
 #define IDC_WINNABLE        324     /* "Deal only winnable &games" (WinnableOnly) */
 #define IDC_SAVEGAME        325     /* "Sav&e game on exit, resume at start" (SaveGame) */
 #define IDC_WARNUNWINNABLE  326     /* "&Warn when the game can't be won" (WarnUnwinnable) */
+#define IDC_AUTOHOME        327     /* "Move cards &home automatically" (AutoHome, v1.2) */
+#define IDC_CLICKSELECT     328     /* "Click to select, click to &move" (ClickSelect, v1.2) */
 /* Statistics */
 #define IDC_STATS_MODE      330     /* the mode: a drop-down list, the current game's mode first selected */
 #define IDC_STATS_LABELS    331     /* the labels (IDS_STATS_LABELS) */
@@ -86,6 +91,7 @@
 #define IDS_MSG_NOHINT      1110    /* "No hint is available." */
 #define IDS_MSG_UNWINNABLE  1111    /* "This game can no longer be won. Use Undo to go back." */
 #define IDS_MSG_UNWINNABLE_DEAL 1112 /* "This game cannot be won." */
+#define IDS_MSG_UNDOALL     1113    /* "Do you want to undo all your moves ..." (v1.2) */
 #define IDS_STATS_MODE0     1120    /* "Draw One, Standard" .. 1125 "Draw Three, None" (stats.h's modes) */
 #define IDS_STATS_LABELS    1126    /* the labels, one per line */
 #define IDS_RESETSTATS      1127    /* "Are you sure you want to delete all statistics?" */

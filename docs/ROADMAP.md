@@ -22,15 +22,14 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
   - Supermove rule option: XP (f+1)(e+1) default, standard (f+1)·2^e optional.
   - New Game range option: XP 1–32767 default, 1–1,000,000 optional.
 
-## 1b. Solver-based extras (v1.2) — done, except drag-and-drop
+## 1b. Solver-based extras (v1.2) — done
 - [x] Solver (`src/core/solver.c`): weighted best-first over session actions; 31997 of deals
   1..32000 solved with the default budget, #11982 proven unwinnable.
 - [x] Hint: Game > Hint (H) flashes the move (source, then destination); cached along the solution.
   Option "Warn when the game can't be won" (off by default).
 - [x] Auto-finish: Game > Finish (F6), enabled only when the rest is a sure win; option "Finish
   automatically" (off by default).
-- [ ] Drag-and-drop as an optional input mode: waits for Solitaire, which builds the drag code (XP
-  click-click stays the default).
+- [x] Drag-and-drop as an optional input mode (v1.4, §2b; XP click-click stays the default).
 
 ## 2. Solitaire HD (Klondike, sol.exe)
 - [x] Extract the shared card-game engine from FreeCell first (docs/ENGINE.md): images, the card set
@@ -64,11 +63,20 @@ v1 extras: unlimited undo + **redo** (Ctrl+Y), remembered window placement. Ever
 - Windows 10/11: per-monitor high-DPI awareness, optional 64-bit build.
 - VMs/emulators (VirtualBox, 86Box): check performance and scaling there.
 
-## 2b. UX batch after Solitaire extras (decided 2026-10-01; behaviour changes opt-in, defaults = XP)
-- Solitaire: safe auto-moves to the foundations (FreeCell's autoplay rule adapted to Klondike).
-- Solitaire: click-click mode (click a card, then its destination) alongside dragging.
-- FreeCell: single-click to move (best destination) and drag-and-drop (engine drag code from Solitaire).
-- Both (always available, no option — they only act when invoked): Undo All menu item (with confirmation), Ctrl+Z hold-to-repeat undo; Solitaire keys D (draw), C (card back) (F4 Statistics: done in v1.1).
+## 2b. UX batch after Solitaire extras (decided 2026-10-01; behaviour changes opt-in, defaults = XP) — done
+docs/DESIGN.md "FreeCell HD extras (v1.4)" and "Solitaire HD extras (v1.2)".
+- [x] Solitaire: "Move cards home automatically": safe auto-moves to the foundations (FreeCell's autoplay
+  rule on Klondike's foundations), after every committed action, cascading, flown, one undo step,
+  scored as XP's foundation moves.
+- [x] Solitaire: "Click to select, click to move" alongside dragging (with "Single click moves a card"
+  too: a click moves when the card has a place, selects when not).
+- [x] FreeCell: "Single click moves a card" (home if safe, a column, an empty column, home, a free cell;
+  nowhere: XP's selection) and "Drag and drop cards" (the engine's drag code, `engine/win32/drag.h`, from
+  Solitaire; the drop is XP's move to that pile). `make fc-xp-compare`: with both off, 1.3's session.
+- [x] Both (always available, no option — they only act when invoked): Game > Undo All (asks first;
+  one Redo brings it all back), Ctrl+Z (Undo, repeating while held); Solitaire keys D (draw), C (card
+  back) (F4 Statistics: done in v1.1).
+- [x] Solitaire's winnable-deal table regenerated with the fixed solver (`make seed-tables`).
 - Source of ideas: docs/msc-feature-gap.md.
 
 ## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in)

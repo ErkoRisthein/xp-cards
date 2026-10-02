@@ -23,6 +23,7 @@
 #define IDM_FULLSCREEN      117     /* Game > Full Screen (F11, Alt+Enter; Esc leaves); extra */
 #define IDM_HINT            118     /* Game > Hint (key H, WM_CHAR); extra (v1.2) */
 #define IDM_FINISH          119     /* Game > Finish (F6, enabled on a sure win); extra (v1.2) */
+#define IDM_UNDOALL         120     /* Game > Undo All (asks first; enabled with Undo); extra (v1.4) */
 
 /* Dialog control ids (resources.md §5) */
 #define IDC_MOVECOLUMN      201     /* MoveCol: "Move &column" (default) */
@@ -47,6 +48,9 @@
 /* Extra controls (v1.2) */
 #define IDC_WARNUNWINNABLE  226     /* Options: "&Warn when the game can't be won" */
 #define IDC_AUTOFINISH      227     /* Options: "Finish &automatically" */
+/* Extra controls (v1.4) */
+#define IDC_SINGLECLICK     228     /* Options: "Single &click moves a card" */
+#define IDC_DRAGDROP        229     /* Options: "D&rag and drop cards" */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif

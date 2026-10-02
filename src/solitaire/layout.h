@@ -86,6 +86,11 @@ void sol_layout_stack_size(const SolLayout *l, const SolBoard *b, int fan, int p
  * Returns 0 on a miss (*pile = SOL_MISS = -1, *card = -1). Rects are half-open, as Win32's PtInRect. */
 int sol_layout_hit(const SolLayout *l, const SolBoard *b, int fan, int x, int y, int *pile, int *card);
 
+/* Extra (click to select, v1.2): the empty pile (waste, foundation or column; not the stock, which
+ * sol_layout_hit already hits) whose drop zone, its whole pile rect, holds the point; -1 if none. A
+ * click there is the selection's destination. */
+int sol_layout_hit_empty(const SolLayout *l, const SolBoard *b, int x, int y);
+
 /* XP's drop zone of a pile (ValidMovePt, rules.md §2.3): the rect of its top card, or the whole pile
  * rect when it is empty. The dragged first card's rect (cw x ch at the drag position) must overlap it
  * by any amount; the target is the first pile in index order that overlaps and accepts the cards. */

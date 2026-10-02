@@ -235,7 +235,7 @@ static INT_PTR CALLBACK stats_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 }
 
 /* Options (505, 0x10029F1): OK applies to memory; XP's three are saved on exit by fcs_close (XP), the
- * extras (the "Extras" group, v1.1 and v1.2) right away in our own key. */
+ * extras (the "Extras" group, v1.1, v1.2 and v1.4) right away in our own key. */
 static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
 {
     FcOptions *o = &g_app.s.opts;
@@ -251,6 +251,8 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         set_check(d, IDC_FULLRANGE, x->full_range);
         set_check(d, IDC_WARNUNWINNABLE, x->warn_unwinnable);
         set_check(d, IDC_AUTOFINISH, x->auto_finish);
+        set_check(d, IDC_SINGLECLICK, x->single_click);
+        set_check(d, IDC_DRAGDROP, x->drag_drop);
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
@@ -263,6 +265,8 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             x->full_range = checked(d, IDC_FULLRANGE);
             x->warn_unwinnable = checked(d, IDC_WARNUNWINNABLE);
             x->auto_finish = checked(d, IDC_AUTOFINISH);
+            x->single_click = checked(d, IDC_SINGLECLICK);
+            x->drag_drop = checked(d, IDC_DRAGDROP);
             fc_extras_save(x, &g_app.app_store);
             EndDialog(d, 1);
             return TRUE;
@@ -415,6 +419,7 @@ static void cb_menu_state(void *ctx, int undo_enabled, int restart_enabled, int 
     if (!a->menu)
         return;
     changed |= set_item(a, IDM_UNDO, undo_enabled != 0, &a->menu_undo);
+    changed |= set_item(a, IDM_UNDOALL, undo_enabled != 0, &a->menu_undoall);   /* extra (v1.4) */
     changed |= set_item(a, IDM_REDO, redo_enabled != 0, &a->menu_redo);
     changed |= set_item(a, IDM_RESTART, restart_enabled != 0, &a->menu_restart);
     if (changed) {
@@ -460,6 +465,19 @@ static void cb_solve_start(void *ctx, uint32_t id, const FcBoard *b, int standar
 
 static void cb_solve_cancel(void *ctx) { solver_cancel(ctx); }
 
+/* v1.4: Undo All's question, as XP's resign question (the beep, Yes / No, the question icon). */
+static int cb_confirm(void *ctx, int id, const char *text)
+{
+    App *a = ctx;
+    WCHAR w[256], cap[64];
+    int r;
+    ce_to_wide(text, w, 256);
+    app_name(a, cap, 64);
+    r = msgbox(a, w, cap, MB_YESNO | MB_ICONQUESTION, MB_ICONQUESTION) == IDYES;
+    ce_log("confirm %d: %s", id, r ? "yes" : "no");
+    return r;
+}
+
 static void cb_assist_menu(void *ctx, int hint_enabled, int finish_enabled)
 {
     App *a = ctx;
@@ -494,11 +512,14 @@ void ui_make(App *a, FcSessionUI *ui)
     ui->solve_start = cb_solve_start;
     ui->solve_cancel = cb_solve_cancel;
     ui->assist_menu = cb_assist_menu;
+    ui->confirm = cb_confirm;
 }
 
-/* The menu resource starts with Undo, Redo, Restart, Hint and Finish grayed (XP: Undo and Restart). */
+/* The menu resource starts with Undo, Undo All, Redo, Restart, Hint and Finish grayed (XP: Undo and
+ * Restart). */
 void ui_menu_init(App *a)
 {
     a->menu_undo = a->menu_redo = a->menu_restart = 0;
+    a->menu_undoall = 0;
     a->menu_hint = a->menu_finish = 0;
 }

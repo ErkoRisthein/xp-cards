@@ -71,6 +71,20 @@
  *     over as part of that action (one undo step), scored as XP's click would be (Standard +5).
  *   - extras.click_move: the UI asks sol_click_target for a press released without moving (a click)
  *     and drops there (assist.h's ranking); drag and double-click are unchanged.
+ *   - extras.auto_home (v1.2): after every committed action (not Undo), every card that is safe to go
+ *     home (assist.h sol_auto_home_step: FreeCell's autoplay rule on Klondike's foundations) flies there
+ *     (ui.animate_move), one at a time, with extras.auto_turn's turns in between, as part of that
+ *     action (one undo step; Redo replays them, SolAction.autos), scored as any foundation move
+ *     (Standard +10, Vegas +5).
+ *   - extras.click_select (v1.2): a click (a press released without moving, sol_click) selects the
+ *     cards (drawn inverted, sol_selection); the next press on a pile that takes them moves them there
+ *     (one action, as a drop); a press on the selection's own pile only deselects; a press anywhere
+ *     else deselects and acts as usual (draws, turns, picks up). Dragging works alongside. With
+ *     extras.click_move on too, a click moves the cards when they have a place to go and selects them
+ *     only when they have none.
+ *   - Undo All (SOL_CMD_UNDO_ALL, always there): after ui.confirm says Yes, Undo until the deal (as that
+ *     many Undos: the same score); the actions undone form one group on the redo stack, which the next
+ *     Redo replays whole. Draw (SOL_CMD_DRAW, the D key): a press on the stock.
  *   - Statistics (stats.h; the UI attaches them with sol_attach_stats and persists them on
  *     ui.stats_changed): a game counts as played at its first committed action, as won at the win,
  *     as lost when a new deal replaces it or sol_abandon (Exit) ends it.
@@ -95,14 +109,16 @@
 /* WM_COMMAND ids (XP's: resources.md §2.1), handled by sol_command. */
 enum { SOL_CMD_DEAL = 1000, SOL_CMD_UNDO = 1001, SOL_CMD_FORCEWIN = 1010 /* Alt+Shift+2 */,
        SOL_CMD_REDO = 1101 /* extra (Ctrl+Y), not in XP */,
-       SOL_CMD_HINT = 1102 /* extra (H) */, SOL_CMD_FINISH = 1103 /* extra (F6) */ };
+       SOL_CMD_HINT = 1102 /* extra (H) */, SOL_CMD_FINISH = 1103 /* extra (F6) */,
+       SOL_CMD_UNDO_ALL = 1105 /* extra (Game > Undo All) */, SOL_CMD_DRAW = 1106 /* extra (D) */ };
 #define SOL_TIMER_CLOCK 666              /* XP's timer id */
 #define SOL_TIMER_HINT  667              /* extra: one step of the hint's flash */
 #define SOL_HINT_STEP_MS 200             /* 8 steps: source on, off, on, off, destination on, off, on, off */
 /* Messages (ui.message): ids of the UI's string table, the session's English text as the fallback. */
 enum { SOL_MSG_NO_HINT = 1110,           /* "No hint is available." */
        SOL_MSG_UNWINNABLE = 1111,        /* "This game can no longer be won. Use Undo to go back." */
-       SOL_MSG_UNWINNABLE_DEAL = 1112 }; /* "This game cannot be won." */
+       SOL_MSG_UNWINNABLE_DEAL = 1112,   /* "This game cannot be won." */
+       SOL_MSG_UNDO_ALL = 1113 };        /* "Do you want to undo all your moves ..." (ui.confirm) */
 const char *sol_message_text(int id);
 #define SOL_TICK_MS     250              /* XP's tick; the clock counts ticks, shows ticks >> 2 seconds */
 #define SOL_TICKS_MAX   0x7FFE
@@ -110,7 +126,12 @@ const char *sol_message_text(int id);
 /* sol_press / sol_dblclick results */
 enum { SOL_PRESS_NONE = 0,               /* nothing happened (the clock may have started) */
        SOL_PRESS_DRAG = 1,               /* a drag began */
-       SOL_PRESS_DONE = 2 };             /* a draw, recycle, turn-over or double-click move happened */
+       SOL_PRESS_DONE = 2 };             /* a draw, recycle, turn-over or double-click move happened (or,
+                                            extra, the selected cards moved to the pile pressed) */
+/* sol_click results (extras) */
+enum { SOL_CLICK_NONE = 0,               /* nothing: the drag is still on (drop it as usual) */
+       SOL_CLICK_MOVED = 1,              /* click_move: the cards went to their best place */
+       SOL_CLICK_SELECTED = 2 };         /* click_select: the cards are selected (the drag ended) */
 /* Modifier keys held (GetKeyState < 0) */
 enum { SOL_MOD_SHIFT = 1, SOL_MOD_CTRL = 2, SOL_MOD_ALT = 4,
        SOL_MOD_CHEAT = SOL_MOD_SHIFT | SOL_MOD_CTRL | SOL_MOD_ALT };   /* stock: draw one card */
@@ -130,10 +151,15 @@ enum { SOL_ACT_MOVE = 1,                 /* n cards src -> dst (drop, double-cli
        SOL_ACT_TURN = 4,                 /* the top card of tableau column src turned over */
        SOL_ACT_AUTOPLAY = 5,             /* nsteps single cards steps[i][0] -> steps[i][1] */
        SOL_ACT_FINISH = 6 };             /* extra: Finish, as AUTOPLAY */
+#define SOL_MAX_AUTO  80                 /* 52 cards home and 21 turns at most */
+#define SOL_AUTO_TURN 0x80               /* SolAction.autos: SOL_AUTO_TURN | pile = turned over; else a card
+                                            home: src * 4 + (dst - SOL_FOUND0) */
 typedef struct SolAction {
     uint8_t type, src, dst, n;
     uint8_t nsteps;
     uint8_t autoturn;                    /* extra: bit k = column SOL_TAB0 + k turned over after it */
+    uint8_t nauto;                       /* extra (auto_home): what followed the turns above, in order */
+    uint8_t autos[SOL_MAX_AUTO];
     uint8_t steps[52][2];
     /* the state before the action (Undo restores it) */
     uint8_t board[SOL_PACKED_SIZE];
@@ -184,6 +210,9 @@ typedef struct SolSessionUI {
      * NULL: no solver (the warning stays silent). */
     void (*solve_start)(void *ctx, uint32_t id, const SolBoard *b, int draw, int recycles_left);
     void (*solve_cancel)(void *ctx);
+    /* A question (MB_YESNO | MB_ICONQUESTION, caption "Solitaire"): id SOL_MSG_*, text the English
+     * fallback. 1 = Yes. NULL = Yes. */
+    int  (*confirm)(void *ctx, int id, const char *text);
 } SolSessionUI;
 
 /* ---- Extras (not in XP): HKCU\Software\xp-cards\Solitaire HD, REG_DWORD 0 / 1, all off by default ---- */
@@ -194,6 +223,8 @@ typedef struct SolExtras {
     int winnable_only;       /* "WinnableOnly": deal only games known to be winnable */
     int save_game;           /* "SaveGame": save the game on exit, resume it at start-up */
     int warn_unwinnable;     /* "WarnUnwinnable": warn when the game can't be won */
+    int auto_home;           /* "AutoHome": move cards home automatically (v1.2) */
+    int click_select;        /* "ClickSelect": click to select, click to move (v1.2) */
 } SolExtras;
 void sol_extras_load(SolExtras *x, const CeStore *store);        /* missing values: off */
 void sol_extras_save(const SolExtras *x, const CeStore *store);  /* every value, then flush */
@@ -252,6 +283,11 @@ typedef struct SolSession {
     int      req_pending, req_cause;
     int      warned;         /* the unwinnable warning was shown (re-armed by a winnable position) */
     int      deal_lost;      /* the deal itself was proven unwinnable */
+    /* v1.2 */
+    int      csel_pile, csel_index;   /* click_select: cards csel_index..top of csel_pile (-1: none) */
+    int      csel_block;     /* this press only deselected: its click selects nothing */
+    int      redo_group;     /* Undo All: the top redo_group actions of the redo stack go back together */
+    int      batch;          /* inside Undo All: one notification at the end */
 } SolSession;
 
 /* Initialise: no game yet (green table, "Score: 0"), options, back and iCurrency loaded from store
@@ -305,6 +341,17 @@ int  sol_finish(SolSession *s);                            /* = SOL_CMD_FINISH; 
 /* extras.click_move: where the cards being dragged go when the press is released without moving (a
  * click), assist.h sol_click_dest; -1: nowhere, or the option is off (the drop is refused as usual). */
 int  sol_click_target(const SolSession *s);
+/* The press that began the current (mouse) drag was released without moving: a click. extras.click_move:
+ * the cards go to sol_click_target (an ordinary drop); otherwise, or when there is none,
+ * extras.click_select: they become the selection (the drag ends, nothing is recorded); else nothing
+ * (the drag is still on: the UI drops it on its target as usual). A click whose press only deselected
+ * does nothing. Returns SOL_CLICK_*. */
+int  sol_click(SolSession *s);
+/* The click selection (extras.click_select): cards *index..top of *pile, drawn inverted; *pile -1 none. */
+void sol_selection(const SolSession *s, int *pile, int *index);
+/* Undo every action back to the deal, without asking (SOL_CMD_UNDO_ALL asks first); the actions undone
+ * go back with the next Redo, together. Returns the number undone. */
+int  sol_undo_all(SolSession *s);
 /* Statistics: the UI's loaded statistics (copied); from now on games are counted and stats_changed is
  * called after every change. */
 void sol_attach_stats(SolSession *s, const SolStats *st);

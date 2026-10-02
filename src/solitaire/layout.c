@@ -217,6 +217,14 @@ int sol_layout_hit(const SolLayout *l, const SolBoard *b, int fan, int x, int y,
     return 0;
 }
 
+int sol_layout_hit_empty(const SolLayout *l, const SolBoard *b, int x, int y)
+{
+    for (int k = SOL_WASTE; k < SOL_NPILES; k++)
+        if (pile_n(b, k) == 0 && in_rect(l->pile[k], x, y))
+            return k;
+    return -1;
+}
+
 CeRect sol_layout_drop_zone(const SolLayout *l, const SolBoard *b, int fan, int pile)
 {
     int n = pile_n(b, pile);

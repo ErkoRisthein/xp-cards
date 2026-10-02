@@ -7,8 +7,9 @@
 #include <string.h>
 
 #define HEADER 12u                       /* magic, version, payload length */
-#define FIXED  (4u + 6u + SOL_PACKED_SIZE + 5u * 4u + 2u * 4u + 2u * 4u)
-#define ACT_MIN (7u + SOL_PACKED_SIZE + 3u * 4u)
+#define FIXED  (4u + 6u + SOL_PACKED_SIZE + 5u * 4u + 2u * 4u + 2u * 4u)   /* version 1; 2 adds the group */
+#define ACT_MIN (7u + SOL_PACKED_SIZE + 3u * 4u)                           /* version 1; 2 adds nauto */
+#define VERSION 2u
 /* Plausible ranges, so that no saved number can overflow the score arithmetic: a score (Vegas
  * Cumulative carries one across games) and the clock's penalties (Standard -2 per 10 s of the clock,
  * which stops at SOL_TICKS_MAX). */
@@ -35,7 +36,7 @@ static void put_bytes(Out *o, const void *d, size_t n)
     o->n += n;
 }
 
-static size_t act_size(const SolAction *a) { return ACT_MIN + 2u * a->nsteps; }
+static size_t act_size(const SolAction *a) { return ACT_MIN + 1u + 2u * a->nsteps + a->nauto; }
 
 static void put_action(Out *o, const SolAction *a)
 {
@@ -46,10 +47,13 @@ static void put_action(Out *o, const SolAction *a)
     put8(o, a->nsteps);
     put8(o, a->autoturn);
     put8(o, a->waste_fan);
+    put8(o, a->nauto);
     for (int i = 0; i < a->nsteps && i < 52; i++) {
         put8(o, a->steps[i][0]);
         put8(o, a->steps[i][1]);
     }
+    for (int i = 0; i < a->nauto && i < SOL_MAX_AUTO; i++)
+        put8(o, a->autos[i]);
     put_bytes(o, a->board, SOL_PACKED_SIZE);
     put32(o, (uint32_t)a->score);
     put32(o, (uint32_t)a->recycles);
@@ -58,7 +62,7 @@ static void put_action(Out *o, const SolAction *a)
 
 int sol_game_serialize(const SolSession *s, uint8_t **out, size_t *len)
 {
-    size_t total = HEADER + FIXED + 4u;
+    size_t total = HEADER + FIXED + 4u + 4u;
     int first = 0, nredo = s->nredo, i;
     uint8_t board[SOL_PACKED_SIZE];
     Out o;
@@ -80,7 +84,7 @@ int sol_game_serialize(const SolSession *s, uint8_t **out, size_t *len)
     if (!o.p)
         return 0;
     put_bytes(&o, "SOLG", 4);
-    put32(&o, 1);
+    put32(&o, VERSION);
     put32(&o, (uint32_t)(total - HEADER - 4u));
     put32(&o, sol_options_pack(&s->opts));
     put8(&o, (unsigned)s->draw);
@@ -100,6 +104,7 @@ int sol_game_serialize(const SolSession *s, uint8_t **out, size_t *len)
     put32(&o, s->rng);
     put32(&o, (uint32_t)(s->nhist - first));
     put32(&o, (uint32_t)nredo);
+    put32(&o, (uint32_t)(s->redo_group > 0 && s->redo_group <= nredo ? s->redo_group : 0));
     for (i = first; i < s->nhist; i++)
         put_action(&o, &s->hist[i]);
     for (i = 0; i < nredo; i++)
@@ -153,7 +158,15 @@ static int board_ok(const uint8_t packed[SOL_PACKED_SIZE])
     return sol_board_valid(&b, NULL, 0);
 }
 
-static int get_action(In *in, SolAction *a)
+/* A valid auto-home step: a turn of a tableau column, or a card from the waste or a column home. */
+static int auto_ok(unsigned op)
+{
+    if (op & SOL_AUTO_TURN)
+        return sol_is_tab((int)(op & 0x7F));
+    return (int)(op >> 2) == SOL_WASTE || sol_is_tab((int)(op >> 2));
+}
+
+static int get_action(In *in, SolAction *a, unsigned version)
 {
     memset(a, 0, sizeof *a);
     a->type = (uint8_t)get8(in);
@@ -163,13 +176,19 @@ static int get_action(In *in, SolAction *a)
     a->nsteps = (uint8_t)get8(in);
     a->autoturn = (uint8_t)get8(in);
     a->waste_fan = (uint8_t)get8(in);
+    a->nauto = version >= 2 ? (uint8_t)get8(in) : 0;
     if (a->type < SOL_ACT_MOVE || a->type > SOL_ACT_FINISH || a->src >= SOL_NPILES || a->dst >= SOL_NPILES ||
-        a->n > 52 || a->nsteps > 52 || a->autoturn >= 128 || a->waste_fan > 3)
+        a->n > 52 || a->nsteps > 52 || a->autoturn >= 128 || a->waste_fan > 3 || a->nauto > SOL_MAX_AUTO)
         return 0;
     for (int i = 0; i < a->nsteps; i++) {
         a->steps[i][0] = (uint8_t)get8(in);
         a->steps[i][1] = (uint8_t)get8(in);
         if (a->steps[i][0] >= SOL_NPILES || a->steps[i][1] >= SOL_NPILES)
+            return 0;
+    }
+    for (int i = 0; i < a->nauto; i++) {
+        a->autos[i] = (uint8_t)get8(in);
+        if (!auto_ok(a->autos[i]))
             return 0;
     }
     get_bytes(in, a->board, SOL_PACKED_SIZE);
@@ -185,7 +204,7 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     In in;
     SolOptions o, cur;
     uint8_t board[SOL_PACKED_SIZE];
-    uint32_t plen, nh, nr, i;
+    uint32_t plen, nh, nr, group = 0, i, version;
     int draw, scoring, fan, fresh, counted, score, ticks, recycles, clock_pen, carry;
     uint32_t seed, rng;
     SolAction *hist = NULL, *redo = NULL;
@@ -195,7 +214,8 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     in.n = len;
     in.k = 4;
     in.bad = 0;
-    if (get32(&in) != 1)
+    version = get32(&in);
+    if (version != 1 && version != VERSION)
         return SOL_LOAD_DAMAGED;
     plen = get32(&in);
     if ((size_t)plen + HEADER + 4u != len)
@@ -224,7 +244,9 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     rng = get32(&in);
     nh = get32(&in);
     nr = get32(&in);
-    if (in.bad || (draw != 1 && draw != 3) || scoring < SOL_SCORING_STANDARD || scoring > SOL_SCORING_NONE ||
+    if (version >= 2)
+        group = get32(&in);
+    if (in.bad || group > nr || (draw != 1 && draw != 3) || scoring < SOL_SCORING_STANDARD || scoring > SOL_SCORING_NONE ||
         fan > 3 || fresh > 1 || counted > 1 || ticks < 0 || ticks > SOL_TICKS_MAX || recycles < 0 ||
         recycles > 100000 || (scoring == SOL_SCORING_VEGAS && recycles > draw - 1) ||
         (scoring == SOL_SCORING_STANDARD && score < 0) || (scoring == SOL_SCORING_NONE && score != 0) ||
@@ -249,10 +271,10 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
         }
     }
     for (i = 0; i < nh; i++)
-        if (!get_action(&in, &hist[i]))
+        if (!get_action(&in, &hist[i], version))
             goto bad;
     for (i = 0; i < nr; i++)
-        if (!get_action(&in, &redo[i]))
+        if (!get_action(&in, &redo[i], version))
             goto bad;
     if (in.bad || in.k != in.n)
         goto bad;
@@ -264,6 +286,7 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     s->nhist = s->hist_cap = (int)nh;
     s->redo = redo;
     s->nredo = s->redo_cap = (int)nr;
+    s->redo_group = (int)group;
     sol_board_unpack(&s->board, board);
     s->waste_fan = fan;
     s->draw = draw;

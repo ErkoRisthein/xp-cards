@@ -132,7 +132,7 @@ void solver_received(App *a, LPARAM lp)
 void solver_deliver(App *a)
 {
     SolveJob *j = a->solve_ready;
-    if (!j || a->in_modal || a->s.busy)
+    if (!j || a->in_modal || a->s.busy || a->drag_on || a->press_armed)   /* (v1.4: not mid-drag either) */
         return;
     a->solve_ready = NULL;                    /* fcs_solve_done may show a message box */
     if (!fcs_solve_done(&a->s, j->id, j->status, j->moves, j->nmoves)) {

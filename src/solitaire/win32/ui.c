@@ -5,7 +5,7 @@
  * Settings: Options and Back in XP's own key and format, HKCU\Software\Microsoft\Solitaire (REG_DWORD,
  * rules.md §10), so the original and the HD game share them; the extras (window placement, full
  * screen, the Options dialog's Extras group: AutoTurn ClickToMove AutoFinish WinnableOnly SaveGame
- * WarnUnwinnable) in HKCU\Software\xp-cards\Solitaire HD; the statistics and the saved game in
+ * WarnUnwinnable, and v1.2's AutoHome ClickSelect) in HKCU\Software\xp-cards\Solitaire HD; the statistics and the saved game in
  * %APPDATA%\xp-cards\Solitaire HD\statistics.bin and game.bin (written atomically).
  *
  * Every modal prompt first brings the window up to date and counts itself in a->in_modal, so input and
@@ -112,6 +112,7 @@ void menu_update(App *a)
     if (!a->menu)
         return;
     set_item(a, IDM_UNDO, sol_undo_enabled(&a->s), &a->menu_undo);
+    set_item(a, IDM_UNDOALL, sol_undo_enabled(&a->s), &a->menu_undoall);  /* extra (v1.2) */
     set_item(a, IDM_REDO, sol_redo_enabled(&a->s), &a->menu_redo);
     set_item(a, IDM_HINT, sol_hint_enabled(&a->s), &a->menu_hint);         /* extras */
     set_item(a, IDM_FINISH, sol_finish_enabled(&a->s), &a->menu_finish);
@@ -143,6 +144,8 @@ static const struct { int id; size_t off; } extra_boxes[] = {
     { IDC_WINNABLE, offsetof(SolExtras, winnable_only) },
     { IDC_SAVEGAME, offsetof(SolExtras, save_game) },
     { IDC_WARNUNWINNABLE, offsetof(SolExtras, warn_unwinnable) },
+    { IDC_AUTOHOME, offsetof(SolExtras, auto_home) },
+    { IDC_CLICKSELECT, offsetof(SolExtras, click_select) },
 };
 
 static int *extra_of(SolExtras *x, int k) { return (int *)((char *)x + extra_boxes[k].off); }
@@ -218,10 +221,10 @@ void dlg_options(App *a)
     sol_set_extras(&a->s, &op.x);                     /* first: a redeal below may want WinnableOnly */
     sol_extras_save(&a->s.extras, &a->app_store);
     redeal = sol_apply_options(&a->s, &op.o);         /* writes Options; a new Draw / Timed / Scoring deals */
-    ce_log("options: 0x%02x%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d",
-           (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "", a->s.extras.auto_turn,
+    ce_log("options: 0x%02x%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, "
+           "select %d", (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "", a->s.extras.auto_turn,
            a->s.extras.click_move, a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game,
-           a->s.extras.warn_unwinnable);
+           a->s.extras.warn_unwinnable, a->s.extras.auto_home, a->s.extras.click_select);
     if ((a->status != NULL) != (a->s.opts.status_bar != 0))
         status_show(a, a->s.opts.status_bar);         /* shows or hides it at once, the board re-laid out */
     status_update(a);
@@ -478,7 +481,7 @@ static const WCHAR how_to_play[] =
     L"pile over again (Vegas scoring allows one pass with Draw One, three with Draw Three; then it "
     L"shows an X).\n\n"
     L"Double-click a card to send it to a foundation; right-click (or Ctrl+A) to send every card "
-    L"that can go there.\n\n"
+    L"that can go there. D turns over cards from the deck.\n\n"
     L"Scoring. Standard: 10 points for each card moved to a foundation, 5 for each card moved from "
     L"the deck to a column, 5 for each card turned over, -15 for a card moved from a foundation back "
     L"to a column, -100 for each pass through the deck after the first (Draw One; Draw Three: -20 "
@@ -486,11 +489,12 @@ static const WCHAR how_to_play[] =
     L"30 seconds or more earns a bonus. Vegas: you bet $52 and win $5 for each card on a "
     L"foundation; Cumulative keeps a running total.\n\n"
     L"Keyboard: arrow keys, Tab, Home and End move between the piles and cards; Enter or Space picks "
-    L"up and drops; Esc cancels. F2 Deal, Ctrl+Y Redo, F11 or Alt+Enter Full Screen (Esc leaves it), "
-    L"H Hint, F6 Finish (once every card is face up and the deck is used up), F4 Statistics.\n\n"
+    L"up and drops; Esc cancels. F2 Deal, Ctrl+Z Undo (hold it to undo more), Game > Undo All, Ctrl+Y "
+    L"Redo, F11 or Alt+Enter Full Screen (Esc leaves it), H Hint, F6 Finish (once every card is face up "
+    L"and the deck is used up), F4 Statistics, C card back, D draw.\n\n"
     L"Options > Extras (all off by default): turn cards over automatically, single click moves a card, "
     L"finish automatically, deal only winnable games, save the game on exit, warn when the game can't "
-    L"be won.";
+    L"be won, move cards home automatically, click to select and click to move.";
 
 static void builtin_help(App *a)
 {
@@ -622,6 +626,19 @@ static void cb_message(void *ctx, int id, const char *text)
 
 static void cb_animate_move(void *ctx, int src, int dst) { view_animate_move((App *)ctx, src, dst); }
 
+/* v1.2: Undo All's question (XP's MessageBox style: Yes / No, the question icon). */
+static int cb_confirm(void *ctx, int id, const char *text)
+{
+    App *a = ctx;
+    WCHAR fb[160], w[160];
+    int r;
+    ce_to_wide(text, fb, 160);
+    load_wstr(a, (UINT)id, w, 160, fb);
+    r = msgbox(a, w, MB_YESNO | MB_ICONQUESTION) == IDYES;
+    ce_log("confirm %d: %s", id, r ? "yes" : "no");
+    return r;
+}
+
 static void cb_stats_changed(void *ctx) { stats_save((App *)ctx); }
 
 static void cb_solve_start(void *ctx, uint32_t id, const SolBoard *b, int draw, int left)
@@ -648,4 +665,5 @@ void ui_make(App *a, SolSessionUI *ui)
     ui->stats_changed = cb_stats_changed;
     ui->solve_start = cb_solve_start;
     ui->solve_cancel = cb_solve_cancel;
+    ui->confirm = cb_confirm;
 }

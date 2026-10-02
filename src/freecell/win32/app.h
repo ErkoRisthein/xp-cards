@@ -72,6 +72,7 @@ typedef struct App {
     int        cards_left;
     int        menu_undo, menu_redo, menu_restart;   /* -1 = unknown */
     int        menu_hint, menu_finish;
+    int        menu_undoall;    /* v1.4 */
 
     int        in_modal;        /* > 0 while one of our modal dialogs / message boxes is up */
     CeAnimClock anim;           /* timeBeginPeriod(1) is in effect while cards are flying */
@@ -83,6 +84,15 @@ typedef struct App {
 
     /* v1.2: a finished solver job waiting until no session call or dialog is in progress */
     struct SolveJob *solve_ready;
+
+    /* v1.4: drag and drop (extras.drag_drop) */
+    int        press_armed;     /* the button is down after a press that may become a drag */
+    int        press_on_sel;    /* ... on the pile already selected (released unmoved: XP's click on it) */
+    int        press_x, press_y, press_col, press_pos;   /* where (the FC_HIT_SOURCE hit) */
+    int        lcapture;        /* SetCapture for the press / drag */
+    int        drag_on;         /* cards are lifted and follow the pointer */
+    int        drag_col, drag_first;   /* which: the top-row slot, or a column from index drag_first */
+    CeDrag     drag;            /* the lifted cards' sprite and rect (engine/win32/drag.h) */
 } App;
 
 extern App g_app;
@@ -100,6 +110,10 @@ void   view_paint(App *a);                           /* WM_PAINT */
 void   view_animate_step(App *a, const FcStep *st, int forward);
 void   view_anim_idle(App *a);                      /* no more flights for now: timer back to normal */
 void   view_mouse_move(App *a, int x, int y);
+int    view_drag_begin(App *a, int col, int first, int px, int py);   /* lift the cards (v1.4) */
+void   view_drag_move(App *a, int x, int y);         /* the lifted cards follow the pointer */
+void   view_drag_zip_back(App *a);                   /* a refused drop: they slide back */
+void   view_drag_end(App *a);                        /* put them down (the board shows them again) */
 void   view_refresh_cursor(App *a);
 int    view_hit(App *a, int x, int y, int mode, int *col, int *pos);
 void   menubar_draw(App *a);                         /* ce_menubar_draw with "Cards Left" etc. */

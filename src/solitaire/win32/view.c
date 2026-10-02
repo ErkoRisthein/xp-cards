@@ -23,7 +23,8 @@
  * inverted, an empty pile's slot inverted), from sol_hint_view; Finish flies each card home
  * (view_animate_move: the board without the card in the back buffer, the face sprite in a straight
  * flight, ce_anim_fly, about 60 XP px per 10-ms frame). XP has no move animation at all; only Finish,
- * which XP does not have either, animates.
+ * which XP does not have either, animates. v1.2: the click selection is the same overlay
+ * (sol_selection), and the cards that go home automatically fly as Finish's do.
  */
 #include "app.h"
 
@@ -44,8 +45,7 @@ void view_init(App *a)
 
 static void drag_free(App *a)
 {
-    ce_image_free(a->drag_sprite);
-    a->drag_sprite = NULL;
+    ce_drag_free(&a->drag);
     a->drag_on = 0;
 }
 
@@ -158,44 +158,40 @@ void view_gfx_ready(App *a)
 
 static CeRect drag_rect(App *a)
 {
+    CeRect r = ce_drag_rect(&a->drag);
     int t = a->drag_outline ? a->L.line : 0;
-    return ce_rect(a->drag_x, a->drag_y, a->drag_w + t, a->drag_h + t);
+    r.w += t;
+    r.h += t;
+    return r;
 }
 
 static void drag_begin(App *a)
 {
     SolSession *s = &a->s;
-    int x, y, fan = sol_waste_fan(s);
+    int x, y, w, h, fan = sol_waste_fan(s);
+    CeImage *sprite = NULL;
     a->drag_pile = s->drag_pile;
     a->drag_card = s->drag_index;
     a->drag_outline = s->opts.outline;
     sol_layout_card_pos(&a->L, &s->board, fan, a->drag_pile, a->drag_card, &x, &y);
-    sol_layout_stack_size(&a->L, &s->board, fan, a->drag_pile, a->drag_card, &a->drag_w, &a->drag_h);
-    a->drag_x = x;
-    a->drag_y = y;
-    if (a->press_valid) {                             /* the mouse: the grab offset is kept (XP) */
-        a->grab_dx = a->press_x - x;
-        a->grab_dy = a->press_y - y;
-    } else {                                          /* the keyboard: the card's top centre */
-        a->grab_dx = a->L.cw / 2;
-        a->grab_dy = 0;
-    }
-    a->drag_sprite = NULL;
+    sol_layout_stack_size(&a->L, &s->board, fan, a->drag_pile, a->drag_card, &w, &h);
     if (!a->drag_outline) {
-        a->drag_sprite = sol_render_stack(a->gfx, &a->L, &s->board, fan, s->back, a->drag_pile, a->drag_card);
-        if (!a->drag_sprite)
+        sprite = sol_render_stack(a->gfx, &a->L, &s->board, fan, s->back, a->drag_pile, a->drag_card);
+        if (!sprite)
             a->drag_outline = 1;                      /* no memory for the image: XP's outline fallback */
     }
+    /* the mouse: the grab offset is kept (XP); the keyboard: the card's top centre */
+    ce_drag_begin(&a->drag, sprite, x, y, w, h, a->press_valid ? a->press_x : x + a->L.cw / 2,
+                  a->press_valid ? a->press_y : y);
     a->drag_on = 1;
     ce_log("drag begin: pile %d card %d (%d cards) at %d,%d grab %d,%d %s", a->drag_pile, a->drag_card,
-           s->drag_count, x, y, a->grab_dx, a->grab_dy, a->drag_outline ? "outline" : "lifted");
+           s->drag_count, x, y, a->drag.grab_dx, a->drag.grab_dy, a->drag_outline ? "outline" : "lifted");
 }
 
 static void drag_end(App *a)
 {
-    if (!a->drag_outline)
-        invalidate(a, drag_rect(a));                  /* the floating stack goes (the board is in the buffer) */
-    drag_free(a);
+    ce_drag_end(&a->drag, a->hwnd);                   /* the floating stack goes (the board is in the buffer) */
+    a->drag_on = 0;
 }
 
 /* Follow the session: a drag began, ended, or changed under us. */
@@ -220,11 +216,13 @@ static void view_state(App *a, SolView *v)
     v->back = s->back;
     v->stock_x = sol_stock_symbol(s) == SOL_STOCK_X;
     sol_hint_view(s, &v->sel_pile, &v->sel_card);    /* extra: the hint's flash */
+    if (v->sel_pile < 0)
+        sol_selection(s, &v->sel_pile, &v->sel_card); /* extra (v1.2): the click selection */
     if (a->drag_on) {
         v->drag_pile = a->drag_pile;
         v->drag_card = a->drag_card;
-        v->drag_x = a->drag_x;
-        v->drag_y = a->drag_y;
+        v->drag_x = a->drag.x;
+        v->drag_y = a->drag.y;
         v->drag_mode = a->drag_outline ? SOL_DRAG_OUTLINE : SOL_DRAG_LIFTED;
         v->target = a->drag_outline ? s->target : -1;   /* XP inverts the target in outline mode only */
     }
@@ -353,13 +351,8 @@ void view_paint(App *a)
     dc = BeginPaint(a->hwnd, &ps);
     if (!dc)
         return;
-    if (ready(a) && a->drag_on && a->drag_sprite) {
-        CeRect r = ce_rect(ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left,
-                           ps.rcPaint.bottom - ps.rcPaint.top);
-        ce_backbuf_present(&a->bb, dc, r, a->drag_sprite, a->drag_x, a->drag_y, a->drag_w, a->drag_h);
-    } else {
+    if (!(ready(a) && a->drag_on && ce_drag_paint(&a->drag, &a->bb, dc, &ps.rcPaint)))
         ce_backbuf_paint(&a->bb, dc, &ps.rcPaint, ready(a), table_brush);
-    }
     EndPaint(a->hwnd, &ps);
 }
 
@@ -379,27 +372,16 @@ static int accept_drop(void *ctx, int pile) { return sol_can_drop_on(&((App *)ct
  * first pile in index order whose top card or empty slot overlaps the dragged card and takes it). */
 void view_drag_to(App *a, int mx, int my)
 {
-    CeRect old;
     int t;
     if (!a->drag_on || !sol_dragging(&a->s) || !ready(a))
         return;
-    old = drag_rect(a);
-    a->drag_x = mx - a->grab_dx;
-    a->drag_y = my - a->grab_dy;
-    t = sol_layout_drop_target(&a->L, &a->s.board, sol_waste_fan(&a->s), a->drag_x, a->drag_y, a->drag_pile,
+    ce_drag_move(&a->drag, &a->bb, a->hwnd, mx, my);  /* the lifted stack shows there at once */
+    t = sol_layout_drop_target(&a->L, &a->s.board, sol_waste_fan(&a->s), a->drag.x, a->drag.y, a->drag_pile,
                                accept_drop, a);
     sol_drag_over(&a->s, t);                          /* outline dragging: invalidate -> view_sync */
     if (a->drag_outline) {
         view_sync(a);                                 /* the outline's old and new rects */
         UpdateWindow(a->hwnd);
-    } else {
-        HDC dc = GetDC(a->hwnd);
-        if (dc) {
-            CeRect now = drag_rect(a);
-            ce_backbuf_present(&a->bb, dc, ce_rect_union(old, now), a->drag_sprite, a->drag_x, a->drag_y,
-                               a->drag_w, a->drag_h);
-            ReleaseDC(a->hwnd, dc);
-        }
     }
 }
 
@@ -421,22 +403,16 @@ void view_zip_back(App *a)
     if (!a->drag_on || !ready(a) || IsIconic(a->hwnd) || !IsWindowVisible(a->hwnd))
         return;
     sol_layout_card_pos(&a->L, &a->s.board, sol_waste_fan(&a->s), a->drag_pile, a->drag_card, &x0, &y0);
-    if (x0 == a->drag_x && y0 == a->drag_y)
+    if (x0 == a->drag.x && y0 == a->drag.y)
         return;
     t0 = ce_now_ms();
     z.a = a;
     z.gen = a->layout_gen;
     if (!a->drag_outline) {
-        HDC dc = GetDC(a->hwnd);
-        if (dc) {
-            CeRect from = ce_rect(a->drag_x, a->drag_y, a->drag_w, a->drag_h);
-            CeRect to = ce_rect(x0, y0, a->drag_w, a->drag_h);
-            drawn = ce_anim_fly(&a->anim, &a->bb, dc, from, to, a->L.zip_px_per_frame, SOL_ZIP_FRAME_MS,
-                                a->drag_sprite, zip_abort, &z, &frames);
-            ReleaseDC(a->hwnd, dc);
-        }
+        drawn = ce_drag_zip_back(&a->drag, &a->anim, &a->bb, a->hwnd, x0, y0, a->L.zip_px_per_frame,
+                                 SOL_ZIP_FRAME_MS, zip_abort, &z, &frames);
     } else {
-        int xs = a->drag_x, ys = a->drag_y, dx = x0 - xs, dy = y0 - ys, i;
+        int xs = a->drag.x, ys = a->drag.y, dx = x0 - xs, dy = y0 - ys, i;
         DWORD start;
         frames = (int)(sqrt((double)dx * dx + (double)dy * dy) / a->L.zip_px_per_frame);   /* as ce_anim_fly */
         if (frames < 1)
@@ -444,8 +420,8 @@ void view_zip_back(App *a)
         ce_anim_begin(&a->anim);
         start = timeGetTime();
         for (i = 1; i <= frames && !zip_abort(&z);) {
-            a->drag_x = xs + dx * i / frames;
-            a->drag_y = ys + dy * i / frames;
+            a->drag.x = xs + dx * i / frames;
+            a->drag.y = ys + dy * i / frames;
             view_sync(a);
             UpdateWindow(a->hwnd);
             drawn++;
@@ -454,8 +430,8 @@ void view_zip_back(App *a)
     }
     ce_anim_idle(&a->anim);
     if (!zip_abort(&z)) {
-        a->drag_x = x0;
-        a->drag_y = y0;
+        a->drag.x = x0;
+        a->drag.y = y0;
     }
     ce_log("zip back pile %d card %d: %d frames (%d drawn), %.1f ms", a->drag_pile, a->drag_card, frames, drawn,
            ce_now_ms() - t0);
@@ -508,10 +484,16 @@ void view_animate_move(App *a, int src, int dst)
     HDC dc;
     ZipCtx z;
     double t0;
+    int dropped;
+    CeRect drop_r;
     if (!ready(a) || !a->hwnd || IsIconic(a->hwnd) || !IsWindowVisible(a->hwnd) || src < 0 || src >= SOL_NPILES ||
         dst < 0 || dst >= SOL_NPILES || b->p[src].n == 0)
         return;
     t0 = ce_now_ms();
+    /* v1.2 (cards home after a drop): the lifted stack still floats on the screen where it was dropped;
+     * the first frame repaints that place too */
+    dropped = a->drag_on && !a->drag_outline && !sol_dragging(&a->s);
+    drop_r = dropped ? drag_rect(a) : ce_rect(0, 0, 0, 0);
     n = b->p[src].n;
     fan = sol_waste_fan(&a->s);
     sprite = ce_cardset_card(sol_gfx_cards(a->gfx), sol_card_id(b->p[src].c[n - 1]));
@@ -525,12 +507,14 @@ void view_animate_move(App *a, int src, int dst)
     dc = GetDC(a->hwnd);
     if (!dc)
         return;
-    if (k > 0) {
+    if (k > 0 || dropped) {
         /* what changed (the pile without the card, the card that landed before) appears with the card
          * still drawn at its place on top: no flicker */
-        u = r[0];
+        u = k > 0 ? r[0] : drop_r;
         for (i = 1; i < k; i++)
             u = ce_rect_union(u, r[i]);
+        if (dropped)
+            u = ce_rect_union(u, drop_r);
         if (ce_rect_clip(&u, a->bb.fb.w, a->bb.fb.h))
             ce_backbuf_present(&a->bb, dc, u, sprite, fx, fy, a->L.cw, a->L.ch);
     }
