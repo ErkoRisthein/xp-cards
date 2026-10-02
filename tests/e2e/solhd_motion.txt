@@ -1,0 +1,287 @@
+# Solitaire HD 2d (motion) end to end: the cards that go home automatically fly eased and overlap (two in
+# the air at once), caught mid-air; "Enhanced animations": the option (off by default), the deal flying
+# out of the stock, a card turning over (the flip), the dragged cards' shadow and the eased slide back of
+# a refused drop. The mid-air captures run with SOLHD_ANIM_SLOW=30 (every animation 30 times slower) and
+# the driver's `async on` (the input returns at once; the capture is answered while the cards fly).
+# The Finish button is checked in solhd_extras.txt (deal 64's winning line); here, its double-click: the
+# second press (it arrives while the cards fly home) never stops the win cascade. And a card turned over
+# automatically that goes home at once (deal 1) first turns, then flies; the card under it stays.
+# Run by run_solhd_e2e.sh.
+#
+# Deal 64 at 1264 x 854 (geometry in solhd_smoke.txt; cards 153 x 207, columns x = 24 201 378 555 732
+# 909 1086, tableau top y = 231, steps 6 / 32; stock 24,10, waste 201,10, foundations x = 555 732 909
+# 1086, y = 10): col 1 AH, col 2 #7H 4S, col 3 # # TD, col 4 # # # KC, col 5 # # # # 5D,
+# col 6 # # # # # AC, col 7 # # # # # # 2H. Options 0x09: Draw Three, Standard, untimed. Extras 327
+# AutoHome, 321 AutoTurn, 342 EnhancedAnimations.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regset HKCU\Software\Microsoft\Solitaire Options dword 9
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+regset "HKCU\Software\xp-cards\Solitaire HD" AutoHome dword 1
+setenv SOLHD_TIME 64
+setenv SOLHD_ANIM_SLOW 30
+launch ${REPO}/build/SolitaireHD.exe
+sync                                          # (in its message loop before the first command)
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+command 1003
+wait_dialog Options
+assert_dialog_text "[342] Button \"Enhanced animations\" [ ]"   # off by default
+capture_dialog 80_options_enhanced.bmp
+dialog_click OK
+
+# ---- a draw, then AH and AC fly home by themselves, overlapping ------------------------------------------
+async on
+click 100 100                                 # the stock: a draw; AH (col 1), AC (col 6), 2H go home
+wait 900
+capture 81_auto_home_mid_air.bmp
+assert_pixel 100 400 008000                   # AH has left col 1
+async off
+sync
+capture 82_auto_home_landed.bmp
+assert_pixel 808 115 000000 60                # AC on foundation 2 (its middle pip); 2H followed AH
+close
+
+# ---- Enhanced animations: cards turning over, the dragged cards' shadow, the deal out of the stock ------
+regset "HKCU\Software\xp-cards\Solitaire HD" AutoTurn dword 1
+regset "HKCU\Software\xp-cards\Solitaire HD" EnhancedAnimations dword 1
+setenv SOLHD_ANIM_SLOW 10
+launch ${REPO}/build/SolitaireHD.exe
+sync                                          # deal 64
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+async on
+click 100 100                                 # a draw; AH, AC, 2H home; cols 6 and 7 turn their next card
+wait 900
+capture 83_flip_mid_turn.bmp                  # (120 ms a turn, 1.2 s at 10 x)
+async off
+sync
+capture 84_turned.bmp
+assert_pixel 1000 300 FFFFFF                  # col 6's new top card: face up
+ldown 277 400                                 # 4S (col 2)
+move 400 500
+move 640 600
+capture 85_drag_shadow.bmp
+async on
+lup 640 600                                   # nowhere: it slides back, eased (with its shadow)
+wait 250
+capture 86_zip_back_mid_air.bmp
+async off
+sync
+capture 87_zip_back_done.bmp
+assert_pixel 277 443 000000                   # 4S back in col 2
+async on
+command 1000                                  # Deal: 28 cards out of the stock, 10 ms apart (100 at 10 x)
+wait 1200
+capture 88_deal_mid_air.bmp
+async off
+sync
+capture 89_dealt.bmp
+close
+
+# ---- a card turned over automatically that goes home at once: it turns, then flies (deal 1: col 4 is
+# # #5S #AC AD; a draw sends AD home, turns AC over, then AC goes home too, then 5S turns). The card under
+# it never leaves the pile meanwhile and nothing turns on after its card has gone (1.2 s a turn at 30 x).
+setenv SOLHD_TIME 1
+setenv SOLHD_ANIM_SLOW 30
+launch ${REPO}/build/SolitaireHD.exe
+sync
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+async on
+click 100 100                                 # a draw: AD home, AC turns over, then flies home
+wait 1300
+capture 90_turn_then_home.bmp
+assert_pixel 580 441 FFFFFF 8                 # 5S (face down, col 4) still under the turning AC
+assert_pixel 760 180 008000                   # AC not flown yet: foundation 2 empty
+async off
+sync
+capture 91_turned_and_home.bmp
+assert_pixel 760 180 FFFFFF                   # AC on foundation 2
+assert_pixel 580 441 FFFFFF                   # 5S face up on col 4
+close
+
+# ---- the Finish button's double-click: deal 64's winning line (solhd_extras.txt), the button, and the
+# double-click's second press arriving while the cards fly home: the win cascade still runs ---------------
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+regset HKCU\Software\Microsoft\Solitaire Options dword 11
+setenv SOLHD_TIME 64
+setenv SOLHD_ANIM_SLOW
+launch ${REPO}/build/SolitaireHD.exe
+sync
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+settle 20
+drag 100 235 631 14 4
+drag 985 265 808 14 4
+click 985 358
+drag 1162 271 631 14 4
+click 1162 364
+drag 985 259 631 285 4
+click 985 352
+drag 631 253 100 235 4
+click 631 346
+drag 631 247 985 285 4
+click 631 340
+drag 277 241 631 273 4
+click 277 334
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 337 18 808 14 4
+drag 307 16 808 14 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 341 20 631 14 4
+drag 311 18 808 14 4
+click 100 113
+click 100 113
+click 100 113
+drag 281 16 454 279 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 341 20 1162 297 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 337 18 985 317 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 341 20 100 299 4
+drag 454 247 100 331 4
+click 454 340
+drag 808 259 454 273 4
+click 808 352
+drag 808 253 985 349 4
+click 808 346
+drag 454 241 277 267 4
+click 454 334
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 341 20 985 381 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 337 18 631 305 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 337 18 985 14 4
+drag 307 16 985 14 4
+drag 631 305 985 14 4
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+click 100 113
+drag 337 18 985 14 4
+drag 277 299 985 14 4
+drag 631 241 277 299 4
+click 631 334
+drag 1162 265 631 267 4
+click 1162 358
+drag 1162 259 1162 14 4
+click 1162 352
+drag 1162 253 989 16 4
+click 1162 346
+drag 808 247 1162 279 4
+click 808 340
+drag 1162 247 100 395 4
+click 1162 340
+drag 1162 241 631 14 4
+click 1162 334
+click 100 113
+drag 337 18 1162 14 4
+click 100 113
+click 100 113
+drag 337 18 100 459 4
+drag 808 241 100 491 4
+click 808 334
+drag 808 235 1162 14 4
+drag 277 331 1162 14 4
+drag 277 299 631 14 4
+drag 100 491 1162 14 4
+drag 277 267 1166 16 4
+drag 307 16 1166 16 4
+drag 277 14 989 16 4
+drag 100 459 635 16 4
+drag 985 381 1166 16 4
+click 100 113
+click 100 113
+click 100 113
+drag 277 14 808 235 4
+drag 985 253 808 267 4
+click 985 346
+drag 985 247 808 395 4
+click 985 340
+drag 985 241 808 14 4
+click 985 334
+drag 277 14 985 267 4
+drag 277 14 631 331 4
+drag 277 14 812 16 4
+drag 100 427 812 16 4
+drag 100 395 989 16 4
+drag 277 235 635 16 4
+drag 808 395 812 16 4
+drag 277 14 989 16 4
+drag 100 363 812 16 4
+drag 100 331 993 18 4
+drag 631 331 816 18 4
+drag 985 267 816 18 4
+drag 277 14 100 331 4
+settle 100
+drag 277 14 635 16 4
+assert_menu 1103 enabled
+assert_pixel 432 113 FFFFFF 40                # the Finish button
+click 488 113                                 # its click: Finish ...
+async on
+ldblclk 488 113                               # ... and the double-click's second press, while they fly
+wait 3000
+async off
+assert_window_text "Press Esc or a mouse button to stop..."   # the cascade goes on
+capture 92_finish_dblclick_cascade.bmp
+vkey ESC
+wait_dialog Solitaire
+assert_dialog_text "Deal Again?"
+dialog_click No
+close

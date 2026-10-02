@@ -205,7 +205,7 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     SolOptions o, cur;
     uint8_t board[SOL_PACKED_SIZE];
     uint32_t plen, nh, nr, group = 0, i, version;
-    int draw, scoring, fan, fresh, counted, score, ticks, recycles, clock_pen, carry;
+    int draw, scoring, fan, fresh, counted, score, ticks, recycles, clock_pen, carry, other;
     uint32_t seed, rng;
     SolAction *hist = NULL, *redo = NULL;
     if (!data || len < HEADER + FIXED + 4u || len > SOL_SAVE_MAX_FILE || memcmp(data, "SOLG", 4))
@@ -254,9 +254,11 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
         seed > 0x7FFF || o.draw != draw || o.scoring != scoring || !board_ok(board) ||
         nh > len / ACT_MIN || nr > len / ACT_MIN)
         return SOL_LOAD_DAMAGED;
-    /* the Options it was played with must still be the current ones */
+    /* the Options it was played with must still be the current ones; with "Apply option changes to the
+     * next game" (2c) it goes on with its own, and the current ones wait for the next deal */
     cur = s->opts;
-    if (cur.draw != draw || cur.scoring != scoring || (cur.timed != 0) != (o.timed != 0))
+    other = cur.draw != draw || cur.scoring != scoring || (cur.timed != 0) != (o.timed != 0);
+    if (other && !s->extras.next_game_options)
         return SOL_LOAD_OTHER_OPTIONS;
     if (nh) {
         hist = malloc(nh * sizeof *hist);
@@ -289,8 +291,18 @@ int sol_game_restore(SolSession *s, const uint8_t *data, size_t len)
     s->redo_group = (int)group;
     sol_board_unpack(&s->board, board);
     s->waste_fan = fan;
+    if (other) {
+        s->pend_opts = cur;
+        s->pending = 1;
+        s->opts.draw = draw;
+        s->opts.scoring = scoring;
+        s->opts.timed = o.timed != 0;
+    } else {
+        s->pending = 0;
+    }
     s->draw = draw;
     s->game_scoring = scoring;
+    s->game_timed = o.timed != 0;
     s->undo_fresh = fresh;
     s->counted = counted;
     s->score = score;

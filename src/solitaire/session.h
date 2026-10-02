@@ -95,6 +95,34 @@
  *     background (ui.solve_start / sol_solve_done, the full-information solver.h); when an action or
  *     Redo leads to a position proven unwinnable: SOL_MSG_UNWINNABLE once (SOL_MSG_UNWINNABLE_DEAL if
  *     the deal itself was), re-armed when a position is found winnable again or by a new deal.
+ *
+ * Windows 7-inspired extras (2c, docs/DESIGN.md "Solitaire HD extras (2c)"):
+ *   - Hint cycling (always): Hint again while the previous hint is current (the same position, and no
+ *     other input since: only the hint's flash) shows the next move of assist.h's sol_hint_list,
+ *     wrapping after the last.
+ *   - Dead ends (fair, from what the player has seen): a position has a useful move when assist.h's
+ *     sol_useful_move says so (anything but a draw or a recycle). After every committed action the
+ *     session notes the first position without one; when the draws and recycles that follow have gone
+ *     through a whole cycle of the stock (back to that stock count after a recycle, or to the empty
+ *     stock after a recycle) without a useful move anywhere, or the stock is used up (empty, and the
+ *     pass limit allows no recycle) with none, there are no more useful moves (sol_no_more_moves). Any
+ *     other action, Undo, Redo or deal starts over. Hint then says SOL_MSG_NO_USEFUL instead of
+ *     suggesting a draw or a recycle again.
+ *   - extras.no_more_moves: at that moment (once, until the tracking starts over) ui.choose asks
+ *     SOL_ASK_NO_MOVES: End Game (a loss in the statistics, the game ends, then "Deal Again?") or Return
+ *     to Game (the player may Undo).
+ *   - Statistics (stats.h): the high scores and the Vegas money, dated by ui.today.
+ *   - extras.save_game, the Windows 7 prompts (ui.choose), only for a game in progress
+ *     (sol_game_started: an action was made): Deal asks SOL_ASK_NEW_GAME (Quit and Start a New Game: a
+ *     loss / Restart This Game: sol_restart, the same deal, not a loss / Keep Playing); Exit
+ *     (sol_exit_choice) asks SOL_ASK_EXIT; a resumed game (sol_offer_resume) asks SOL_ASK_RESUME. With
+ *     the option off nothing is asked (XP).
+ *   - extras.next_game_options: an Options change of Draw, Timed game or Scoring during a game in
+ *     progress asks SOL_ASK_SETTINGS: Play New Game (XP's redeal, a loss) or Finish This Game (the
+ *     game goes on with its own settings; the new ones wait in s->pend_opts and apply at the next deal;
+ *     the Options value is written at once, as XP). Status bar, Outline dragging and Cumulative apply
+ *     at once either way. While settings wait, an OK that leaves them alone keeps the wait even with the
+ *     option off again (no redeal).
  */
 #ifndef SOL_SESSION_H
 #define SOL_SESSION_H
@@ -118,7 +146,20 @@ enum { SOL_CMD_DEAL = 1000, SOL_CMD_UNDO = 1001, SOL_CMD_FORCEWIN = 1010 /* Alt+
 enum { SOL_MSG_NO_HINT = 1110,           /* "No hint is available." */
        SOL_MSG_UNWINNABLE = 1111,        /* "This game can no longer be won. Use Undo to go back." */
        SOL_MSG_UNWINNABLE_DEAL = 1112,   /* "This game cannot be won." */
-       SOL_MSG_UNDO_ALL = 1113 };        /* "Do you want to undo all your moves ..." (ui.confirm) */
+       SOL_MSG_UNDO_ALL = 1113,          /* "Do you want to undo all your moves ..." (ui.confirm) */
+       SOL_MSG_NO_USEFUL = 1114 };       /* "There are no more useful moves." (2c) */
+/* Questions with more than two answers (ui.choose, 2c): ids of the UI's dialogs; the answer is the
+ * index of the button, in the order listed. */
+enum { SOL_ASK_NO_MOVES = 1130,          /* "There are no more moves. What do you want to do?" */
+       SOL_ASK_NEW_GAME = 1131,          /* Deal during a game in progress (save_game) */
+       SOL_ASK_EXIT = 1132,              /* Exit during a game in progress (save_game) */
+       SOL_ASK_RESUME = 1133,            /* a saved game in progress at start-up (save_game) */
+       SOL_ASK_SETTINGS = 1134 };        /* Draw / Timed / Scoring changed during a game (next_game_options) */
+enum { SOL_ANS_END_GAME = 0, SOL_ANS_RETURN = 1 };                       /* SOL_ASK_NO_MOVES */
+enum { SOL_ANS_QUIT_NEW = 0, SOL_ANS_RESTART = 1, SOL_ANS_KEEP = 2 };    /* SOL_ASK_NEW_GAME */
+enum { SOL_ANS_EXIT_SAVE = 0, SOL_ANS_EXIT_NOSAVE = 1, SOL_ANS_DONT_EXIT = 2 };   /* SOL_ASK_EXIT */
+enum { SOL_ANS_CONTINUE = 0, SOL_ANS_NEW = 1 };                          /* SOL_ASK_RESUME */
+enum { SOL_ANS_PLAY_NEW = 0, SOL_ANS_FINISH = 1 };                       /* SOL_ASK_SETTINGS */
 const char *sol_message_text(int id);
 #define SOL_TICK_MS     250              /* XP's tick; the clock counts ticks, shows ticks >> 2 seconds */
 #define SOL_TICKS_MAX   0x7FFE
@@ -213,6 +254,11 @@ typedef struct SolSessionUI {
     /* A question (MB_YESNO | MB_ICONQUESTION, caption "Solitaire"): id SOL_MSG_*, text the English
      * fallback. 1 = Yes. NULL = Yes. */
     int  (*confirm)(void *ctx, int id, const char *text);
+    /* 2c. A question with several answers (id SOL_ASK_*, text the English fallback of its question):
+     * the index of the button chosen (SOL_ANS_*). NULL: the default noted at each call (XP's way). */
+    int  (*choose)(void *ctx, int id, const char *text);
+    /* 2c. Today's local date as YYYYMMDD (the high scores' dates). NULL = 0 (unknown). */
+    uint32_t (*today)(void *ctx);
 } SolSessionUI;
 
 /* ---- Extras (not in XP): HKCU\Software\xp-cards\Solitaire HD, REG_DWORD 0 / 1, all off by default ---- */
@@ -225,6 +271,11 @@ typedef struct SolExtras {
     int warn_unwinnable;     /* "WarnUnwinnable": warn when the game can't be won */
     int auto_home;           /* "AutoHome": move cards home automatically (v1.2) */
     int click_select;        /* "ClickSelect": click to select, click to move (v1.2) */
+    int no_more_moves;       /* "NoMoreMoves": tell me when there are no more moves (2c) */
+    int next_game_options;   /* "NextGameOptions": apply option changes to the next game (2c) */
+    int enhanced_anim;       /* "EnhancedAnimations" (2d): the double-click and the right button's autoplay
+                                fly their cards (ui.animate_move); the rest is the UI's (drag shadow, card
+                                turns, the deal, the hint's pulse) */
 } SolExtras;
 void sol_extras_load(SolExtras *x, const CeStore *store);        /* missing values: off */
 void sol_extras_save(const SolExtras *x, const CeStore *store);  /* every value, then flush */
@@ -235,6 +286,7 @@ typedef struct SolSession {
     int      waste_fan;      /* top waste cards fanned out by the last draw (0..3), see sol_waste_fan */
     int      dealt;          /* XP fDealt: a game is on; board input is ignored while 0 */
     int      visible;        /* the piles are drawn (0 before the first deal and after the win) */
+    unsigned deals;          /* deals made (Deal, Restart, Options), for the view: a new deal can fly in (2d) */
     int      input;          /* XP fInput: a press since the deal; the clock runs only after it */
     int      won;            /* the last game was won (cascade, then the frozen table) */
     int      forced_win;     /* ... through Alt+Shift+2 */
@@ -288,6 +340,19 @@ typedef struct SolSession {
     int      csel_block;     /* this press only deselected: its click selects nothing */
     int      redo_group;     /* Undo All: the top redo_group actions of the redo stack go back together */
     int      batch;          /* inside Undo All: one notification at the end */
+    /* 2c */
+    int      game_timed;     /* the game was dealt Timed (s->opts.timed may wait for the next one) */
+    int      hint_cyc;       /* the last hint is current: Hint again shows the next (hint_idx + 1) */
+    int      hint_idx, hint_rec;
+    uint8_t  hint_pos[SOL_PACKED_SIZE];   /* the position it was shown for */
+    int      nm_mark;        /* dead ends: the stock count of the first position without a useful move
+                                since the last other action (-1: none) */
+    int      nm_recycled;    /* a recycle since that position */
+    int      nm_done;        /* no more useful moves (a whole stock cycle, or the used-up stock) */
+    int      nm_shown;       /* SOL_ASK_NO_MOVES was asked for this dead end */
+    int      nm_kind;        /* the last committed action for the tracking (session.c NM_*) */
+    int      pending;        /* next_game_options: pend_opts wait for the next deal */
+    SolOptions pend_opts;
 } SolSession;
 
 /* Initialise: no game yet (green table, "Score: 0"), options, back and iCurrency loaded from store
@@ -330,6 +395,8 @@ int  sol_redo(SolSession *s);
 /* Options dialog OK: stores and writes "Options"; a change of Draw, Timed game or Scoring deals a new
  * game (score reset). Returns 1 if it dealt. */
 int  sol_apply_options(SolSession *s, const SolOptions *o);
+/* The Options the Options dialog shows: the pending ones (next_game_options), else s->opts. */
+const SolOptions *sol_dialog_options(const SolSession *s);
 void sol_set_back(SolSession *s, int back);                /* Deck dialog OK: writes "Back" */
 
 /* ---- Extras -------------------------------------------------------------------------------------- */
@@ -365,6 +432,20 @@ void sol_abandon(SolSession *s);
  * busy or cards are being dragged (call again later, e.g. after the drop), else 1 (an answer for an
  * older request is ignored). */
 int  sol_solve_done(SolSession *s, uint32_t id, int status);
+/* 2c. An action was made in this game (it counts in the statistics, or there is history to undo or
+ * redo): the Windows 7 prompts ask only then. */
+int  sol_game_started(const SolSession *s);
+/* 2c. "Restart This Game": the same deal from the start (its score and clock as at the deal; a Vegas
+ * game's money back before the bet is placed again); it still counts as played, not as a loss. */
+void sol_restart(SolSession *s);
+/* 2c. Exit (WM_CLOSE): SOL_ANS_EXIT_NOSAVE without save_game (XP; the UI then calls sol_abandon);
+ * with it, SOL_ANS_EXIT_SAVE for a game not started, else the answer to SOL_ASK_EXIT. */
+int  sol_exit_choice(SolSession *s);
+/* 2c. Right after a saved game was resumed: with save_game and a game in progress, SOL_ASK_RESUME;
+ * "Play New Game" deals a new game (the saved one is lost). Returns 1 if the saved game goes on. */
+int  sol_offer_resume(SolSession *s);
+/* 2c. There are no more useful moves (see "Dead ends" above). */
+int  sol_no_more_moves(const SolSession *s);
 
 /* ---- Queries ------------------------------------------------------------------------------------ */
 static inline int sol_dragging(const SolSession *s) { return s->drag_pile >= 0; }

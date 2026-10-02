@@ -107,6 +107,12 @@ int fc_solve(FcSolver *sv, const FcBoard *b, int standard_supermove, const volat
 #define FC_SOLVE_MAX_MOVES 160
 int fc_solve_moves(const FcBoard *b, int standard_supermove, FcSolveMove *out);
 
+/* The search's estimate of the work left on b (its heuristic with the default weights: cards not home,
+ * cards above a lower card of their column, the cards covering the next card each home pile needs,
+ * occupied free cells, less for empty columns; lower is better, 0 = won). Hint cycling (2c) ranks the
+ * alternatives to the solver's move by it. */
+int fc_solve_estimate(const FcBoard *b);
+
 /* Play move m on b as the session does (user part + autoplay). Returns 1, or 0 (b unchanged) if m
  * does not fit b (no card at the source, or an illegal destination). */
 int fc_solve_play(FcBoard *b, const FcSolveMove *m, int standard_supermove);

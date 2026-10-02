@@ -1,0 +1,162 @@
+# FreeCell HD 2d (motion) end to end: the eased flights caught in mid-air, an autoplay cascade with two
+# cards in the air at once (the next card takes off at 60% of the previous one's flight), the Finish
+# button on the table once the rest is a sure win (game #31364, fchd_v12.txt's line) and its click;
+# "Enhanced animations": the option, the dragged cards' shadow, the deal flying in. The mid-air captures
+# run with FCHD_ANIM_SLOW=30 (every animation 30 times slower) and the driver's `async on` (the click
+# returns at once; the capture is answered while the cards fly).  Run by tests/e2e/run_fchd_e2e.sh.
+# The client is 1264 x 854, exactly scale 2 (columns x = 14 170 326 482 639 795 951 1107, first card
+# y = 212, step 37, cards 142 x 192; free cells x = 0 142 284 426, home cells x = 696 838 980 1122,
+# y 0..191; the Finish button 576,132 112 x 40, in the gap below the king).
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell
+regset HKCU\Software\Microsoft\Windows\CurrentVersion\Applets\FreeCell AlreadyPlayed bin32 1
+regdel HKCU\Software\xp-cards
+setenv FCHD_ANIM_SLOW 30
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+assert_title "FreeCell Game #1"
+
+# ---- a flight in mid-air: 3D (column 6) -> free cell 0, 120 ms (3.6 s at 30 x) -------------------------
+click 866 300                             # select 3D (column 6, y 397..589)
+async on
+click 71 96                               # -> free cell 0: returns at once
+wait 1000
+capture 80_mid_flight.bmp
+assert_pixel 71 96 007F00                 # not landed yet: free cell 0 still empty
+assert_pixel 866 580 007F00               # lifted: 3D's place in column 6 is bare table
+async off
+sync
+capture 81_landed.bmp
+assert_pixel 71 96 FF0000                 # landed: 3D's middle pip in free cell 0
+
+# ---- a cascade: 2C -> free cell 1, then autoplay AC, 2C, AS home, overlapping -----------------------
+click 866 300                             # select 2C
+async on
+click 213 96                              # -> free cell 1; autoplay follows
+wait 2200
+capture 82_cascade_mid_air.bmp            # 2C nearly in free cell 1 while AC already flies home
+assert_pixel 866 500 007F00               # AC has left column 6 (under it: AS, y 286..478)
+async off
+sync
+capture 83_cascade_landed.bmp
+assert_menubar_text "Cards Left: 49"
+close Yes
+
+# ---- the Finish button: none until the rest is a sure win; then on the table; a click = Game > Finish ------
+setenv FCHD_ANIM_SLOW
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+command 103
+wait_dialog "Game Number"
+dialog_set_text 203 31364
+dialog_click OK
+assert_title "FreeCell Game #31364"
+assert_pixel 580 152 007F00               # no button
+click 553 220
+click 71 96                               #  1: 3D column 4 -> free cell 1
+click 553 220
+click 213 96                              #  2: JD column 4 -> free cell 2
+click 1178 220
+click 85 220                              #  3: 5C column 8 -> column 1
+click 1178 220
+click 85 220                              #  4: 4H column 8 -> column 1
+click 553 220
+click 1022 220                            #  5: 4C column 4 -> column 7
+click 1022 220
+click 553 220                             #  6: 5D column 7 -> column 4 (with 4C)
+click 397 220
+click 1022 220                            #  7: TD column 3 -> column 7
+click 71 96
+click 553 220                             #  8: 3D free cell 1 -> column 4
+click 397 220
+click 241 220                             #  9: 7H column 3 -> column 2
+click 397 220
+click 767 96                              # 10: 3H column 3 -> home 1
+click 710 220
+click 909 96                              # 11: 3C column 5 -> home 2
+click 241 220
+click 710 220                             # 12: 8C column 2 -> column 5
+click 241 220
+click 71 96                               # 13: 5S column 2 -> free cell 1
+click 241 220
+click 355 96                              # 14: 4S column 2 -> free cell 3
+click 355 96
+click 553 220                             # 15: 4S free cell 3 -> column 4
+click 85 220
+click 767 96                              # 16: 4H column 1 -> home 1
+click 866 220
+click 355 96                              # 17: TH column 6 -> free cell 3
+click 866 220
+click 767 96                              # 18: 5H column 6 -> home 1
+click 85 220
+click 553 220                             # 19: JS column 1 -> column 4
+click 710 220
+click 1178 220                            # 20: 9D column 5 -> column 8
+assert_menu 119 grayed
+assert_pixel 580 152 007F00               # still no button
+click 1022 220
+click 85 220                              # 21: JC column 7 -> column 1: the rest is a sure win
+assert_menu 119 enabled
+capture 84_finish_button.bmp
+assert_pixel 580 152 FFFFFF 40            # the button's face (Wine: the classic button, white)
+vkey F10                                  # Undo: no sure win, no button
+assert_menu 119 grayed
+assert_pixel 580 152 007F00
+vkey Y ctrl                               # Redo: the button again
+assert_menu 119 enabled
+click 632 152                             # the button: Finish
+wait_dialog "Game Over" 60000
+assert_dialog_text "Congratulations, you win!"
+assert_menubar_text "Cards Left: 0"
+capture 85_finished_by_button.bmp
+dialog_click No
+assert_no_dialog
+assert_pixel 580 152 007F00               # won: no button
+
+# ---- Enhanced animations (off by default): the option, a drag's shadow, a deal flying in ---------------
+command 109
+wait_dialog "FreeCell Options"
+assert_dialog_text "[230] Button \"&Enhanced animations\" [ ]"
+dialog_check 229 1                        # Drag and drop cards
+dialog_check 230 1
+capture_dialog 86_options_enhanced.bmp
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\FreeCell HD" EnhancedAnimations 1
+close
+setenv FCHD_ANIM_SLOW 30
+launch ${REPO}/build/FreeCellHD.exe
+move_window 40 140
+resize_client 1264 854
+assert_client_size 1264 854
+async on
+command 103
+wait 400
+wait_dialog "Game Number"
+dialog_set_text 203 1
+dialog_click OK
+wait 3000
+capture 87_deal_mid_air.bmp               # the deal flies in from below the board, row by row
+async off
+sync
+assert_title "FreeCell Game #1"
+capture 88_dealt.bmp
+ldown 1178 500                            # TC (column 8): press, then drag
+move 1100 450
+move 900 300
+capture 89_drag_shadow.bmp                # lifted: the soft shadow under it
+assert_pixel 976 300 CFCFCF 24            # the shadow darkens 7C just right of the dragged card
+assert_pixel 900 395 C8C8C8 24            # ... and 3D just below it
+lup 900 300                               # nowhere: slides back, then XP's message
+wait_dialog FreeCell
+dialog_click OK
+assert_no_dialog
+close Yes

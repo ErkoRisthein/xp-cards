@@ -710,6 +710,65 @@ static void test_png(void)
     CHECK(ce_image_decode_png(NULL, 0) == NULL, "null rejected");
 }
 
+/* 2d: the drag's soft shadow and the hint pulse's partial inversion. */
+static void test_shadow_and_pulse(void)
+{
+    CeImage *sq = ce_image_new(20, 30), *sh, *half, *full, *none;
+    int x, y, sym = 1, mono = 1, black = 1;
+    for (y = 0; y < 30; y++)
+        for (x = 0; x < 20; x++)
+            sq->px[y * 20 + x] = CE_RGB(200, 10, 90);
+    sh = ce_image_shadow(sq, 3, 255);
+    CHECK(sh && sh->w == 32 && sh->h == 42, "shadow size: the sprite plus twice the radius all round");
+    if (sh) {
+        CHECK((sh->px[21 * 32 + 16] >> 24) == 255, "the middle is fully dark: %u", sh->px[21 * 32 + 16] >> 24);
+        CHECK((sh->px[0] >> 24) == 0, "the outer corner is clear: %u", sh->px[0] >> 24);
+        for (y = 0; y < 42; y++)
+            for (x = 0; x < 32; x++) {
+                uint32_t p = sh->px[y * 32 + x];
+                if ((p & 0xffffff) != 0)
+                    black = 0;
+                if (p != sh->px[y * 32 + (31 - x)] || p != sh->px[(41 - y) * 32 + x])
+                    sym = 0;
+                if (x > 0 && x <= 16 && (p >> 24) < (sh->px[y * 32 + x - 1] >> 24))
+                    mono = 0;
+                if ((x == 0 || y == 0 || x == 31 || y == 41) && (p >> 24) > 8)
+                    black = 0;              /* only the faintest tail at the edge: nothing cut off */
+            }
+        CHECK(black, "premultiplied black, fading out by the edge");
+        CHECK(sym, "symmetric");
+        CHECK(mono, "darker towards the middle");
+    }
+    half = ce_image_shadow(sq, 3, 90);
+    CHECK(half && (half->px[21 * 32 + 16] >> 24) == 90, "opacity 90: %u", half ? half->px[21 * 32 + 16] >> 24 : 0);
+    ce_image_free(half);
+    ce_image_free(sh);
+    sh = ce_image_shadow(sq, 0, 255);
+    CHECK(sh && sh->w == 20 && (sh->px[0] >> 24) == 255, "radius 0: the sprite's own shape");
+    ce_image_free(sh);
+
+    /* partial inversion: 0 nothing, 256 = ce_invert_masked, 128 half way */
+    full = ce_image_new(20, 30);
+    none = ce_image_new(20, 30);
+    half = ce_image_new(20, 30);
+    for (x = 0; x < 600; x++)
+        full->px[x] = none->px[x] = half->px[x] = CE_RGB(200, 10, 90);
+    ce_invert_masked(full, sq, 0, 0);
+    ce_invert_masked_level(none, sq, 0, 0, 0);
+    ce_invert_masked_level(half, sq, 0, 0, 256);
+    CHECK(memcmp(half->px, full->px, 600 * 4) == 0, "level 256 is the full inversion");
+    CHECK(none->px[0] == CE_RGB(200, 10, 90) && full->px[0] == CE_RGB(55, 245, 165), "level 0: nothing");
+    for (x = 0; x < 600; x++)
+        half->px[x] = CE_RGB(200, 10, 90);
+    ce_invert_masked_level(half, sq, 0, 0, 128);
+    CHECK(half->px[0] == CE_RGB(128, 128, 128) || half->px[0] == CE_RGB(127, 127, 127) ||
+          ((half->px[0] >> 16) & 255) == 128, "level 128: half way (%06x)", half->px[0] & 0xffffff);
+    ce_image_free(full);
+    ce_image_free(none);
+    ce_image_free(half);
+    ce_image_free(sq);
+}
+
 int main(void)
 {
     test_constant();
@@ -723,6 +782,7 @@ int main(void)
     test_card_shape();
     test_bevel_ring();
     test_png();
+    test_shadow_and_pulse();
     printf("test_image: %d checks, %d failures\n", checks, failures);
     return failures != 0;
 }

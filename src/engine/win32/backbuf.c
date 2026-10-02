@@ -196,3 +196,43 @@ void ce_backbuf_present(CeBackBuf *bb, HDC dc, CeRect r, const CeImage *s, int s
         ce_blit(&scratch, s, sx - k.x, sy - k.y);
     BitBlt(dc, k.x, k.y, k.w, k.h, bb->sdc, 0, 0, SRCCOPY);
 }
+
+void ce_backbuf_present_layers(CeBackBuf *bb, HDC dc, CeRect r, const CeLayer *ly, int n)
+{
+    CeRect k = ce_rect(0, 0, 0, 0);
+    CeImage scratch;
+    int i, any = 0, x2, y2;
+    if (!ce_rect_clip(&r, bb->fb.w, bb->fb.h))
+        return;
+    for (i = 0; i < n; i++) {                         /* k = r intersected with the layers' bounds */
+        CeRect q;
+        if (!ly[i].img || !ce_rect_overlaps(&r, ly[i].x, ly[i].y, ly[i].img->w, ly[i].img->h))
+            continue;
+        q = ce_rect(ly[i].x, ly[i].y, ly[i].img->w, ly[i].img->h);
+        k = any ? ce_rect_union(k, q) : q;
+        any = 1;
+    }
+    if (any) {
+        x2 = k.x + k.w < r.x + r.w ? k.x + k.w : r.x + r.w;
+        y2 = k.y + k.h < r.y + r.h ? k.y + k.h : r.y + r.h;
+        k.x = k.x > r.x ? k.x : r.x;
+        k.y = k.y > r.y ? k.y : r.y;
+        k.w = x2 - k.x;
+        k.h = y2 - k.y;
+    }
+    if (!any || k.w <= 0 || k.h <= 0 || !ensure_scratch(bb, k.w, k.h)) {
+        ce_backbuf_blit(bb, dc, r.x, r.y, r.w, r.h);
+        return;
+    }
+    ce_backbuf_blit(bb, dc, r.x, r.y, r.w, k.y - r.y);                              /* above the layers */
+    ce_backbuf_blit(bb, dc, r.x, k.y + k.h, r.w, r.y + r.h - (k.y + k.h));          /* below */
+    ce_backbuf_blit(bb, dc, r.x, k.y, k.x - r.x, k.h);                              /* left */
+    ce_backbuf_blit(bb, dc, k.x + k.w, k.y, r.x + r.w - (k.x + k.w), k.h);          /* right */
+    scratch = ce_image_wrap(k.w, k.h, bb->s_w, bb->sbits);
+    GdiFlush();
+    ce_copy_rect(&scratch, 0, 0, &bb->fb, k.x, k.y, k.w, k.h);
+    for (i = 0; i < n; i++)
+        if (ly[i].img)
+            ce_blit(&scratch, ly[i].img, ly[i].x - k.x, ly[i].y - k.y);
+    BitBlt(dc, k.x, k.y, k.w, k.h, bb->sdc, 0, 0, SRCCOPY);
+}

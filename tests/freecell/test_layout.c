@@ -509,6 +509,80 @@ static void test_render_stack(FcCardSet *cs)
     }
 }
 
+/* 2d: cards in the air are kept out of the board (hide_n: a column's last cards, the step kept;
+ * hide_top: a free cell empty, a home cell that many ranks lower), and the hint's pulse level (256: XP's
+ * inversion exactly, 0: none, between: between). */
+static void test_render_in_air(FcCardSet *cs)
+{
+    const int W = 632, H = 300;
+    CeImage *a = ce_image_new(W, H), *b = ce_image_new(W, H), *c = ce_image_new(W, H);
+    FcBoard bd, e;
+    FcView v, w;
+    FcLayout l;
+    CeRect r;
+    int i, mid = 0, lo, hi;
+    clear(&bd);
+    fill_col(&bd, 2, 5);
+    fill_col(&bd, 6, 16);                            /* long enough to be compressed at this height */
+    bd.board[0][1] = 51;                             /* KS in free cell 1 */
+    bd.board[0][5] = 2 * 4 + 1;                      /* 3D on home cell 5 */
+    fc_layout_compute(&l, W, H);
+    fc_render_prepare(cs, &l, 1);
+#define SAME(x, y, msg) CHECK(memcmp((x)->px, (y)->px, sizeof(uint32_t) * (size_t)W * H) == 0, msg)
+    /* a short column: as if its last 2 cards were not there */
+    fc_view_init(&v); v.hide_n[2] = 2;
+    e = bd; e.board[2][3] = e.board[2][4] = FC_EMPTY;
+    fc_view_init(&w);
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &e, &w, cs);
+    SAME(a, b, "hide_n: the column without its last cards");
+    /* a compressed column keeps its step: the cards left are where the full column has them */
+    fc_view_init(&v); v.hide_n[6] = 1;
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_view_init(&w); w.hide_col = 6; w.hide_pos = 15;
+    fc_render_board(b, &l, &bd, &w, cs);
+    SAME(a, b, "hide_n on a compressed column = hiding its last card (same step)");
+    /* the top row */
+    fc_view_init(&v); v.hide_top[1] = 1; v.hide_top[5] = 2;
+    e = bd; e.board[0][1] = FC_EMPTY; e.board[0][5] = 0 * 4 + 1;   /* AD */
+    fc_view_init(&w);
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &e, &w, cs);
+    SAME(a, b, "hide_top: free cell empty, home cell two ranks lower");
+    v.hide_top[5] = 3;
+    e.board[0][5] = FC_EMPTY;
+    fc_render_board(a, &l, &bd, &v, cs);
+    fc_render_board(b, &l, &e, &w, cs);
+    SAME(a, b, "hide_top below the ace: the empty home cell");
+    /* the pulse */
+    fc_view_init(&v); v.hint_col = 2; v.hint_pos = 3;
+    fc_render_board(a, &l, &bd, &v, cs);
+    v.hint_level = 256;
+    fc_render_board(b, &l, &bd, &v, cs);
+    SAME(a, b, "level 256 is XP's hint");
+    v.hint_level = 0;
+    fc_view_init(&w);
+    fc_render_board(b, &l, &bd, &v, cs);
+    fc_render_board(c, &l, &bd, &w, cs);
+    SAME(b, c, "level 0: no hint");
+    v.hint_level = 128;
+    fc_render_board(b, &l, &bd, &v, cs);
+    r = fc_layout_card_rect(&l, &bd, 2, 4);
+    i = (r.y + r.h / 2) * W + r.x + 3;               /* white card face: inverted black at 256 */
+    lo = (int)(a->px[i] & 255);
+    hi = (int)(c->px[i] & 255);
+    mid = (int)(b->px[i] & 255);
+    CHECK(lo < mid && mid < hi && mid > 100 && mid < 156, "level 128 half way: %d < %d < %d", lo, mid, hi);
+    v.hint_col = 0; v.hint_pos = 2;                  /* an empty free cell at level 0: nothing */
+    v.hint_level = 0;
+    fc_render_board(b, &l, &bd, &v, cs);
+    SAME(b, c, "level 0 on an empty cell: nothing");
+#undef SAME
+    ce_image_free(a);
+    ce_image_free(b);
+    ce_image_free(c);
+}
+
 static void test_cardset(FcCardSet *cs)
 {
     const CeImage *a, *b2;
@@ -813,6 +887,7 @@ int main(void)
         test_render_rect(cs);
         test_render_hint(cs);
         test_render_stack(cs);
+        test_render_in_air(cs);
         test_bevel_cache_render(cs);
         test_cardset_rules(res ? res : "res");
         fc_cardset_free(cs);

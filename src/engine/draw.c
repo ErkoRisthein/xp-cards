@@ -103,6 +103,12 @@ void ce_draw_invert_mask(CeDraw *d, const CeImage *mask, int x, int y)
         ce_invert_masked(&d->img, mask, x - d->ox, y - d->oy);
 }
 
+void ce_draw_invert_mask_level(CeDraw *d, const CeImage *mask, int x, int y, int level)
+{
+    if (mask && ce_rect_overlaps(&d->clip, x, y, mask->w, mask->h))
+        ce_invert_masked_level(&d->img, mask, x - d->ox, y - d->oy, level);
+}
+
 static void invert_rect(CeDraw *d, int x, int y, int w, int h)
 {
     CeRect r = ce_rect(x - d->ox, y - d->oy, w, h);

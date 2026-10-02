@@ -3,8 +3,10 @@
  *
  *   winutil.h   timing log, wide strings, RCDATA asset loader, clock seed, mouse, message loop
  *   backbuf.h   DIB back buffer + scratch DIB, painting, live-resize quality handling
- *   anim.h      frame-timed animation (timeBeginPeriod), straight flights
- *   drag.h      cards dragged with the mouse: the lifted stack, the zip-back, the drag threshold
+ *   anim.h      frame-timed animation (timeBeginPeriod), eased flights, the flight scheduler (cascades)
+ *   drag.h      cards dragged with the mouse: the lifted stack (and its shadow), the zip-back, the drag
+ *               threshold
+ *   button.h    a push button drawn on the table (the Finish button)
  *   menubar.h   text at the right end of the menu bar
  *   window.h    window sizes, first-run rect, remembered placement, borderless full screen
  *   regstore.h  registry CeStore (XP's formats), registry blobs, %APPDATA% data file
@@ -19,6 +21,7 @@
 #include "backbuf.h"
 #include "anim.h"
 #include "drag.h"
+#include "button.h"
 #include "menubar.h"
 #include "window.h"
 #include "regstore.h"

@@ -15,6 +15,10 @@
  * build (-DFC_NEW_API) also sets the new ui.confirm callback, which 1.3 does not have: a single call
  * of it with the extras off is a difference.
  *
+ * Left out of the input since 2c: a Hint (the command or H) in a position where the last Hint was
+ * given. Since then a repeated Hint shows the next-best move (hint cycling, an always-on command),
+ * where 1.3 showed the same one again; the first Hint in a position is unchanged and stays in.
+ *
  *   fc_xp_compare GAMES > log     (default 300 games)
  */
 #include "freecell/game.h"
@@ -310,6 +314,18 @@ static void answer_solver(void)
 static int rand_col(void) { int c = R(10) - 1; return c < 0 ? FCS_MISS : c; }
 static int rand_pos(int col) { return col >= 1 && col <= 8 ? (R(3) ? fc_last_index(&S.board, col) : R(8)) : R(8); }
 
+/* 2c: the position of the last Hint (a repeat there is left out, see above) */
+static int have_hint_pos;
+static uint32_t hint_pos;
+
+static int hint_repeat(void)
+{
+    if (have_hint_pos && board_hash(&S.board) == hint_pos) return 1;
+    have_hint_pos = 1;
+    hint_pos = board_hash(&S.board);
+    return 0;
+}
+
 static void step(void)
 {
     int what = R(1000), col = rand_col(), pos = rand_pos(col);
@@ -333,8 +349,12 @@ static void step(void)
         fcs_dblclick(&S, col, pos);
     } else if (what < 680) {
         int ch = R(12) == 0 ? 'h' : R(15) == 0 ? 'H' : '0' + R(10);
-        L("char %c\n", ch);
-        fcs_char(&S, ch);
+        if ((ch == 'h' || ch == 'H') && hint_repeat()) {
+            L("char %c left out (a repeated hint)\n", ch);
+        } else {
+            L("char %c\n", ch);
+            fcs_char(&S, ch);
+        }
     } else if (what < 700) {
         L("rbutton %d.%d\n", col, pos);
         fcs_rbutton_down(&S, col, pos);
@@ -356,8 +376,12 @@ static void step(void)
         L("redo\n");
         fcs_command(&S, FCS_CMD_REDO);
     } else if (what < 900) {
-        L("hint\n");
-        fcs_command(&S, FCS_CMD_HINT);
+        if (hint_repeat()) {
+            L("hint left out (a repeated hint)\n");
+        } else {
+            L("hint\n");
+            fcs_command(&S, FCS_CMD_HINT);
+        }
     } else if (what < 910) {
         L("finish\n");
         fcs_command(&S, FCS_CMD_FINISH);
@@ -417,6 +441,7 @@ int main(int argc, char **argv)
         memset(reg, 0, sizeof reg);
         if (R(2)) won_len = -1;
         L("== game %d post %d\n", g, use_post);
+        have_hint_pos = 0;
         init_session();
         if (R(4) == 0) S.extras.warn_unwinnable = 1;
         if (R(4) == 0) S.extras.auto_finish = 1;

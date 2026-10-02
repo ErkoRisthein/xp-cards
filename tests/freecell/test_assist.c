@@ -1,7 +1,7 @@
 /*
  * FreeCell HD — native tests of the v1.2 solver extras in the controller (src/freecell/assist.c and the
  * Finish action in session.c): Hint (request, wait cursor, flash steps, cache, cancel, time limit,
- * unwinnable / gave up), the unwinnable warning (once per game, derivation, reset through Undo, the
+ * unwinnable / gave up; 2c: hint cycling), the unwinnable warning (once per game, derivation, reset through Undo, the
  * deal itself), Finish and Finish automatically, the menu states and the extras' store. A fake UI
  * records everything; the "background" solver is synchronous: solve_start only records the request
  * and the test answers it with the real solver (or a scripted status), as the Win32 worker's posted
@@ -256,6 +256,8 @@ static void test_hint_basic(void)
     CHECK_EQ(f.nreq, 1);
     CHECK_EQ(s.sel, 0);
     check_flash(&s, &f, sc, sp, dc, dp);
+    fcs_click(&s, FCS_MISS, -1);                        /* other input: the next Hint is the best again
+                                                           (not the next one: hint cycling, 2c) */
 
     /* follow the hints to the win: one search in all, every hint shows the solution's next move */
     FcSolveMove sol[128];
@@ -283,6 +285,90 @@ static void test_hint_basic(void)
     fcs_char(&s, 'h');
     CHECK_EQ(f.nreq, 1);
     CHECK_EQ(s.as.hint_move.card, sol[0].card);
+    fcs_free(&s);
+}
+
+/* 2c: Hint again while the last hint is current shows the next move: the solver's first, then every
+ * other action by the solver's estimate of where it leads, wrapping; other input or a move starts over. */
+static void test_hint_cycle(void)
+{
+    FcSession s; Fake f;
+    FcSolveMove mv[FC_SOLVE_MAX_MOVES], first, seen[FC_SOLVE_MAX_MOVES + 1];
+    int n, nseen = 0, k, est_prev = -1, order_ok = 1;
+    setup(&s, &f, 1);
+    start_game(&s, &f, 1);
+    fcs_char(&s, 'h');
+    CHECK_EQ(pump(&s, &f), FC_SOLVE_SOLVED);
+    first = s.as.hint_move;
+    seen[nseen++] = first;
+    n = fc_solve_moves(&s.board, 0, mv);                 /* game #1: no bare deselect in the list */
+    /* the alternatives, one per press, each flashed like a hint, each a legal action */
+    for (k = 0; k < n + 3; k++) {
+        tick(&s, &f, FCS_TIMER_HINT);                    /* (the flash's own steps keep the cycle) */
+        fcs_char(&s, k & 1 ? 'H' : 'h');
+        CHECK_EQ(s.as.hint, FCS_HINT_FLASH);
+        if (!memcmp(&s.as.hint_move, &first, sizeof first)) break;   /* wrapped */
+        FcBoard b = s.board;
+        CHECK(fc_solve_play(&b, &s.as.hint_move, 0));
+        int e = fc_solve_estimate(&b);
+        if (e < est_prev) order_ok = 0;
+        est_prev = e;
+        for (int j = 0; j < nseen; j++)
+            if (!memcmp(&seen[j], &s.as.hint_move, sizeof first)) order_ok = 0;   /* each once */
+        seen[nseen++] = s.as.hint_move;
+    }
+    CHECK(order_ok);
+    CHECK(k < n + 3);                                    /* back to the solver's move */
+    CHECK_EQ(nseen, n);                                  /* every action but the solver's own, once */
+    CHECK_EQ(f.nreq, 1);                                 /* no new search */
+    /* the first alternative is the best estimate of all the others */
+    {
+        int best = 1 << 30;
+        for (int i = 0; i < n; i++) {
+            FcBoard b = s.board;
+            if (!memcmp(&mv[i], &first, sizeof first) || !fc_solve_play(&b, &mv[i], 0)) continue;
+            FcBoard c = s.board;
+            fc_solve_play(&c, &first, 0);
+            if (same_board(&b, &c)) continue;
+            if (fc_solve_estimate(&b) < best) best = fc_solve_estimate(&b);
+        }
+        FcBoard b = s.board;
+        fc_solve_play(&b, &seen[1], 0);
+        CHECK_EQ(fc_solve_estimate(&b), best);
+    }
+    /* other input starts over: a click, a digit, a command */
+    fcs_char(&s, 'h');
+    CHECK(memcmp(&s.as.hint_move, &first, sizeof first) != 0);
+    fcs_click(&s, FCS_MISS, -1);
+    fcs_char(&s, 'h');
+    CHECK(!memcmp(&s.as.hint_move, &first, sizeof first));
+    fcs_char(&s, 'h');
+    fcs_command(&s, FCS_CMD_REDO);                       /* (nothing to redo) */
+    fcs_char(&s, 'h');
+    CHECK(!memcmp(&s.as.hint_move, &first, sizeof first));
+    /* a move: the next position's own best (from the cached solution) */
+    fcs_char(&s, 'h');
+    play(&s, &f, &first);
+    fcs_char(&s, 'h');
+    CHECK_EQ(f.nreq, 1);
+    CHECK_EQ(s.as.hint, FCS_HINT_FLASH);
+    CHECK(s.as.cyc_idx == 0);
+    /* an alternative into a position known to be unwinnable is left out */
+    {
+        FcBoard here = s.board;
+        FcSolveMove alt;
+        fcs_char(&s, 'h');
+        alt = s.as.hint_move;                            /* the best alternative */
+        FcBoard after = here;
+        fc_solve_play(&after, &alt, 0);
+        s.as.lost[0] = after;                            /* pretend a search proved it unwinnable */
+        s.as.lost_std[0] = 0;
+        if (s.as.nlost == 0) s.as.nlost = 1;
+        fcs_click(&s, FCS_MISS, -1);
+        fcs_char(&s, 'h');                               /* the solver's move */
+        fcs_char(&s, 'h');
+        CHECK(memcmp(&s.as.hint_move, &alt, sizeof alt) != 0);
+    }
     fcs_free(&s);
 }
 
@@ -784,6 +870,7 @@ int main(void)
     sv = fc_solver_new(0);
     if (!sv) { printf("test_assist: out of memory\n"); return 1; }
     test_hint_basic();
+    test_hint_cycle();
     test_hint_cancel_and_failures();
     test_hint_unwinnable();
     test_warning();

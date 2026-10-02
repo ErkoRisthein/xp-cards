@@ -253,6 +253,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
         set_check(d, IDC_AUTOFINISH, x->auto_finish);
         set_check(d, IDC_SINGLECLICK, x->single_click);
         set_check(d, IDC_DRAGDROP, x->drag_drop);
+        set_check(d, IDC_ENHANCEDANIM, x->enhanced_anim);
         return TRUE;
     case WM_COMMAND:
         switch (LOWORD(wp)) {
@@ -267,6 +268,7 @@ static INT_PTR CALLBACK options_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
             x->auto_finish = checked(d, IDC_AUTOFINISH);
             x->single_click = checked(d, IDC_SINGLECLICK);
             x->drag_drop = checked(d, IDC_DRAGDROP);
+            x->enhanced_anim = checked(d, IDC_ENHANCEDANIM);
             fc_extras_save(x, &g_app.app_store);
             EndDialog(d, 1);
             return TRUE;
@@ -485,6 +487,7 @@ static void cb_assist_menu(void *ctx, int hint_enabled, int finish_enabled)
         return;
     set_item(a, IDM_HINT, hint_enabled != 0, &a->menu_hint);       /* popup items: no DrawMenuBar */
     set_item(a, IDM_FINISH, finish_enabled != 0, &a->menu_finish);
+    view_finish_avail(a, finish_enabled);                          /* 2d: the button on the table */
 }
 
 void ui_make(App *a, FcSessionUI *ui)

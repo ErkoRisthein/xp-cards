@@ -93,7 +93,8 @@ tools/                       XP import checker, Wine end-to-end driver, asset sc
 * Extra **commands** that act only when invoked (menu items, keys XP doesn't use: Hint H, Finish F6,
   Undo All, Ctrl+Z, Ctrl+Y, F11, Solitaire D/C/F4) are always available — no option. The same goes for
   passive affordances that only appear when useful and can simply be ignored (the on-table Finish
-  button shown once the rest of the game is a sure win).
+  button shown once the rest of the game is a sure win) and for a change of timing that leaves what
+  happens alone (2d: eased, overlapping card flights, never slower than XP's).
 * Anything that changes what normal input does or makes the game act on its own (click semantics,
   drag, auto-moves, auto-turn, auto-finish, warnings, deal selection) is an **Options checkbox, off by
   default**, so the default experience is exactly XP.
@@ -141,7 +142,8 @@ All XP geometry (layout.md §2, §10) is expressed in XP pixels at scale `s = 1`
 * Big win king: `320 s` square at `(bx + 10 s, ch + 10 s)`, shrunk to fit the client height if needed.
 * Animation step: `37 s` px per frame; 10 ms per frame (XP had no delay; this mimics period hardware),
   paced against `timeGetTime` with `timeBeginPeriod(1)` during flights (a plain `Sleep(10)` lasts a
-  whole 10–15.6 ms clock tick on XP); late frames are dropped, the landing frame never is.
+  whole 10–15.6 ms clock tick on XP); late frames are dropped, the landing frame never is. Since 2d
+  this is the pace a flight may not fall behind: flights are eased and overlap ("Motion (2d)").
 
 ## Rendering
 
@@ -348,7 +350,7 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   player sees (face-up cards, the number of face-down cards, the foundations, the waste's top card,
   whether the stock is empty), never a face-down card or the stock order; the test shuffles the hidden
   cards of 42000 positions and requires the same answer. The full-information solver is never used. A
-  ranking of 12 classes picks the move (assist.h has the list): turning a face-down card over, aces and
+  ranking of 12 classes (13 since 2c) picks the move (assist.h has the list): turning a face-down card over, aces and
   twos home, safe foundation moves, moves that uncover a face-down card (more face-down cards under
   them first), the waste's card home, a run moved to free a card for home (never onto another card bound
   for home: no back and forth), the waste's card to the tableau, emptying a column for a visible king,
@@ -363,8 +365,8 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   the stock and the waste empty and every tableau card face up the game is a sure win (each column is a
   descending run, so the lowest card left is always on top). Finish plays the lowest card home again and
   again as **one action** (one undo step, `SOL_ACT_FINISH`; Redo replays it), each card flown home by the
-  view (`view_animate_move`: about 60 XP px per 10-ms frame, the board under it already updated), then the
-  normal win (bonus, cascade, "Deal Again?"). **Finish automatically** runs it after any committed action
+  view (`view_animate_move`: at most the time of a straight flight of about 60 XP px per 10-ms frame,
+  eased and overlapping since 2d), then the normal win (bonus, cascade, "Deal Again?"). **Finish automatically** runs it after any committed action
   or Redo that leaves it possible (not after Undo).
 * **Turn cards over automatically**: after an action every face-down card left on top of a column is
   turned over as part of that action (bits in `SolAction.autoturn`, so Undo restores it face down in one
@@ -386,7 +388,8 @@ src/solitaire/win32/solve.c         the warning's worker thread (engine CeWorker
   played at its first committed action, as won at the win (the Alt+Shift+2 cheat too, as XP FreeCell's
   cheat counts), as lost when a new deal or an Options change replaces it or at Exit, unless "Save game
   on exit" keeps it. Always kept (a passive record); `%APPDATA%\xp-cards\Solitaire HD\statistics.bin`
-  ("SOLS", version, 6 x 8 integers, CRC-32), written atomically after every change; a damaged file is set
+  ("SOLS", version, 6 x 8 integers, CRC-32; version 2 since 2c adds the high scores and the money, see
+  "Windows 7-inspired extras (2c)"), written atomically after every change; a damaged file is set
   aside as `statistics.bad` and the statistics start empty.
 * **Save game on exit, resume at start**: at WM_CLOSE / WM_ENDSESSION the game in progress is written to
   `game.bin` (same folder, atomically): the board, waste fan, score, clock, recycles, seed and rand state
@@ -464,6 +467,214 @@ all and `make sol-xp-compare` still proves the extras-off session identical to v
   All and its Redo and D: no safe card is left after an action, Undo All lands on the deal and its Redo on
   the position before it), `tests/e2e/solhd_ux.txt` (Wine).
 
+## Windows 7-inspired extras (2c)
+
+ROADMAP §2c (source: docs/win7-feature-gap.md, Windows 7's wording), under the extras policy: hint
+cycling, the dead-end tracking behind Hint and the high scores are always there (they act only when
+asked or are a passive record); the No More Moves question, the Windows 7 prompts and the deferred
+Options are opt-in. Windows 7's questions use its words but XP's look: plain DIALOG templates in MS Shell
+Dlg 8 with a message box's question icon (and its beep), push buttons stacked under the text (the first
+the default, Esc the safe answer), centred over the window as a message box; no command links. The
+"Large Print" deck of §2c belongs to the card-art branch.
+
+* **Hint cycling (both games, always on).** Hint again while the hint shown last is *current* (the same
+  position, and no other input since: only the hint's own flash, mouse moves, the H key's own key-down)
+  shows the next move of a ranked list; after the last one it wraps to the first. Any other input (a
+  press, a key the game uses, a command) or a change of position starts over at the best move.
+  * Solitaire (`assist.h` `sol_hint_list`): every candidate of the fair ranking (below), one per source
+    card with the ranking's destination (the leftmost), ordered by class, then more face-down cards under
+    the source, then the order found (turns, cards home from the waste then the columns, column runs by
+    column and card, the waste's card to the tableau, class 9, the stock); a move found for two reasons
+    is listed once, at its better place. `sol_hint_find` is its first, so the first press is unchanged.
+    Fair as before (the test shuffles the hidden cards of 11630 positions: the same lists).
+  * FreeCell (`assist.c`): first the solver's move (a winning line, as before), then every other action
+    the session accepts (`fc_solve_moves` without the bare deselect), best first by the solver's estimate
+    of the position it leads to (`fc_solve_estimate`: the search's heuristic with its default weights:
+    cards not home, cards above a lower card of their column, the cards covering the next card each home
+    pile needs, occupied free cells, less for empty columns; ties in `fc_solve_moves`' order), leaving out
+    moves into a position known to be unwinnable (the cache). The alternatives are ranked at the first
+    repeat, without a search. An unwinnable position or a search without an answer keeps its message.
+* **Solitaire: a new hint class** (the ranking now has 13): 9, a foundation's top card taken down onto the
+  tableau so that the waste's card, or a run lying on face-down cards, can go on it (never an ace or a
+  two: they would go straight back). Moving a run sideways for that never helps (a card of the same rank
+  and colour could go straight where the run would go), so that is still never suggested. Followed
+  blindly in Vegas the hint now wins 24 of 400 games (19 before).
+* **Dead ends (Solitaire, always tracked; `session.h` "Dead ends").** A *useful* move is any of the hint's
+  classes 1 to 11 (`sol_useful_move`): everything but a draw or a recycle. After every committed action
+  the session notes the first position without a useful move (its stock count); the draws and recycles
+  that follow (nothing else: any other action, Undo, Redo or a deal starts over) complete a *whole stock
+  cycle* when, after a recycle, the stock is back at that count or at 0 (every position of a pass seen);
+  if no position on the way had a useful move, or the stock is used up (empty, and the pass limit allows
+  no recycle) with none, there are no more useful moves. Fair: only the visible cards and the stock's
+  size are looked at, and only what the player has actually drawn through counts. Then:
+  * **Hint** says "There are no more useful moves." instead of suggesting another draw or recycle (it
+    used to suggest them forever with unlimited passes); a used-up stock with nothing at all is still
+    XP's "No hint is available.".
+  * **"Tell me when there are no more moves"** (`NoMoreMoves`, off by default): at that moment, once per
+    dead end (until the tracking starts over), "No More Moves": *There are no more moves. What do you
+    want to do?* **End Game (counts as a loss)**: the loss is recorded, the game ends (the table stays,
+    frozen, as after XP's "Deal Again?" No; nothing to undo), then XP's "Deal Again?"; **Return to Game
+    (use Undo)** (Esc): the game goes on.
+* **Statistics: high scores and money (Solitaire, always).** Per mode the five highest final scores of
+  its games (won or lost, as the best score; an equal score below the older one), each with the local
+  date the game ended; Standard keeps two tables, "Timed games" and "Not timed" (Windows 7's Standard
+  Timed / Non-Timed), by the game's own Timed setting; Vegas one, the game's own result, plus **Most money
+  won** (the best result, $0 if none was positive), **Most money lost** (the worst, as a positive amount)
+  and **Current winnings** (the sum of every result since Reset). The Statistics dialog shows them in a
+  "High Scores" box to the right of the old one (dates in the user's short date format,
+  `GetDateFormatW`); Reset clears them. Stored in `statistics.bin` version 2 (`stats.h`: 136 bytes per
+  mode); a version 1 file (Solitaire HD 1.1 / 1.2) is read with the new values empty and written back as
+  version 2 at the next change. The date comes from `ui.today` (with `SOLHD_TIME`, that time's date).
+* **The Windows 7 prompts with "Save game on exit"** (`SaveGame`; only for a game in progress: an action
+  was made, `sol_game_started`; without the option nothing is asked, as XP):
+  * **Deal** (F2) asks "Game in Progress": **Quit and Start a New Game (counts as a loss)** (XP's deal),
+    **Restart This Game** (`sol_restart`: the same deal from its start, score and clock as at the deal, a
+    Vegas game's money given back before the bet is placed again; it still counts as played and is not a
+    loss) or **Keep Playing** (Esc). "Deal Again?" after a win or End Game never asks.
+  * **Exit** asks "Exit Game": **Exit and Save My Game** (as before), **Exit and Don't Save (counts as a
+    loss)** (the game is lost, the old file emptied) or **Don't Exit** (Esc). A deal nobody played is saved
+    without a question; a Windows shutdown (WM_ENDSESSION) saves without one.
+  * **At start-up** a resumed game in progress asks "Saved Game Found": **Continue Saved Game** (Esc) or
+    **Play New Game (counts as a loss)** (a new deal; the saved game's loss is recorded). A saved deal
+    nobody played is resumed without a question.
+  FreeCell HD keeps no saved game, so its XP resign question stays as it is.
+* **"Apply option changes to the next game"** (`NextGameOptions`, off by default): a change of Draw, Timed
+  game or Scoring while a game is in progress asks "Changed Game Settings": *The new settings apply to
+  your next game.* **Play New Game (counts as a loss)** (XP's immediate redeal) or **Finish This Game**
+  (Esc): the game goes on with its own Draw, Scoring and Timed game; the new Options wait
+  (`SolSession.pend_opts`) and the next deal applies them (as an Options redeal: a Vegas Cumulative score
+  starts over; "Deal only winnable games" picks its seed for them). Status bar, Outline dragging and
+  Cumulative apply at once. The Options value is written at once (XP: at OK), and the Options dialog
+  shows the waiting settings; the same change again asks nothing (also once the option is off again: an
+  OK that leaves the waiting settings alone never redeals); choosing the game's own settings
+  again cancels the wait. A saved game whose Options differ from the current ones (normally ignored) is
+  resumed with its own when this option is on, the current ones waiting for the next deal.
+* **Vanilla unchanged.** `make sol-xp-compare` (every extra off, v1.0's session against today's, with the
+  statistics attached and the new `choose` / `today` callbacks unset): identical, 1100048 lines. `make
+  fc-xp-compare`: identical, after one change to its input: a Hint (command or H) in the position where
+  the last Hint was given is left out (392 of 2812), as it now shows the next move where 1.3 repeated
+  the first; every first Hint in a position is still compared.
+* Tests: `tests/solitaire/test_sol_win7.c` (the list and the session's cycle, what keeps and what ends it,
+  the list in random play: first = `sol_hint_find`, ordered, no duplicates, legal, fair; class 9; dead
+  ends: a whole cycle in Draw One and Draw Three, a useful card in the stock never a dead end, the used-up
+  Vegas stock, Hint's message, Undo starting over; the question: asked once, re-armed by Undo, End Game's
+  loss and "Deal Again?" both ways, off, no UI; high scores: order, ties, five kept, the two tables, dates,
+  the money, the dialog's text in every mode and iCurrency, through the session; the file: version 2 round
+  trip, damage, impossible contents with a valid CRC, the version 1 migration, Reset; the prompts: off, a
+  fresh deal, Keep Playing, Restart (Standard, Vegas with and without Cumulative), Quit, no UI; Exit's
+  three answers and the default; the saved game: Continue, Play New Game's loss, an unplayed deal, off;
+  the deferred Options: Finish This Game, the dialog's settings, the registry, Restart keeping the game's
+  settings, the next deal, Play New Game, cancelling the wait, off, winnable deals, a saved game under
+  other Options), `test_sol_playout.c` (the extras-on games also run the No More Moves question, the New
+  Game prompt and deferred Options changes with random answers: a dead end never has a useful move),
+  `tests/freecell/test_assist.c` (FreeCell's cycle: every other action once, by estimate, the wrap, what
+  starts over, an unwinnable alternative left out), `tests/e2e/solhd_win7.txt` (Wine: the Options' two
+  boxes, the cycle on deal 64 captured flash by flash, the High Scores box, deal 147's dead end with
+  Return to Game, Hint's message and End Game, the statistics' loss and its date, every Windows 7
+  question with each of its answers, the deferred Draw One).
+
+## Motion (2d)
+
+ROADMAP §2d. Every card motion the games already had keeps what it does and only changes its timing
+curve (always on, as the extras policy allows: nothing new happens); the new effects are one Options
+checkbox, **"Enhanced animations"** (`EnhancedAnimations`, off by default); the Finish button is an
+ignorable affordance, always there.
+
+* **Easing** (`src/engine/ease.{h,c}`, portable, unit tested): CSS / Material cubic-bezier timing
+  functions, each turned on first use into a 257-entry table of progress at equal time steps, computed in
+  64-bit fixed point (bisection on the curve parameter, no floating point; the same numbers natively and
+  on the Athlon XP), then one lookup and a linear interpolation per frame. *Standard* (0.2, 0, 0, 1) for
+  a card moving between piles, *decelerate* (0, 0, 0.2, 1) for a card arriving home (FreeCell's home
+  cells, Solitaire's foundations) or dealt, *accelerate* (0.3, 0, 1, 1) for a card leaving the table (no
+  motion does that yet). The tables are within 0.0003 of a double-precision cubic-bezier.
+* **Durations, never slower than XP's pace.** A flight's time is the straight flight XP's code made for
+  the same distance (`ce_flight_ms_xp`: one 10-ms frame per 37 s px in FreeCell, 60 s px for Solitaire's
+  Finish and automatic moves, 36 s px for Solitaire's zip-back), capped by the envelope 60 ms + 100 ms x
+  d / 640 XP px (d = the distance at s = 1), 160 ms at most (`ce_flight_ms`). XP's pace is already quick
+  for short and middle distances, so those keep their exact time and only the curve changes; the longest
+  FreeCell flights are capped. Every frame shows the position due one frame later, as XP's AnimateCard
+  did (its frame i of N, drawn after i - 1 frames, is i / N of the way), so a flight of N frames' time
+  arrives exactly when XP's did. Measured at 1904 x 996 (`tests/freecell/test_motion.c`,
+  `tests/solitaire/test_sol_motion.c`, before -> after): FreeCell column -> adjacent column 20 -> 20 ms,
+  column -> free cell 50 -> 50, column 1 -> home cell 7 160 -> 152, column 8 -> free cell 0 150 -> 150;
+  Solitaire column -> foundation 20 to 50 -> the same; zip-back 30 / 120 -> the same.
+* **Cascades overlap.** The cards of one action (a move's steps, autoplay, Undo, Redo, Finish,
+  Solitaire's automatic moves) fly through the engine's flight scheduler (`CeFlights`,
+  `engine/win32/anim.h`): the session asks for one card at a time as before, and the view returns when
+  that card has flown 60 % of its time (`CE_CASCADE_PERCENT`), so the next one leaves while it is still
+  on its way. Cards bound for the same pile land in order (a later card starts late enough,
+  `ce_flight_delay`), a card leaving a pile waits for the cards still landing there
+  (`ce_flights_settle`: a supermove's free cells), and a flight is *held* (never lands) until the
+  session has moved its card (the next animation call releases it). The back buffer shows the session's
+  board without the cards in the air: one not moved yet is hidden at its source, the others at their
+  destination (FreeCell: `FcView.hide_n` / `hide_top`, a column keeping its step; Solitaire: the
+  display copy `disp`); a card that lands is rendered into the back buffer and presented with the next
+  frame. Each frame presents only the dirty rects (each card's old and new rect, merged when cheaper, plus
+  what was re-rendered) with every card composed over the back buffer
+  (`ce_backbuf_present_layers`). All of a session call's cards land before anything else happens
+  (`view_anim_idle` after the input and before any dialog; Solitaire's win cascade first lands them).
+  A cascade is over sooner than XP's one-card-at-a-time flights: FreeCell's autoplay of the four aces
+  310 -> 206 ms, a Finish of 52 cards 5280 -> 3204 ms; Solitaire's Finish of 52 cards 2840 -> 1724 ms.
+  Quick play (FreeCell) flies nothing, as before. Frames stay 10 ms, frame-timed (late frames dropped).
+* **The zip-back of a refused drop** (Solitaire's XP AnimateBack, FreeCell's drag and drop) is the same
+  eased flight (standard easing, at most the time of XP's 36 s px steps); Solitaire's outline drag zips
+  back its outline along the same curve.
+* **The Finish button** (both games, always on): while Game > Finish is enabled (FreeCell: the rest is a
+  sure win; Solitaire: the stock and the waste are used up and every card is face up) and no card flies,
+  an XP push button "Finish" is drawn on the table (`engine/win32/button.h` `CeTableButton`, drawn into the
+  back buffer after the board's region, so flying and dragged cards pass over it): the visual style's
+  button (uxtheme.dll loaded at run time: normal, hot, pressed) when a theme is active, else the classic
+  3-D button (DrawFrameControl), the text "Finish" (string 405 / 1128) in Tahoma scaled with the board,
+  56 x 20 XP px with an 11-px font at s = 1. FreeCell: centred in the 64-px gap between the free cells and
+  the home cells, below the king's frame; Solitaire: centred in the empty slot between the waste (with its
+  fan) and the first foundation, level with the cards' middle. Neither place ever holds a card; on a board
+  too small for it (s below about 0.7) there is none. A press on it (not the activation click XP swallows, not
+  while cards fly or are dragged) captures the mouse and shows it pressed while the pointer is over it; the
+  release over it is Game > Finish (F6). It never takes the keyboard focus. Solitaire: the second press of a
+  double-click on it (it arrives while the cards fly home or the cascade runs) is the button's, never input
+  that stops XP's win cascade (`cascade_pump`).
+* **Enhanced animations** (off by default; each effect 150 ms or less per card):
+  * the dragged cards cast a soft shadow (`ce_image_shadow`: the stack's alpha blurred by two integer box
+    passes of 3 XP px, 35 % black, offset 3 right and 4 down), carried by the zip-back too;
+  * Solitaire: a card turning over (a click, the keyboard, "Turn cards over automatically", Redo) flips
+    in place in 120 ms: the back narrows to its vertical axis (accelerating), the face widens from it
+    (decelerating), each frame a nearest-column squeeze of the sprite; a card that goes home right after
+    turning ("Move cards home automatically") turns first, then flies (`view_animate_move` lets the turn land
+    before its card leaves; a turn is never shown on a pile its card has left);
+  * a new deal flies in: Solitaire's 28 cards out of the stock in XP's order (row by row, the face-down
+    ones as backs), FreeCell's 52 from below the middle of the board, row by row, 10 / 6 ms apart, each
+    decelerating into its place (about 0.4 s in all);
+  * Solitaire's double-click and the right button's autoplay, which XP does at once, fly their cards
+    home like the automatic moves (the session calls `ui.animate_move` only with the option on;
+    `enhanced_flight`);
+  * the hint's flash is a soft pulse: its "on" steps fade the inversion in and its "off" steps fade it
+    out over 70 ms (eased, `ce_invert_masked_level`, FcView `hint_level` / SolView `sel_level`), timer
+    driven at 15 ms only while a fade runs; any other end of the flash cuts it.
+  The win animations stay exactly XP's (Solitaire's bouncing cards, FreeCell's big king).
+* **Test hooks.** `FCHD_ANIM_SLOW` / `SOLHD_ANIM_SLOW` = N make every animation N times slower; with the
+  e2e driver's `async on` (an input returns without waiting for the target; the target answers captures
+  while it animates) the scenarios capture cards in mid-air.
+* **Vanilla unchanged.** The sessions only gained Solitaire's deal counter (`SolSession.deals`, for the
+  view) and the option-gated flights above, so `make sol-xp-compare` (1100048 lines) and `make fc-xp-compare` (1263045 lines) stay
+  identical, and `make snapshots` renders the same 60 PNGs byte for byte (the new view fields default to
+  XP's look).
+* Tests: `tests/engine/test_ease.c` (the control points; endpoints, before the start and after the end;
+  monotonic for many durations; the tables against a double cubic-bezier; the shapes: standard ahead of a
+  straight flight after its first tenth, decelerate always ahead and 30 % of the way in 10 % of the time,
+  accelerate always behind; rounding; the integer square root; XP's pace; every duration never longer than
+  XP's, never over 160 ms, monotonic in the distance; 2000 random cascades ending no later than XP's
+  one-by-one flights, cards landing in order), `tests/engine/test_image.c` (the shadow's size, darkness,
+  symmetry and fall-off; the partial inversion), `tests/solitaire/test_sol_extras.c` (the double-click and
+  the autoplay flown with the option, not without, the same game either way), `tests/freecell/test_layout.c` and
+  `tests/solitaire/test_sol_layout.c` (a column's in-air cards hidden with its step kept, the top row's
+  layers, the pulse levels 0 / 128 / 256), `test_motion.c` / `test_sol_motion.c` (the numbers above),
+  `tests/e2e/fchd_motion.txt` (a flight caught mid-air, autoplay with two cards in the air, the Finish
+  button absent, shown, gone after Undo, back after Redo, its click finishing the game; the option, the
+  deal in mid-air, the drag shadow's pixels), `tests/e2e/solhd_motion.txt` (the automatic moves mid-air,
+  the option, two cards turning over mid-flip, the drag shadow, the zip-back mid-air, the deal in
+  mid-air, deal 1's ace turning then flying home, the Finish button's double-click leaving the cascade
+  running), `solhd_extras.txt` (the Finish button absent, then shown before Finish).
+
 ## Persistence
 
 * Statistics and options: **the same registry key and format as XP**
@@ -478,11 +689,13 @@ all and `make sol-xp-compare` still proves the extras-off session identical to v
   `src/freecell/win32/storage.c` names them.
 * The extras' options (same key, REG_DWORD 0/1, written on Options > OK): `ShowTimeMoves`,
   `StandardSupermove`, `FullRangeDeals`, `FullScreen` (v1.1), `WarnUnwinnable`, `AutoFinish` (v1.2),
-  `SingleClick`, `DragDrop` (v1.4). Solitaire HD's v1.2 options: `AutoHome`, `ClickSelect`.
+  `SingleClick`, `DragDrop` (v1.4), `EnhancedAnimations` (2d). Solitaire HD's v1.2 options: `AutoHome`,
+  `ClickSelect`; 2c: `NoMoreMoves`, `NextGameOptions`; 2d: `EnhancedAnimations`.
 * Solitaire HD: Options and Back in XP sol.exe's own key and format (`HKCU\Software\Microsoft\Solitaire`,
   shared with sol.exe); window placement, full screen and the v1.1 extras' options in
   `HKCU\Software\xp-cards\Solitaire HD`; the statistics and the saved game in
-  `%APPDATA%\xp-cards\Solitaire HD\statistics.bin` and `game.bin` (see "Solitaire HD extras").
+  `%APPDATA%\xp-cards\Solitaire HD\statistics.bin` (version 2 since 2c, with the high scores and the
+  money; version 1 is migrated) and `game.bin` (see "Solitaire HD extras").
 
 ## Help
 

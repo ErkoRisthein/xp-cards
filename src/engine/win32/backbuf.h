@@ -62,4 +62,14 @@ void ce_backbuf_blit(CeBackBuf *bb, HDC dc, int x, int y, int w, int h);
  * back buffer itself is left untouched. s may be NULL (then only the back buffer shows). */
 void ce_backbuf_present(CeBackBuf *bb, HDC dc, CeRect r, const CeImage *s, int sx, int sy, int sw, int sh);
 
+/* One image of a frame: drawn (src-over) with its top-left at (x, y). */
+typedef struct CeLayer {
+    const CeImage *img;
+    int            x, y;
+} CeLayer;
+
+/* ce_backbuf_present with several images on top, in order (the last one uppermost): only the part of r
+ * under their rects goes through the scratch DIB; layers with a NULL image are skipped. */
+void ce_backbuf_present_layers(CeBackBuf *bb, HDC dc, CeRect r, const CeLayer *ly, int n);
+
 #endif

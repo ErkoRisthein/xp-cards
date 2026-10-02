@@ -11,8 +11,13 @@
 
 #include "engine/draw.h"
 
+#include <string.h>
+
 void fc_view_init(FcView *v)
 {
+    memset(v->hide_n, 0, sizeof v->hide_n);
+    memset(v->hide_top, 0, sizeof v->hide_top);
+    v->hint_level = 256;
     v->sel_col = v->sel_pos = -1;
     v->peek_col = v->peek_pos = -1;
     v->hide_col = v->hide_pos = -1;
@@ -47,15 +52,28 @@ static void card(CeDraw *c, FcCardSet *cs, Card k, int x, int y, int inverted)
 }
 
 /* The hint on an empty cell or column: the card-shaped area at (x, y) inverted (any card's sprite has
- * the card's shape). */
-static void invert_slot(CeDraw *c, FcCardSet *cs, int x, int y)
+ * the card's shape); partly while the Enhanced animations' pulse fades. */
+static void invert_slot(CeDraw *c, FcCardSet *cs, const FcView *v, int x, int y)
 {
-    ce_draw_invert_mask(c, fc_cardset_card(cs, 0), x, y);
+    ce_draw_invert_mask_level(c, fc_cardset_card(cs, 0), x, y, v->hint_level);
 }
 
 static int hinted(const FcView *v, int col, int pos)
 {
-    return v->hint_col == col && (col == 0 ? v->hint_pos == pos : pos >= v->hint_pos);
+    return v->hint_level > 0 && v->hint_col == col && (col == 0 ? v->hint_pos == pos : pos >= v->hint_pos);
+}
+
+/* A card, inverted when selected XOR hinted (XP's look); a hint at a partial level (the pulse) is the
+ * selection's look partly inverted on top. */
+static void hint_card(CeDraw *c, FcCardSet *cs, const FcView *v, Card k, int x, int y, int sel, int hint)
+{
+    if (!hint || v->hint_level >= 256) {
+        card(c, cs, k, x, y, sel != hint);
+        return;
+    }
+    card(c, cs, k, x, y, sel);
+    if (k >= 0 && k < 52)
+        ce_draw_invert_mask_level(c, fc_cardset_card(cs, k), x, y, v->hint_level);
 }
 
 static int last_index(const FcBoard *b, int col)
@@ -85,16 +103,19 @@ static void draw(CeDraw *c, const FcLayout *l, const FcBoard *b, const FcView *v
         Card k = game ? b->board[0][i] : FC_EMPTY;
         if (!ce_draw_visible(c, r.x, r.y, r.w, r.h))
             continue;
-        if (k != FC_EMPTY && v->hide_col == 0 && v->hide_pos == i) {
-            /* lifted off: a home pile shows the previous rank of its suit, a free cell is empty */
-            k = (i >= 4 && fc_rank(k) > 0) ? k - 4 : FC_EMPTY;
+        if (k != FC_EMPTY) {
+            /* lifted off, or (2d) cards still in the air to it: a home pile shows the rank that many
+             * below, a free cell is empty */
+            int layers = v->hide_top[i] + (v->hide_col == 0 && v->hide_pos == i);
+            if (layers > 0)
+                k = (i >= 4 && fc_rank(k) >= layers) ? k - 4 * layers : FC_EMPTY;
         }
         if (k == FC_EMPTY) {
             cell_bevel(c, cs, l, r, 0.0372 * l->ch, FC_BEVEL_DARK, FC_BEVEL_LIGHT);   /* card corner radius */
             if (game && hinted(v, 0, i))
-                invert_slot(c, cs, r.x, r.y);
+                invert_slot(c, cs, v, r.x, r.y);
         } else {
-            card(c, cs, k, r.x, r.y, (v->sel_col == 0 && v->sel_pos == i) != hinted(v, 0, i));
+            hint_card(c, cs, v, k, r.x, r.y, v->sel_col == 0 && v->sel_pos == i, hinted(v, 0, i));
         }
     }
 
@@ -104,30 +125,32 @@ static void draw(CeDraw *c, const FcLayout *l, const FcBoard *b, const FcView *v
     /* columns, each top to bottom */
     for (col = 1; col <= 8; col++) {
         int n = last_index(b, col) + 1, step, x = l->col_x[col];
-        if (n == 0) {
-            if (v->hint_col == col)
-                invert_slot(c, cs, x, l->col_y0);
-            continue;
-        }
-        step = fc_layout_col_step(l, b, col);
+        step = n > 0 ? fc_layout_col_step(l, b, col) : 0;
+        n -= v->hide_n[col] < n ? v->hide_n[col] : n;
         if (v->hide_col == col && v->hide_pos >= 0 && v->hide_pos < n)
             n = v->hide_pos;
+        if (n == 0) {
+            if (hinted(v, col, 0))
+                invert_slot(c, cs, v, x, l->col_y0);
+            continue;
+        }
         if (!ce_draw_visible(c, x, l->col_y0, l->cw, (n - 1) * step + l->ch))
             continue;
         for (i = 0; i < n; i++)
-            card(c, cs, b->board[col][i], x, l->col_y0 + i * step,
-                 (v->sel_col == col && v->sel_pos == i) != hinted(v, col, i));
+            hint_card(c, cs, v, b->board[col][i], x, l->col_y0 + i * step, v->sel_col == col && v->sel_pos == i,
+                      hinted(v, col, i));
     }
 
     /* right-button / keyboard peek: the buried card drawn fully, in place, on top of its column */
     if (v->peek_col >= 1 && v->peek_col <= 8 && v->peek_pos >= 0) {
         int n = last_index(b, v->peek_col) + 1;
+        n -= v->hide_n[v->peek_col] < n ? v->hide_n[v->peek_col] : n;
         if (v->hide_col == v->peek_col && v->hide_pos >= 0 && v->hide_pos < n)
             n = v->hide_pos;
         if (v->peek_pos < n) {
             CeRect r = fc_layout_card_rect(l, b, v->peek_col, v->peek_pos);
-            card(c, cs, b->board[v->peek_col][v->peek_pos], r.x, r.y,
-                 (v->sel_col == v->peek_col && v->sel_pos == v->peek_pos) != hinted(v, v->peek_col, v->peek_pos));
+            hint_card(c, cs, v, b->board[v->peek_col][v->peek_pos], r.x, r.y,
+                      v->sel_col == v->peek_col && v->sel_pos == v->peek_pos, hinted(v, v->peek_col, v->peek_pos));
         }
     }
 

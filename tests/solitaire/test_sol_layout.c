@@ -466,8 +466,36 @@ static void test_render(SolGfx *g)
         sol_view_init(&v);
         v.stock_x = 1;
     }
+    /* 2d, the hint's pulse: sel_level 256 is the selection's inversion exactly, 0 none, 128 half way */
+    {
+        CeImage *x = ce_image_new(585, 384), *y = ce_image_new(585, 384);
+        int sx, sy, lo, mid, hi;
+        mid_game(&b);
+        sol_view_init(&v);
+        v.sel_pile = SOL_TAB0;
+        v.sel_card = 4;
+        sol_render_board(full, &l, &b, &v, g);                 /* (level 256: sol_view_init's) */
+        v.sel_level = 0;
+        sol_render_board(x, &l, &b, &v, g);
+        sol_view_init(&v);
+        sol_render_board(y, &l, &b, &v, g);
+        CHECK(same_region(x, y, ce_rect(0, 0, 585, 384)), "level 0: no selection");
+        v.sel_pile = SOL_TAB0;
+        v.sel_card = 4;
+        v.sel_level = 128;
+        sol_render_board(x, &l, &b, &v, g);
+        sol_layout_card_pos(&l, &b, 0, SOL_TAB0, b.p[SOL_TAB0].n - 1, &sx, &sy);
+        lo = (int)(px_at(full, sx + 3, sy + 60) & 255);
+        mid = (int)(px_at(x, sx + 3, sy + 60) & 255);
+        hi = (int)(px_at(y, sx + 3, sy + 60) & 255);
+        CHECK(lo < mid && mid < hi && mid > 100 && mid < 156, "level 128 half way: %d < %d < %d", lo, mid, hi);
+        ce_image_free(x);
+        ce_image_free(y);
+    }
     /* not dealt: the table only */
     mid_game(&b);
+    sol_view_init(&v);
+    v.stock_x = 1;
     v.dealt = 0;
     sol_render_board(full, &l, &b, &v, g);
     CHECK(px_at(full, 300, 50) == 0x008000 && px_at(full, 20, 20) == 0x008000, "not dealt");

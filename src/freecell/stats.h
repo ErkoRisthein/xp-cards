@@ -36,7 +36,7 @@ typedef struct FcOptions {
 
 /* Extras (not in XP), all off by default so the game behaves as XP. They live in our own store
  * (HKCU\Software\xp-cards\FreeCell HD, REG_DWORD values ShowTimeMoves StandardSupermove
- * FullRangeDeals FullScreen WarnUnwinnable AutoFinish SingleClick DragDrop), never in XP's key. */
+ * FullRangeDeals FullScreen WarnUnwinnable AutoFinish SingleClick DragDrop EnhancedAnimations), never in XP's key. */
 typedef struct FcExtras {
     int show_time_moves;     /* "Show time and moves" in the menu bar */
     int standard_supermove;  /* "Standard multi-card moves": (f+1)*2^e instead of XP's (f+1)(e+1) */
@@ -46,6 +46,8 @@ typedef struct FcExtras {
     int auto_finish;         /* "Finish automatically" (v1.2) */
     int single_click;        /* "Single click moves a card" (v1.4): a click on a card moves it to its best place */
     int drag_drop;           /* "Drag and drop cards" (v1.4): the UI lets cards be dragged (session.h fcs_press) */
+    int enhanced_anim;       /* "Enhanced animations" (2d): the UI's opt-in effects (drag shadow, deal, hint
+                                pulse); the session does not look at it */
 } FcExtras;
 
 /* ---- Statistics --------------------------------------------------------------------------------- */

@@ -29,6 +29,12 @@ typedef struct FcView {
                                  top-row cell hint_pos (an empty cell inverts a card-shaped area);
                                  1..8 = the cards from hint_pos to the end of that column, or, when the
                                  column is empty, its first card slot; hint_col = -1 for none */
+    int hint_level;           /* how much the hint inverts, 0..256 (256: fully, XP's look; less: the
+                                 "Enhanced animations" pulse fading in or out) */
+    unsigned char hide_n[9];  /* extra (2d): cards in the air bound for column c (1..8): its last
+                                 hide_n[c] cards are not drawn yet (the column keeps its step) */
+    unsigned char hide_top[8];/* ... bound for top-row cell i: a free cell is drawn empty, a home cell
+                                 shows its card hide_top[i] ranks lower (empty below the ace) */
 } FcView;
 
 void fc_view_init(FcView *v);  /* nothing selected/peeked/hidden, king right, no big king */

@@ -59,6 +59,13 @@ void ce_copy_rect(CeImage *dst, int dx, int dy, const CeImage *src, int sx, int 
 /* Invert dst (opaque) where mask covers it: each colour channel c becomes 255 - c, blended by the
  * mask's alpha (a card sprite: the card's rounded shape). */
 void ce_invert_masked(CeImage *dst, const CeImage *mask, int dx, int dy);
+/* The same, only partly: level 0 (nothing) .. 256 (exactly ce_invert_masked). A soft hint pulse. */
+void ce_invert_masked_level(CeImage *dst, const CeImage *mask, int dx, int dy, int level);
+/* A soft drop shadow of src's shape: (src.w + 4 radius) x (src.h + 4 radius), premultiplied black whose
+ * alpha is src's alpha blurred (two box passes of 2 radius + 1 each way, integer; it spreads 2 radius)
+ * times opacity / 255. Drawn at (x - 2 radius, y - 2 radius) it lies under a sprite drawn at (x, y).
+ * NULL if out of memory. */
+CeImage *ce_image_shadow(const CeImage *src, int radius, int opacity);
 /* Anti-aliased rounded-rectangle outline of thickness t (pixels, may be fractional), drawn inside the
  * rect (x,y,w,h) with outer corner radius r, src-over with colour argb (straight, will be premultiplied). */
 void ce_stroke_round_rect(CeImage *dst, double x, double y, double w, double h, double r, double t, uint32_t argb);

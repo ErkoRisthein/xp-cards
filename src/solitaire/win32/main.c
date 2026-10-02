@@ -13,7 +13,9 @@
  * threshold) moves the card (click-to-move; its double-click is then ignored), the game saved at exit
  * and resumed at start-up. v1.2: Undo All, Ctrl+Z (Undo, repeating while held: an accelerator), D (draw),
  * C (Select Card Back); with their options, cards home automatically and click to select (the click
- * selects, the next press on a pile that takes the cards moves them: sol_click / sol_press).
+ * selects, the next press on a pile that takes the cards moves them: sol_click / sol_press). 2c: with
+ * "Save game on exit" the Windows 7 questions at Exit (sol_exit_choice) and for a resumed game
+ * (sol_offer_resume); the others come from inside the session (ui.choose).
  */
 #include "app.h"
 
@@ -75,12 +77,12 @@ static void save_window_state(App *a)
 }
 
 /* WM_CLOSE / WM_ENDSESSION (extras): with "Save game on exit" the game in progress is written (an empty
- * file when there is none); without it, a game that counts as played is lost and an old saved game is
- * cleared (never resumed later). */
-static void save_game_state(App *a)
+ * file when there is none); without it (or after "Exit and Don't Save", 2c: save 0), a game that counts as
+ * played is lost and an old saved game is cleared (never resumed later). */
+static void save_game_state(App *a, int save)
 {
     CeBlobIO io = storage_game_io();
-    if (a->s.extras.save_game) {
+    if (a->s.extras.save_game && save) {
         int ok = sol_game_save(&a->s, &io);
         ce_log("game %s at exit%s", a->s.dealt && !a->s.won ? "saved" : "(none) cleared", ok ? "" : ": FAILED");
         return;
@@ -105,8 +107,10 @@ static int resume_game(App *a)
     switch (r) {
     case SOL_LOAD_OK:
         sol_game_clear(&io);                          /* resumed once: a crash later never resumes it again */
-        ce_log("saved game resumed: seed %u, score %d, %d s, %d actions", a->s.seed, a->s.score, sol_seconds(&a->s),
-               a->s.nhist);
+        ce_log("saved game resumed: seed %u, score %d, %d s, %d actions%s", a->s.seed, a->s.score,
+               sol_seconds(&a->s), a->s.nhist, a->s.pending ? " (its own Options; the current ones next)" : "");
+        if (!sol_offer_resume(&a->s))                 /* 2c: "Saved Game Found" -> Play New Game (dealt) */
+            ce_log("saved game not continued: new deal, seed %u", a->s.seed);
         return 1;
     case SOL_LOAD_DAMAGED:
         ce_log("game.bin is damaged: set aside as game.bad");
@@ -365,6 +369,11 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_APP_SOLVED:
         solver_received(a, lp);
         return 0;
+    case WM_APP_LAND:                                 /* 2d: a card turning over, after the call that turned it */
+        a->land_posted = 0;
+        if (!a->s.busy && !a->in_modal)
+            view_anim_idle(a);
+        return 0;
 
     case WM_GETMINMAXINFO: {
         MINMAXINFO *mm = (MINMAXINFO *)lp;
@@ -394,12 +403,21 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         break;
 
     case WM_LBUTTONDOWN:
+        if (view_button_mouse(a, m, lp))              /* 2d: the Finish button */
+            return 0;
         on_button(a, lp, 0);
         return 0;
     case WM_LBUTTONDBLCLK:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         on_button(a, lp, 1);
         return 0;
+    case WM_MOUSELEAVE:
+        view_button_mouse(a, m, lp);
+        return 0;
     case WM_MOUSEMOVE:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         if (a->click_armed) {                         /* moved past the drag threshold: a drag, not a click */
             int dx = (short)LOWORD(lp) - a->click_x, dy = (short)HIWORD(lp) - a->click_y;
             if (dx < 0) dx = -dx;
@@ -411,6 +429,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             view_drag_to(a, (short)LOWORD(lp), (short)HIWORD(lp));
         return 0;
     case WM_LBUTTONUP:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         if (sol_dragging(&a->s) && !a->in_modal && !a->s.busy) {
             drag_drop(a);                             /* XP's MouseUp: also ends a keyboard drag */
             after_input(a);
@@ -419,6 +439,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_CAPTURECHANGED:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         if (a->lcapture && (HWND)lp != h) {           /* someone took the mouse */
             a->lcapture = 0;
             drag_cancel(a, 1, "capture lost");
@@ -477,6 +499,10 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             sol_timer(&a->s, SOL_TIMER_HINT);         /* extra: the hint's flash */
             return 0;
         }
+        if (wp == SOL_TIMER_PULSE) {
+            view_pulse_tick(a);                       /* 2d: the hint's soft pulse */
+            return 0;
+        }
         break;
     case WM_SETCURSOR:
         if ((HWND)wp == h && LOWORD(lp) == HTCLIENT && !a->gfx) {
@@ -500,28 +526,39 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         on_command(a, LOWORD(wp));
         return 0;
 
-    case WM_CLOSE:
+    case WM_CLOSE: {
+        int choice;
         if (a->in_modal || a->s.busy) {
             a->cascade_abort = 1;
             return 0;
         }
+        if (sol_dragging(&a->s))
+            drag_cancel(a, 0, "exit");
+        choice = sol_exit_choice(&a->s);              /* 2c: "Exit Game" with Save game on exit */
+        if (choice == SOL_ANS_DONT_EXIT) {
+            ce_log("exit: Don't Exit");
+            after_input(a);
+            return 0;
+        }
         save_window_state(a);
-        save_game_state(a);
+        save_game_state(a, choice == SOL_ANS_EXIT_SAVE);
         DestroyWindow(h);
         return 0;
+    }
     case WM_QUERYENDSESSION:
         return TRUE;
     case WM_ENDSESSION:
         if (wp) {
             save_window_state(a);
-            save_game_state(a);
+            save_game_state(a, 1);                    /* Windows is shutting down: no question */
         }
         return 0;
     case WM_DESTROY:
         KillTimer(h, SOL_TIMER_CLOCK);
         KillTimer(h, SOL_TIMER_HINT);
+        KillTimer(h, SOL_TIMER_PULSE);
         solver_shutdown(a);
-        view_anim_idle(a);
+        view_anim_drop(a);
         ce_help_shutdown();
         PostQuitMessage(0);
         return 0;
@@ -554,6 +591,12 @@ static void read_env(App *a)
     }
     n = GetEnvironmentVariableW(L"SOLHD_NO_WARP", v, 32);
     a->no_warp = n > 0 && n < 32 && v[0] != L'0';
+    n = GetEnvironmentVariableW(L"SOLHD_ANIM_SLOW", v, 32);   /* 2d: N times slower (e2e mid-flight captures) */
+    a->anim_slow = n > 0 && n < 32 ? (int)wcstol(v, NULL, 10) : 1;
+    if (a->anim_slow < 1 || a->anim_slow > 1000)
+        a->anim_slow = 1;
+    if (a->anim_slow > 1)
+        ce_log("SOLHD_ANIM_SLOW: animations %d times slower", a->anim_slow);
 }
 
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)

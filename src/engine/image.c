@@ -632,6 +632,92 @@ void ce_invert_masked(CeImage *dst, const CeImage *mask, int dx, int dy)
     }
 }
 
+void ce_invert_masked_level(CeImage *dst, const CeImage *mask, int dx, int dy, int level)
+{
+    int sx = 0, sy = 0, w, h, i, j, sh;
+    if (!dst || !mask || level <= 0)
+        return;
+    if (level >= 256) {
+        ce_invert_masked(dst, mask, dx, dy);
+        return;
+    }
+    w = mask->w;
+    h = mask->h;
+    if (!clip(dst, &dx, &dy, &w, &h, &sx, &sy))
+        return;
+    for (j = 0; j < h; j++) {
+        const uint32_t *m = mask->px + (size_t)(sy + j) * mask->stride + sx;
+        uint32_t *d = dst->px + (size_t)(dy + j) * dst->stride + dx;
+        for (i = 0; i < w; i++) {
+            uint32_t a = ((m[i] >> 24) * (uint32_t)level) >> 8, p = d[i], out;
+            if (a == 0)
+                continue;
+            out = p & 0xff000000u;
+            for (sh = 0; sh < 24; sh += 8) {
+                uint32_t c = (p >> sh) & 255;
+                out |= ((c * (255 - a) + (255 - c) * a + 127) / 255) << sh;
+            }
+            d[i] = out;
+        }
+    }
+}
+
+/* One box pass of width 2 r + 1 along a line of n values (stride st), from `in` to `out` (both 0..255). */
+static void box_line(const uint8_t *in, uint8_t *out, int n, int st, int r)
+{
+    int i, sum = 0, k = 2 * r + 1;
+    uint32_t inv = (uint32_t)((65536 + k / 2) / k);
+    for (i = -r; i <= r; i++)
+        sum += i >= 0 && i < n ? in[(size_t)i * st] : 0;
+    for (i = 0; i < n; i++) {
+        int add = i + r + 1, sub = i - r;
+        out[(size_t)i * st] = (uint8_t)(((uint32_t)sum * inv + 32768) >> 16);
+        if (add < n)
+            sum += in[(size_t)add * st];
+        if (sub >= 0)
+            sum -= in[(size_t)sub * st];
+    }
+}
+
+CeImage *ce_image_shadow(const CeImage *src, int radius, int opacity)
+{
+    CeImage *out;
+    uint8_t *a, *b;
+    int w, h, x, y, pass, r = radius > 0 ? radius : 0, m = 2 * r;   /* two passes spread 2 r */
+    if (!src || src->w <= 0 || src->h <= 0)
+        return NULL;
+    w = src->w + 2 * m;
+    h = src->h + 2 * m;
+    out = ce_image_new(w, h);
+    a = (uint8_t *)calloc((size_t)w * (size_t)h, 1);
+    b = (uint8_t *)calloc((size_t)w * (size_t)h, 1);
+    if (!out || !a || !b) {
+        ce_image_free(out);
+        free(a);
+        free(b);
+        return NULL;
+    }
+    for (y = 0; y < src->h; y++)
+        for (x = 0; x < src->w; x++)
+            a[(size_t)(y + m) * w + x + m] = (uint8_t)(src->px[(size_t)y * src->stride + x] >> 24);
+    for (pass = 0; pass < 2 && r > 0; pass++) {
+        for (y = 0; y < h; y++)
+            box_line(a + (size_t)y * w, b + (size_t)y * w, w, 1, r);
+        for (x = 0; x < w; x++)
+            box_line(b + x, a + x, h, w, r);
+    }
+    if (opacity < 0)
+        opacity = 0;
+    if (opacity > 255)
+        opacity = 255;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < w; x++)
+            out->px[(size_t)y * w + x] = (uint32_t)((a[(size_t)y * w + x] * opacity + 127) / 255) << 24;
+    free(a);
+    free(b);
+    return out;
+}
+
 void ce_copy_rect(CeImage *dst, int dx, int dy, const CeImage *src, int sx, int sy, int w, int h)
 {
     int j;

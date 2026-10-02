@@ -48,6 +48,12 @@ const char *sol_message_text(int id)
     case SOL_MSG_UNWINNABLE:      return "This game can no longer be won. Use Undo to go back.";
     case SOL_MSG_UNWINNABLE_DEAL: return "This game cannot be won.";
     case SOL_MSG_UNDO_ALL:        return "Do you want to undo all your moves and return to the start of the game?";
+    case SOL_MSG_NO_USEFUL:       return "There are no more useful moves.";
+    case SOL_ASK_NO_MOVES:        return "There are no more moves. What do you want to do?";
+    case SOL_ASK_NEW_GAME:        return "A game is in progress. What do you want to do?";
+    case SOL_ASK_EXIT:            return "A game is in progress. What do you want to do?";
+    case SOL_ASK_RESUME:          return "You have a saved game. What do you want to do?";
+    case SOL_ASK_SETTINGS:        return "The new settings apply to your next game. What do you want to do?";
     }
     return "";
 }
@@ -58,6 +64,22 @@ static void ui_message(SolSession *s, int id)
     s->busy++;                          /* a modal box: input and commands wait */
     s->ui.message(s->ui.ctx, id, sol_message_text(id));
     s->busy--;
+}
+
+/* 2c: a question with several answers; def without a UI (or for an answer out of range). */
+static int ui_choose(SolSession *s, int id, int def, int nanswers)
+{
+    int r;
+    if (!s->ui.choose) return def;
+    s->busy++;
+    r = s->ui.choose(s->ui.ctx, id, sol_message_text(id));
+    s->busy--;
+    return r >= 0 && r < nanswers ? r : def;
+}
+
+static uint32_t ui_today(SolSession *s)
+{
+    return s->ui.today ? s->ui.today(s->ui.ctx) : 0;
 }
 
 static int ui_confirm(SolSession *s, int id)
@@ -130,8 +152,14 @@ static void begin_action(SolSession *s, int type)
 static void stats_note(SolSession *s);
 static void csel_clear(SolSession *s);
 
+/* Dead ends (2c): what the last committed action was for the tracking. */
+enum { NM_RESET = 0, NM_DRAW = 1, NM_RECYCLE = 2 };
+
 static void commit_action(SolSession *s, int keep_redo)
 {
+    const SolAction *w = &s->work;
+    s->nm_kind = keep_redo || w->autoturn || w->nauto ? NM_RESET
+               : w->type == SOL_ACT_DRAW ? NM_DRAW : w->type == SOL_ACT_RECYCLE ? NM_RECYCLE : NM_RESET;
     stack_push(&s->hist, &s->nhist, &s->hist_cap, &s->work);
     if (!keep_redo) {
         s->nredo = 0;
@@ -328,7 +356,8 @@ static void stats_win(SolSession *s)
     if (!s->stats_on || !s->counted) return;
     s->counted = 0;
     score = game_score(s, &has);
-    sol_stats_won(&s->stats, game_mode(s), s->opts.timed ? sol_seconds(s) : 0, score, has);
+    sol_stats_won(&s->stats, game_mode(s), s->game_timed ? sol_seconds(s) : 0, score, has, s->game_timed,
+                  ui_today(s));
     stats_changed(s);
 }
 
@@ -340,7 +369,7 @@ static void stats_abandon(SolSession *s)
     s->counted = 0;
     if (!s->dealt) return;
     score = game_score(s, &has);
-    sol_stats_lost(&s->stats, game_mode(s), score, has);
+    sol_stats_lost(&s->stats, game_mode(s), score, has, s->game_timed, ui_today(s));
     stats_changed(s);
 }
 
@@ -372,6 +401,12 @@ static void hint_stop(SolSession *s)
     s->hint = 0;
     ui_set_timer(s, SOL_TIMER_HINT, 0);
     ui_invalidate(s);
+}
+
+/* 2c: input other than Hint: the next Hint starts from the best move again. */
+static void hint_uncycle(SolSession *s)
+{
+    s->hint_cyc = 0;
 }
 
 /* ---- Click selection (extra, click_select) --------------------------------------------------------- */
@@ -476,14 +511,86 @@ static int check_win(SolSession *s)
 
 static int do_finish(SolSession *s);
 
-/* After a committed action (or Redo): the warning's check of the new position, then (extra) Finish
- * automatically. Not after Undo. */
+/* ---- Dead ends (2c): no more useful moves --------------------------------------------------------- */
+
+static void nm_reset(SolSession *s)
+{
+    s->nm_mark = -1;
+    s->nm_recycled = 0;
+    s->nm_done = 0;
+    s->nm_shown = 0;
+}
+
+/* The position after an action (kind NM_*), an Undo, a Redo or a deal (NM_RESET: the tracking starts
+ * over here). Fair: only sol_useful_move (the visible cards) and the stock's size are looked at. */
+static void nm_update(SolSession *s, int kind)
+{
+    int stock = s->board.p[SOL_STOCK].n;
+    if (kind == NM_RESET) nm_reset(s);
+    if (!s->dealt) return;
+    if (sol_useful_move(&s->board)) {
+        nm_reset(s);
+        return;
+    }
+    if (stock == 0 && !recycle_allowed(s)) {
+        s->nm_done = 1;                 /* the stock is used up */
+        return;
+    }
+    if (s->nm_mark < 0) {               /* the first position without a useful move */
+        s->nm_mark = stock;
+        s->nm_recycled = 0;
+        return;
+    }
+    if (kind == NM_RECYCLE) s->nm_recycled = 1;
+    if (s->nm_recycled && (stock == s->nm_mark || stock == 0))
+        s->nm_done = 1;                 /* a whole cycle of the stock, nothing useful anywhere */
+}
+
+int sol_no_more_moves(const SolSession *s)
+{
+    return s->dealt && s->nm_done;
+}
+
+/* "End Game" (No More Moves): a loss, the game ends (the table stays as it is, frozen), "Deal Again?". */
+static void end_game(SolSession *s)
+{
+    int yes;
+    stats_abandon(s);
+    hint_stop(s);
+    csel_clear(s);
+    req_drop(s);
+    clear_history(s);
+    clear_drag(s);
+    s->dealt = 0;                       /* the clock stops, board input is ignored */
+    update_timer(s);
+    ui_status(s);
+    ui_invalidate(s);
+    s->busy++;
+    yes = s->ui.deal_again ? s->ui.deal_again(s->ui.ctx) : 0;
+    s->busy--;
+    if (yes) {
+        if (s->ui.post_command) s->ui.post_command(s->ui.ctx, SOL_CMD_DEAL);
+        else sol_new_deal(s, 0);
+    }
+}
+
+/* After a committed action (or Redo): (extra) Finish automatically, the dead-end tracking and (extra)
+ * its question, the warning's check of the new position. Not after Undo. */
 static void settle(SolSession *s)
 {
     if (!s->dealt) return;              /* won */
     if (s->extras.auto_finish && sol_finish_ready(&s->board)) {
         do_finish(s);
         return;
+    }
+    nm_update(s, s->nm_kind);
+    if (s->extras.no_more_moves && s->nm_done && !s->nm_shown) {
+        s->nm_shown = 1;
+        hint_stop(s);
+        if (ui_choose(s, SOL_ASK_NO_MOVES, SOL_ANS_RETURN, 2) == SOL_ANS_END_GAME) {
+            end_game(s);
+            return;
+        }
     }
     assist_changed(s, SOL_AS_MOVE);
 }
@@ -515,6 +622,7 @@ void sol_init(SolSession *s, const SolSessionUI *ui, const CeStore *store)
     if (store) s->store = *store;
     clear_drag(s);
     s->csel_pile = -1;
+    nm_reset(s);
     /* LoadOptions 0x1001504 */
     sol_options_unpack(&s->opts, ce_store_get(&s->store, SOL_REG_OPTIONS, SOL_OPTIONS_DEFAULT));
     if (s->store.get && s->store.get(s->store.ctx, SOL_REG_BACK, &v)) {
@@ -539,7 +647,29 @@ void sol_free(SolSession *s)
 
 static void set_col(SolSession *s, int p);
 
+/* next_game_options: the Options that waited for this deal. Returns 1 if Draw, Timed or Scoring
+ * changed (the deal is then an Options redeal: a Vegas Cumulative score starts over). */
+static int apply_pending(SolSession *s)
+{
+    SolOptions o = s->pend_opts;
+    int changed;
+    if (!s->pending) return 0;
+    s->pending = 0;
+    changed = o.draw != s->opts.draw || o.timed != s->opts.timed || o.scoring != s->opts.scoring;
+    s->opts = o;
+    return changed;
+}
+
+static void deal(SolSession *s, unsigned seed, int from_options);
+
 void sol_deal(SolSession *s, unsigned seed, int from_options)
+{
+    if (apply_pending(s)) from_options = 1;
+    deal(s, seed, from_options);
+}
+
+/* The deal itself, with the current s->opts (sol_restart: the game's own, pending ones wait). */
+static void deal(SolSession *s, unsigned seed, int from_options)
 {
     stats_abandon(s);                   /* extra: an unfinished game that counted is lost */
     hint_stop(s);
@@ -549,6 +679,7 @@ void sol_deal(SolSession *s, unsigned seed, int from_options)
     s->seed = seed;
     s->seeded = 1;
     sol_deal_board(&s->board, seed, &s->rng);
+    s->deals++;                         /* (the view's: a new deal can fly in, 2d) */
     clear_history(s);
     /* Init 0x10028A0: the score survives only for Vegas + Cumulative, and not an Options redeal */
     if (!(s->opts.scoring == SOL_SCORING_VEGAS && s->opts.cumulative && !from_options)) s->score = 0;
@@ -565,19 +696,24 @@ void sol_deal(SolSession *s, unsigned seed, int from_options)
     s->dealt = 1;
     s->visible = 1;
     s->game_scoring = s->opts.scoring;
+    s->game_timed = s->opts.timed;
     s->carry = s->opts.scoring == SOL_SCORING_VEGAS ? s->score : 0;
     s->counted = 0;
+    s->hint_cyc = 0;
+    nm_reset(s);
     score_event(s, SOL_EV_DEAL);        /* Vegas -52 */
     set_col(s, SOL_STOCK);              /* the keyboard cursor on the stock's top card */
     update_timer(s);
     ui_invalidate(s);
     ui_status(s);
     assist_changed(s, SOL_AS_DEAL);
+    nm_update(s, NM_RESET);
 }
 
 void sol_restored(SolSession *s)
 {
     hint_stop(s);
+    s->hint_cyc = 0;
     csel_clear(s);
     clear_drag(s);
     s->seeded = 1;
@@ -594,11 +730,14 @@ void sol_restored(SolSession *s)
     ui_invalidate(s);
     ui_status(s);
     assist_changed(s, SOL_AS_UNDO);     /* the warning's check, silent */
+    nm_update(s, NM_RESET);
 }
 
 void sol_new_deal(SolSession *s, int from_options)
 {
-    unsigned seed = ui_now(s) & 0x7FFF;
+    unsigned seed;
+    if (apply_pending(s)) from_options = 1;   /* 2c: before the winnable table is consulted */
+    seed = ui_now(s) & 0x7FFF;
     if (s->extras.winnable_only) {
         /* extra: the first seed from here on that the table proves winnable for this draw and pass
          * limit (never the last deal again) */
@@ -659,6 +798,7 @@ static void do_move(SolSession *s, int src, int idx, int dst)
 
 int sol_press(SolSession *s, int pile, int index, int mods)
 {
+    hint_uncycle(s);
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s)) return SOL_PRESS_NONE;
     start_input(s);                     /* any press on the table starts the clock */
@@ -695,6 +835,7 @@ int sol_press(SolSession *s, int pile, int index, int mods)
 
 int sol_begin_drag(SolSession *s, int pile, int index)
 {
+    hint_uncycle(s);
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s) || pile <= SOL_STOCK || pile >= SOL_NPILES) return 0;
     const SolPile *p = &s->board.p[pile];
@@ -760,10 +901,21 @@ void sol_cancel_drag(SolSession *s)
     ui_invalidate(s);
 }
 
+/* Extra (2d, "Enhanced animations"): the top card of src flies to dst before a move XP makes at once
+ * (the double-click, the right button's autoplay); without the option nothing is called, as XP. */
+static void enhanced_flight(SolSession *s, int src, int dst)
+{
+    if (!s->extras.enhanced_anim || !s->ui.animate_move) return;
+    s->busy++;                          /* the flight: commands and input wait */
+    s->ui.animate_move(s->ui.ctx, src, dst);
+    s->busy--;
+}
+
 /* DblClkToFoundation 0x100438C: the top card of the waste or a tableau column, pressed on, to the
  * leftmost foundation that takes it; otherwise the click is an ordinary press. */
 int sol_dblclick(SolSession *s, int pile, int index, int mods)
 {
+    hint_uncycle(s);
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s)) return SOL_PRESS_NONE;
     if (pile == SOL_WASTE || sol_is_tab(pile)) {
@@ -772,6 +924,7 @@ int sol_dblclick(SolSession *s, int pile, int index, int mods)
             for (int f = SOL_FOUND0; f < SOL_FOUND0 + 4; f++) {
                 if (!sol_can_drop(&s->board, f, pile, index)) continue;
                 start_input(s);
+                enhanced_flight(s, pile, f);
                 do_move(s, pile, index, f);
                 return SOL_PRESS_DONE;
             }
@@ -785,6 +938,7 @@ int sol_dblclick(SolSession *s, int pile, int index, int mods)
 int sol_autoplay(SolSession *s)
 {
     int total = 0, moved, won = 0;
+    hint_uncycle(s);
     if (!s->busy) hint_stop(s);
     if (!s->dealt || s->busy || sol_dragging(s)) return 0;
     csel_clear(s);
@@ -800,6 +954,7 @@ int sol_autoplay(SolSession *s)
                 s->work.steps[s->work.nsteps][0] = (uint8_t)c;
                 s->work.steps[s->work.nsteps][1] = (uint8_t)f;
                 s->work.nsteps++;
+                enhanced_flight(s, c, f);
                 move_cards(s, c, f, 1);
                 moved++;
                 total++;
@@ -847,6 +1002,7 @@ int sol_undo(SolSession *s)
     ui_invalidate(s);
     ui_status(s);
     assist_changed(s, SOL_AS_UNDO);
+    nm_update(s, NM_RESET);
     return 1;
 }
 
@@ -864,6 +1020,7 @@ int sol_undo_all(SolSession *s)
     ui_invalidate(s);
     ui_status(s);
     assist_changed(s, SOL_AS_UNDO);
+    nm_update(s, NM_RESET);
     return n;
 }
 
@@ -1017,8 +1174,10 @@ static void move_card(SolSession *s, int delta)
 
 int sol_key(SolSession *s, int key, int mods)
 {
+    int cyc = s->hint_cyc;
     if (s->busy) return 0;
     hint_stop(s);
+    hint_uncycle(s);
     csel_clear(s);                      /* extra: the keyboard plays as in XP */
     switch (key) {
     case SOL_KEY_HOME:  set_col(s, SOL_STOCK); break;
@@ -1051,6 +1210,7 @@ int sol_key(SolSession *s, int key, int mods)
         if (mods & SOL_MOD_CTRL) sol_autoplay(s);
         return 1;
     default:
+        s->hint_cyc = cyc;              /* 2c: a key the game does not use (H's own key-down) */
         return 0;
     }
     ui_kbd_cursor(s);
@@ -1090,10 +1250,21 @@ void sol_command(SolSession *s, int cmd)
 {
     if (s->busy) return;
     hint_stop(s);
+    if (cmd != SOL_CMD_HINT) hint_uncycle(s);
     if (cmd != SOL_CMD_DRAW) csel_clear(s);
     switch (cmd) {
     case SOL_CMD_DEAL:
-        if (!sol_dragging(s)) sol_new_deal(s, 0);   /* XP grays Deal while a card is dragged */
+        if (sol_dragging(s)) break;                 /* XP grays Deal while a card is dragged */
+        if (s->extras.save_game && sol_game_started(s)) {
+            /* 2c: the Windows 7 question (with "Save game on exit" only) */
+            int r = ui_choose(s, SOL_ASK_NEW_GAME, SOL_ANS_QUIT_NEW, 3);
+            if (r == SOL_ANS_KEEP) break;
+            if (r == SOL_ANS_RESTART) {
+                sol_restart(s);
+                break;
+            }
+        }
+        sol_new_deal(s, 0);
         break;
     case SOL_CMD_UNDO:     sol_undo(s); break;
     case SOL_CMD_UNDO_ALL:                          /* extra: asks first */
@@ -1117,6 +1288,7 @@ int sol_apply_options(SolSession *s, const SolOptions *in)
 {
     SolOptions o = *in;
     hint_stop(s);
+    hint_uncycle(s);
     csel_clear(s);
     o.status_bar = o.status_bar != 0;
     o.timed = o.timed != 0;
@@ -1125,6 +1297,27 @@ int sol_apply_options(SolSession *s, const SolOptions *in)
     if (o.scoring != SOL_SCORING_VEGAS && o.scoring != SOL_SCORING_NONE) o.scoring = SOL_SCORING_STANDARD;
     o.cumulative = o.cumulative != 0;
     int redeal = o.draw != s->opts.draw || o.timed != s->opts.timed || o.scoring != s->opts.scoring;
+    if (redeal && sol_game_started(s)) {
+        /* 2c: the game in progress may go on with its own settings; the new ones wait for the next deal
+         * (asked once: the same change again keeps waiting - also once the option is off again: the
+         * dialog showed the waiting settings, and an OK that leaves them alone redeals nothing) */
+        int same = s->pending && o.draw == s->pend_opts.draw && o.timed == s->pend_opts.timed &&
+                   o.scoring == s->pend_opts.scoring;
+        if (same || (s->extras.next_game_options &&
+                     ui_choose(s, SOL_ASK_SETTINGS, SOL_ANS_PLAY_NEW, 2) == SOL_ANS_FINISH)) {
+            s->pend_opts = o;
+            s->pending = 1;
+            s->opts.status_bar = o.status_bar;      /* these apply at once */
+            s->opts.outline = o.outline;
+            s->opts.cumulative = o.cumulative;
+            ce_store_set(&s->store, SOL_REG_OPTIONS, sol_options_pack(&o));
+            update_timer(s);
+            ui_status(s);
+            ui_invalidate(s);
+            return 0;
+        }
+    }
+    s->pending = 0;
     s->opts = o;
     ce_store_set(&s->store, SOL_REG_OPTIONS, sol_options_pack(&o));   /* SaveOptions(1) at OK */
     if (redeal) {
@@ -1136,6 +1329,11 @@ int sol_apply_options(SolSession *s, const SolOptions *in)
         ui_invalidate(s);
     }
     return redeal;
+}
+
+const SolOptions *sol_dialog_options(const SolSession *s)
+{
+    return s->pending ? &s->pend_opts : &s->opts;
 }
 
 void sol_set_back(SolSession *s, int back)
@@ -1151,9 +1349,10 @@ void sol_set_back(SolSession *s, int back)
 
 /* ---- Extras: settings, Hint, Finish, click-to-move ---------------------------------------------- */
 
-#define NEXTRAS 8
+#define NEXTRAS 11
 static const char *const extra_names[NEXTRAS] = { "AutoTurn", "ClickToMove", "AutoFinish", "WinnableOnly",
-                                                  "SaveGame", "WarnUnwinnable", "AutoHome", "ClickSelect" };
+                                                  "SaveGame", "WarnUnwinnable", "AutoHome", "ClickSelect",
+                                                  "NoMoreMoves", "NextGameOptions", "EnhancedAnimations" };
 
 static int *extra_field(SolExtras *x, int i)
 {
@@ -1165,7 +1364,10 @@ static int *extra_field(SolExtras *x, int i)
     case 4: return &x->save_game;
     case 5: return &x->warn_unwinnable;
     case 6: return &x->auto_home;
-    default: return &x->click_select;
+    case 7: return &x->click_select;
+    case 8: return &x->no_more_moves;
+    case 9: return &x->next_game_options;
+    default: return &x->enhanced_anim;
     }
 }
 
@@ -1196,14 +1398,31 @@ void sol_set_extras(SolSession *s, const SolExtras *x)
 
 void sol_hint(SolSession *s)
 {
-    SolHintMove m;
+    SolHintMove list[SOL_HINT_MAX], m;
+    uint8_t pos[SOL_PACKED_SIZE];
     const SolBoard *b = &s->board;
+    int n, k = 0;
     if (!sol_hint_enabled(s)) return;
     hint_stop(s);
-    if (!sol_hint_find(b, recycle_allowed(s), &m)) {
+    n = sol_hint_list(b, recycle_allowed(s), list, SOL_HINT_MAX);
+    if (n == 0) {
+        s->hint_cyc = 0;
         ui_message(s, SOL_MSG_NO_HINT);
         return;
     }
+    if (s->nm_done && list[0].cls >= SOL_HC_DRAW) {
+        s->hint_cyc = 0;                /* 2c: a whole stock cycle (or the used-up stock) gave nothing */
+        ui_message(s, SOL_MSG_NO_USEFUL);
+        return;
+    }
+    sol_board_pack(b, pos);
+    if (s->hint_cyc && s->hint_rec == s->recycles && !memcmp(pos, s->hint_pos, sizeof pos))
+        k = (s->hint_idx + 1) % n;      /* 2c: Hint again: the next move, wrapping */
+    s->hint_cyc = 1;
+    s->hint_idx = k;
+    s->hint_rec = s->recycles;
+    memcpy(s->hint_pos, pos, sizeof pos);
+    m = list[k];
     s->hint_move = m;
     s->hint_src_pile = m.src;
     s->hint_src_card = m.index >= 0 ? m.index : 0;
@@ -1268,6 +1487,7 @@ int sol_click_target(const SolSession *s)
 int sol_click(SolSession *s)
 {
     int t;
+    hint_uncycle(s);
     if (!sol_dragging(s) || !s->dealt || s->busy) return SOL_CLICK_NONE;
     if (s->csel_block) {                /* the press only deselected */
         s->csel_block = 0;
@@ -1281,6 +1501,39 @@ int sol_click(SolSession *s)
     clear_drag(s);
     ui_invalidate(s);
     return SOL_CLICK_SELECTED;
+}
+
+/* ---- 2c: the Windows 7 prompts ------------------------------------------------------------------ */
+
+int sol_game_started(const SolSession *s)
+{
+    return s->dealt && (s->counted || s->nhist > 0 || s->nredo > 0);
+}
+
+void sol_restart(SolSession *s)
+{
+    int counted = s->counted;
+    if (!s->dealt || s->busy || sol_dragging(s)) return;
+    if (s->game_scoring == SOL_SCORING_VEGAS) s->score = s->carry;   /* this game's money back */
+    s->counted = 0;                     /* not a loss: the same game goes on */
+    deal(s, s->seed, 0);                /* its own settings (pending ones wait on) */
+    s->counted = counted;
+}
+
+int sol_exit_choice(SolSession *s)
+{
+    if (!s->extras.save_game) return SOL_ANS_EXIT_NOSAVE;
+    if (!sol_game_started(s) || s->busy) return SOL_ANS_EXIT_SAVE;
+    hint_stop(s);
+    return ui_choose(s, SOL_ASK_EXIT, SOL_ANS_EXIT_SAVE, 3);
+}
+
+int sol_offer_resume(SolSession *s)
+{
+    if (!s->extras.save_game || !sol_game_started(s) || s->busy) return 1;
+    if (ui_choose(s, SOL_ASK_RESUME, SOL_ANS_CONTINUE, 2) == SOL_ANS_CONTINUE) return 1;
+    sol_new_deal(s, 0);                 /* the saved game is lost */
+    return 0;
 }
 
 /* ---- Queries ------------------------------------------------------------------------------------- */

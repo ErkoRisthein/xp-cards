@@ -45,6 +45,12 @@
  *     to a position proven unwinnable, an information message says so, once, until a position is found
  *     winnable again (through Undo). A move from a proven-unwinnable position is unwinnable without a
  *     search.
+ *   Hint cycling (2c, always): Hint again while the hint shown last is current (no other input since,
+ *     the same position) shows the next move: first the solver's (a winning line), then every other
+ *     action the session accepts (fc_solve_moves, without the bare deselect), best first by the
+ *     solver's estimate of the position it leads to (fc_solve_estimate; ties in fc_solve_moves' order),
+ *     leaving out moves into a position known to be unwinnable; after the last, the solver's again. An
+ *     unwinnable position or a search without an answer keeps its message (no cycling).
  *   Finish (Game > Finish, F6): enabled when fc_sure_win; sends every card home as one undoable action
  *     (one move; animated card by card unless Quick play), then the normal win. extras.auto_finish (off
  *     by default) runs it after any committed move or Redo that leaves a sure win (not counted).
@@ -192,6 +198,12 @@ typedef struct FcAssist {
     FcBoard  lost[FCS_LOST_RING];
     int      lost_std[FCS_LOST_RING];
     int      nlost, lost_next;
+    /* hint cycling (2c): the hint shown last is current (no other input, the same position): Hint again
+     * shows cyc[cyc_idx + 1], wrapping. cyc[0] is the solver's move; the alternatives are added at the
+     * first repeat (cyc_n 0 until then) */
+    int      cyc_on, cyc_idx, cyc_n, cyc_std;
+    FcBoard  cyc_board;
+    FcSolveMove cyc[FC_SOLVE_MAX_MOVES + 1];
 } FcAssist;
 
 /* ---- Session state (read-only for the UI except opts, which the Options dialog edits) ---------- */

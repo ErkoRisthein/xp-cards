@@ -15,6 +15,7 @@
 #include "app.h"
 
 #include <commctrl.h>
+#include <stdlib.h>
 #include <string.h>
 
 App g_app;
@@ -346,10 +347,17 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         break;
     case WM_LBUTTONDOWN:
+        if (view_button_mouse(a, m, lp))              /* 2d: the Finish button */
+            return 0;
         on_click(a, lp, 0);
         return 0;
     case WM_LBUTTONDBLCLK:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         on_click(a, lp, 1);
+        return 0;
+    case WM_MOUSELEAVE:
+        view_button_mouse(a, m, lp);
         return 0;
     case WM_RBUTTONDOWN:
         if (!input_blocked(a) && !a->drag_on && !a->press_armed) {
@@ -372,6 +380,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         after_input(a);
         return 0;
     case WM_CAPTURECHANGED:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         if (a->rcapture) {
             a->rcapture = 0;
             fcs_rbutton_up(&a->s);
@@ -385,6 +395,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     case WM_MOUSEMOVE: {
         int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
+        if (view_button_mouse(a, m, lp))
+            return 0;                                 /* pressing the Finish button */
         if (a->press_armed && !a->drag_on && !input_blocked(a) &&
             ce_drag_threshold_passed(a->press_x, a->press_y, x, y)) {
             int first, n = fcs_drag_cards(&a->s, a->press_col, a->press_pos, &first);
@@ -405,6 +417,8 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONUP:
+        if (view_button_mouse(a, m, lp))
+            return 0;
         if (a->drag_on && !a->in_modal && !a->s.busy)
             on_drop(a, (short)LOWORD(lp), (short)HIWORD(lp));
         else if (a->press_armed && !a->in_modal && !a->s.busy)
@@ -449,6 +463,10 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
             clock_update(a);
             return 0;
         }
+        if (wp == FC_TIMER_PULSE) {                   /* 2d: the hint's soft pulse */
+            view_pulse_tick(a);
+            return 0;
+        }
         if ((wp == FCS_TIMER_PEEK || wp == FCS_TIMER_HINT_WAIT) && a->in_modal)
             return 0;                                 /* the column peek / hint time limit wait for the dialog */
         fcs_timer(&a->s, (int)wp);
@@ -477,8 +495,9 @@ static LRESULT CALLBACK wnd_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         }
         return 0;
     case WM_DESTROY:
-        view_anim_idle(a);
+        view_anim_drop(a);
         KillTimer(h, FCS_TIMER_FLASH);
+        KillTimer(h, FC_TIMER_PULSE);
         KillTimer(h, FCS_TIMER_PEEK);
         KillTimer(h, FCS_TIMER_HINT);
         KillTimer(h, FCS_TIMER_HINT_WAIT);
@@ -517,6 +536,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, LPWSTR cmdline, int show)
     a->inst = inst;
     InitCommonControls();                             /* activates comctl32 v6 (themed controls) */
     ce_log_open(L"FCHD_TIMING_LOG");                  /* optional timing log (file name) */
+    {
+        /* test hook: FCHD_ANIM_SLOW = N plays every animation N times slower (e2e mid-flight captures) */
+        WCHAR v[16];
+        DWORD n = GetEnvironmentVariableW(L"FCHD_ANIM_SLOW", v, 16);
+        a->anim_slow = n > 0 && n < 16 ? (int)wcstol(v, NULL, 10) : 1;
+        if (a->anim_slow < 1 || a->anim_slow > 1000)
+            a->anim_slow = 1;
+        if (a->anim_slow > 1)
+            ce_log("FCHD_ANIM_SLOW: animations %d times slower", a->anim_slow);
+    }
 
     view_init(a);
 

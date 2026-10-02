@@ -12,6 +12,11 @@
  * solution is winnable and its hint is the solution's next move; a position reached by a move from an
  * unwinnable one is unwinnable too (were it winnable, so would be the one before), so the warning
  * needs no search there.
+ *
+ * Hint cycling (2c): the hint shown last stays current until other input or a change of position;
+ * Hint again then shows the next move of a ranked list: the solver's move first, then every other
+ * action the session accepts, best first by the solver's estimate of the position it leads to, those
+ * into a position known to be unwinnable left out; wrapping back to the solver's move.
  */
 #include "assist.h"
 
@@ -191,18 +196,71 @@ static void hint_flash(FcSession *s, const FcSolveMove *m)
     invalidate(s);
 }
 
+/* ---- Hint cycling (2c) ------------------------------------------------------------------------------ */
+
+/* The solver's move m was just shown for the current position: the cycle starts with it. */
+static void cyc_start(FcSession *s, const FcSolveMove *m)
+{
+    FcAssist *as = &s->as;
+    as->cyc_on = 1;
+    as->cyc_idx = 0;
+    as->cyc_n = 0;
+    as->cyc_std = rule(s);
+    as->cyc_board = s->board;
+    as->cyc[0] = *m;
+}
+
+/* Hint again while the cycle is current: the next move (the alternatives are ranked on the first
+ * repeat). NULL when it is not current. */
+static const FcSolveMove *cyc_next(FcSession *s)
+{
+    FcAssist *as = &s->as;
+    if (!as->cyc_on || as->cyc_std != rule(s) || !same(&as->cyc_board, &s->board)) return NULL;
+    if (as->cyc_n == 0) {
+        FcSolveMove mv[FC_SOLVE_MAX_MOVES];
+        int est[FC_SOLVE_MAX_MOVES + 1], n, k = 1;
+        FcBoard first = s->board;
+        if (!fc_solve_play(&first, &as->cyc[0], rule(s))) return NULL;   /* cannot happen */
+        n = fc_solve_moves(&s->board, rule(s), mv);
+        for (int i = 0; i < n; i++) {
+            FcBoard b = s->board;
+            int e, j;
+            if (mv[i].kind == FC_SM_AUTOPLAY || !fc_solve_play(&b, &mv[i], rule(s))) continue;
+            if (same(&b, &first) || same(&b, &s->board) || lost_find(s, &b)) continue;
+            e = fc_solve_estimate(&b);
+            for (j = k; j > 1 && est[j - 1] > e; j--) {   /* stable: equal estimates keep their order */
+                as->cyc[j] = as->cyc[j - 1];
+                est[j] = est[j - 1];
+            }
+            as->cyc[j] = mv[i];
+            est[j] = e;
+            k++;
+        }
+        as->cyc_n = k;
+    }
+    as->cyc_idx = (as->cyc_idx + 1) % as->cyc_n;
+    return &as->cyc[as->cyc_idx];
+}
+
 void fcs_assist_hint(FcSession *s)
 {
     FcAssist *as = &s->as;
     if (s->busy || s->kbd_peek || !active(s) || as->hint == FCS_HINT_WAIT) return;
-    hint_end(s);                                     /* pressed again while flashing: start over */
+    hint_end(s);                                     /* pressed again while flashing: the next one */
     if (s->sel) {                                    /* the hint leaves nothing selected */
         s->sel = 0;
         s->sel_col = s->sel_pos = -1;
         invalidate(s);
     }
+    const FcSolveMove *next = cyc_next(s);
+    if (next) { hint_flash(s, next); return; }
+    as->cyc_on = 0;
     int i = sol_find(s, &s->board);
-    if (i >= 0) { hint_flash(s, &as->sol[i]); return; }
+    if (i >= 0) {
+        hint_flash(s, &as->sol[i]);
+        cyc_start(s, &as->sol[i]);
+        return;
+    }
     if (lost_find(s, &s->board)) { message(s, FCS_STR_HINT_LOST); return; }
     if (!(as->req_pending && as->req_std == rule(s) && same(&as->req_board, &s->board)) &&
         !req_start(s, FCS_AS_HINT)) {
@@ -217,6 +275,7 @@ void fcs_assist_input(FcSession *s)
 {
     FcAssist *as = &s->as;
     int waiting = as->hint == FCS_HINT_WAIT;
+    as->cyc_on = 0;                                  /* other input: the next Hint starts from the best */
     if (as->hint == FCS_HINT_IDLE) return;
     hint_end(s);
     if (waiting && as->req_pending && (as->req_cause == FCS_AS_HINT || !s->extras.warn_unwinnable))
@@ -257,6 +316,7 @@ void fcs_assist_changed(FcSession *s, int cause, const FcBoard *before)
 {
     FcAssist *as = &s->as;
     hint_end(s);
+    as->cyc_on = 0;
     if (cause == FCS_AS_DEAL) {
         as->warned = 0;
         as->deal_lost = 0;
@@ -280,6 +340,7 @@ void fcs_assist_changed(FcSession *s, int cause, const FcBoard *before)
 void fcs_assist_stop(FcSession *s)
 {
     hint_end(s);
+    s->as.cyc_on = 0;
     req_drop(s);
 }
 
@@ -304,6 +365,7 @@ int fcs_solve_done(FcSession *s, uint32_t id, int status, const FcSolveMove *mov
     if (status == FC_SOLVE_SOLVED && n > 0) {
         as->warned = 0;
         hint_flash(s, &moves[0]);
+        cyc_start(s, &moves[0]);
     } else if (status == FC_SOLVE_UNSOLVABLE) {
         if (cause == FCS_AS_DEAL) as->deal_lost = 1;
         if (s->extras.warn_unwinnable) as->warned = 1;   /* this message says it already */

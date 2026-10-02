@@ -2346,11 +2346,14 @@ static void test_extras_store(void)
     CHECK_EQ(y.show_time_moves, 1); CHECK_EQ(y.standard_supermove, 0);
     CHECK_EQ(y.full_range, 1); CHECK_EQ(y.full_screen, 1);
     CHECK_EQ(rv(&r, "SingleClick"), 0); CHECK_EQ(rv(&r, "DragDrop"), 0);
+    CHECK_EQ(rv(&r, "EnhancedAnimations"), 0);  /* 2d */
     x.single_click = 1;
+    x.enhanced_anim = 1;
     fc_extras_save(&x, &st);
     CHECK_EQ(rv(&r, "SingleClick"), 1);
+    CHECK_EQ(rv(&r, "EnhancedAnimations"), 1);
     fc_extras_load(&y, &st);
-    CHECK_EQ(y.single_click, 1); CHECK_EQ(y.drag_drop, 0);
+    CHECK_EQ(y.single_click, 1); CHECK_EQ(y.drag_drop, 0); CHECK_EQ(y.enhanced_anim, 1);
     reg_set(&r, "StandardSupermove", 7);         /* any non-zero value is on */
     fc_extras_load(&y, &st);
     CHECK_EQ(y.standard_supermove, 1);

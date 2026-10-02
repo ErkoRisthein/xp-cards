@@ -6,7 +6,9 @@
  * and the stack, rendered once into a sprite, floats over it. Every move presents the union of the old
  * and the new rect as one frame (ce_backbuf_present: composed off screen, so nothing flickers); WM_PAINT
  * presents the sprite over what it paints. A refused drop slides the stack back to where it came from
- * (ce_drag_zip_back: a straight flight, ce_anim_fly). A drag without a sprite only keeps the position:
+ * (ce_drag_zip_back: an eased flight, ce_anim_fly). With a shadow (ce_drag_set_shadow: the games' opt-in
+ * "Enhanced animations") the stack looks lifted: a soft shadow is drawn under it, offset down and to the
+ * right, and goes with it until the drag ends. A drag without a sprite only keeps the position:
  * the game draws it as part of its board (Solitaire's "Outline dragging", or its fallback when there is
  * no memory for the sprite).
  *
@@ -24,6 +26,8 @@
 
 typedef struct CeDrag {
     CeImage *sprite;            /* the lifted stack (owned), or NULL: the game draws the drag itself */
+    CeImage *shadow;            /* optional (owned): drawn under the sprite at (x + sdx, y + sdy) */
+    int      sdx, sdy;
     int      x, y, w, h;        /* the stack's rect on the client */
     int      grab_dx, grab_dy;  /* the pointer minus (x, y): kept while the stack follows the pointer */
 } CeDrag;
@@ -31,18 +35,23 @@ typedef struct CeDrag {
 /* Begin: the stack's rect (x, y, w, h), grabbed at (px, py); sprite (may be NULL) is owned from now on. */
 void   ce_drag_begin(CeDrag *d, CeImage *sprite, int x, int y, int w, int h, int px, int py);
 CeRect ce_drag_rect(const CeDrag *d);
+/* A shadow for the lifted stack (owned from now on; NULL: none), drawn at (x + sdx, y + sdy). */
+void   ce_drag_set_shadow(CeDrag *d, CeImage *shadow, int sdx, int sdy);
+/* What the drag covers on the screen: the stack's rect and its shadow's. */
+CeRect ce_drag_cover(const CeDrag *d);
 /* The pointer is at (px, py): the stack follows it (the grab offset kept). With a sprite the window
  * shows the move at once (the union of the old and the new rect). Returns the rect before the move. */
 CeRect ce_drag_move(CeDrag *d, CeBackBuf *bb, HWND hwnd, int px, int py);
 /* WM_PAINT: rc from the back buffer with the sprite on top; 0 (nothing painted) without a sprite. */
 int    ce_drag_paint(const CeDrag *d, CeBackBuf *bb, HDC dc, const RECT *rc);
-/* A refused drop: the stack flies back to (x0, y0) (px_per_frame per frame_ms frame, ce_anim_fly; the
- * back buffer must show the board without it), and ends there. Without a sprite nothing is drawn (the
- * game animates its own outline). Returns the frames drawn; *frames (may be NULL) gets their number. */
-int    ce_drag_zip_back(CeDrag *d, CeAnimClock *anim, CeBackBuf *bb, HWND hwnd, int x0, int y0, int px_per_frame,
+/* A refused drop: the stack flies back to (x0, y0) in dur ms along ease (ce_anim_fly, frames of
+ * frame_ms; the back buffer must show the board without it), and ends there. Without a sprite nothing is
+ * drawn (the game animates its own outline). Returns the frames drawn; *frames (may be NULL) gets
+ * their number. */
+int    ce_drag_zip_back(CeDrag *d, CeAnimClock *anim, CeBackBuf *bb, HWND hwnd, int x0, int y0, int dur, CeEase ease,
                         int frame_ms, CeAnimAbort abort, void *ctx, int *frames);
-/* The drag is over: with a sprite its rect is invalidated (the back buffer shows the board there), then
- * the sprite is freed. ce_drag_free frees it without invalidating (the window is gone, or redrawn). */
+/* The drag is over: with a sprite what it covers is invalidated (the back buffer shows the board there),
+ * then the sprite and the shadow are freed. ce_drag_free frees it without invalidating (the window is gone, or redrawn). */
 void   ce_drag_end(CeDrag *d, HWND hwnd);
 void   ce_drag_free(CeDrag *d);
 /* The pointer at (x, y) is farther from the press at (x0, y0) than the system's drag threshold. */

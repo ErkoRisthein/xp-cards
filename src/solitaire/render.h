@@ -61,9 +61,11 @@ typedef struct SolView {
     int sel_pile, sel_card;  /* a selection (extra; v1.1: the hint's flash, session.h sol_hint_view):
                                 cards sel_card..n-1 of sel_pile inverted (an empty pile: its card slot);
                                 -1 none */
+    int sel_level;           /* how much the selection inverts, 0..256 (256: fully; less: the hint's soft
+                                pulse of the "Enhanced animations", fading in or out) */
 } SolView;
 
-void sol_view_init(SolView *v);   /* dealt, back 0, O, no drag, no target, no selection */
+void sol_view_init(SolView *v);   /* dealt, back 0, O, no drag, no target, no selection (level 256) */
 
 /* Draw the whole board / the region r of it. */
 void sol_render_board(CeImage *fb, const SolLayout *l, const SolBoard *b, const SolView *v, SolGfx *g);

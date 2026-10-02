@@ -44,7 +44,7 @@ The rules are XP's: the same deals for the same game numbers, the supermove limi
 | F10 or Ctrl+Z | Undo (Ctrl+Z is new; hold it to undo move after move) |
 | Ctrl+Y | Redo (new) |
 | Game > Undo All | Back to the start of the game, after a question (new); Redo brings it all back |
-| H | Hint (new): the card to move flashes twice, then the place it goes |
+| H | Hint (new): the card to move flashes twice, then the place it goes; H again shows the next-best move |
 | F6 | Finish (new): send every card home, once the rest is a sure win |
 | F11 or Alt+Enter | Full screen (new); Esc leaves it |
 | F1 | Help. Opens XP's `freecell.chm` when it is present, otherwise a built-in summary |
@@ -86,11 +86,19 @@ them on:
 - **Drag and drop cards**: drag a card (or the run below the card you grab) to where it should go. The
   drop is XP's move to that pile, with XP's supermove limit and "Move to Empty Column" choice; a move XP
   would refuse slides back. Clicking works as before.
+- **Enhanced animations**: effects XP never had, all quick: dragged cards cast a soft shadow, a new
+  game's cards fly in from below the board, and the hint fades in and out instead of blinking.
 
 The solver also drives two new Game menu items. **Hint** (H) shows a winning move: the card to move
 flashes twice, then its destination. If the game can no longer be won, it says so. Repeated hints are
-instant while you follow them. **Finish** (F6) is available once every remaining card can go home in
-order, and moves them there as one move.
+instant while you follow them. Pressing H again in the same position shows the next-best move (the other
+moves ranked by how much they leave to do), and after the last one the first again. **Finish** (F6) is available once every remaining card can go home in
+order, and moves them there as one move; while it is available a small **Finish** button sits on the
+table below the king (ignore it to play the cards yourself).
+
+Cards fly as in XP, only smoother: each flight eases in and out and never takes longer than XP's
+(160 ms at most), and the cards of an autoplay or a Finish overlap (the next one leaves while the
+previous one is still on its way), so a long cascade is over sooner. Quick play still flies nothing.
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what comes next: Spider and Hearts.
 
@@ -112,7 +120,7 @@ It uses XP Solitaire's own registry key for its options and card back, so the tw
 | Game > Undo All | Back to the deal, after a question (new); Redo brings it all back |
 | D | Turn over cards from the deck (new) |
 | C | Select Card Back (new) |
-| H | Hint (new) |
+| H | Hint (new); H again shows the next move |
 | F6 | Finish (new): every card home, once the stock and the waste are used up and every card is face up |
 | F4 | Statistics (new) |
 | F11 or Alt+Enter | Full screen (new); Esc leaves it |
@@ -125,10 +133,15 @@ fixed.
 
 **Game menu (always there, they change nothing until used).** **Hint** (H) flashes a sensible legal
 move: the cards to move twice, then where they go. It only uses what you can see, never the face-down
-cards or the order of the stock. **Finish** (F6) sends every card home, one flying card at a time, as
-one move you can undo. **Statistics** (F4) shows games played and won, the win percentage, the current
+cards or the order of the stock. Pressing H again in the same position shows the next move of its
+ranking, and after the last one the first again. Once a whole pass through the stock has shown nothing
+useful (or the stock is used up), it says "There are no more useful moves." instead of suggesting
+another draw. **Finish** (F6) sends every card home, the flying cards overlapping, as one move you
+can undo; while it is available a small **Finish** button sits on the table next to the foundations. **Statistics** (F4) shows games played and won, the win percentage, the current
 and longest streaks, the best time and the best score, kept separately for each of the six modes (Draw
-One / Three x Standard / Vegas / None). A game counts once you have made a move; a game you leave
+One / Three x Standard / Vegas / None), and, as in Windows 7, the five best scores with their dates
+(Standard: timed games and untimed ones apart) and, for Vegas, the most money won and lost in a game
+and the winnings so far. A game counts once you have made a move; a game you leave
 unfinished counts as lost, unless "Save game on exit" keeps it for the next start.
 
 **Options > Extras**, all off by default, so Solitaire HD plays exactly like XP until you turn them on
@@ -142,7 +155,10 @@ unfinished counts as lost, unless "Save game on exit" keeps it for the next star
 - **Deal only winnable games**: Deal still uses XP's deals, but skips to the next one that the built-in
   solver has proven winnable for the current draw and scoring (Vegas: its pass limit).
 - **Save game on exit, resume at start**: the game in progress, with its score, time and undo history,
-  is saved when you exit and comes back at the next start.
+  is saved when you exit and comes back at the next start. With it, a game in progress gets Windows 7's
+  questions: Deal asks "Quit and Start a New Game / Restart This Game / Keep Playing", Exit asks "Exit
+  and Save My Game / Exit and Don't Save / Don't Exit", and the start asks "Continue Saved Game / Play
+  New Game".
 - **Warn when the game can't be won**: a solver checks the position in the background after every move
   and tells you, once, when the game can no longer be won, so you can undo.
 - **Move cards home automatically**: after each move, every card that is safe on its foundation (an ace
@@ -151,6 +167,15 @@ unfinished counts as lost, unless "Save game on exit" keeps it for the next star
 - **Click to select, click to move**: click a card to select it (it turns inverted), then click where
   it should go. Dragging still works. With "Single click moves a card" on too, a click moves a card that
   has a place to go and selects one that has none.
+- **Tell me when there are no more moves**: when a whole pass through the stock (or the used-up stock)
+  offers nothing useful, Windows 7's question: End Game (counts as a loss, then "Deal Again?") or Return
+  to Game (and use Undo).
+- **Apply option changes to the next game**: changing Draw, Scoring or Timed game during a game asks
+  "Play New Game / Finish This Game" instead of XP's immediate new deal; the game you finish keeps its
+  own settings.
+- **Enhanced animations**: effects XP never had, all quick: dragged cards cast a soft shadow, a card
+  turns over with a flip, a new deal flies out of the stock, cards sent home with a double-click or the
+  right button fly there, and the hint fades in and out instead of blinking.
 
 Statistics and the saved game are files in `%APPDATA%\xp-cards\Solitaire HD`.
 

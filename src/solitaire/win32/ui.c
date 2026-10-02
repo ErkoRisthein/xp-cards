@@ -5,7 +5,8 @@
  * Settings: Options and Back in XP's own key and format, HKCU\Software\Microsoft\Solitaire (REG_DWORD,
  * rules.md §10), so the original and the HD game share them; the extras (window placement, full
  * screen, the Options dialog's Extras group: AutoTurn ClickToMove AutoFinish WinnableOnly SaveGame
- * WarnUnwinnable, and v1.2's AutoHome ClickSelect) in HKCU\Software\xp-cards\Solitaire HD; the statistics and the saved game in
+ * WarnUnwinnable, v1.2's AutoHome ClickSelect, 2c's NoMoreMoves NextGameOptions) in
+ * HKCU\Software\xp-cards\Solitaire HD; the statistics and the saved game in
  * %APPDATA%\xp-cards\Solitaire HD\statistics.bin and game.bin (written atomically).
  *
  * Every modal prompt first brings the window up to date and counts itself in a->in_modal, so input and
@@ -116,6 +117,7 @@ void menu_update(App *a)
     set_item(a, IDM_REDO, sol_redo_enabled(&a->s), &a->menu_redo);
     set_item(a, IDM_HINT, sol_hint_enabled(&a->s), &a->menu_hint);         /* extras */
     set_item(a, IDM_FINISH, sol_finish_enabled(&a->s), &a->menu_finish);
+    view_finish_avail(a, sol_finish_enabled(&a->s));                   /* 2d: the button on the table */
     if (a->menu_idle != idle) {
         a->menu_idle = idle;
         EnableMenuItem(a->menu, IDM_DEAL, MF_BYCOMMAND | (idle ? MF_ENABLED : MF_GRAYED));
@@ -146,6 +148,9 @@ static const struct { int id; size_t off; } extra_boxes[] = {
     { IDC_WARNUNWINNABLE, offsetof(SolExtras, warn_unwinnable) },
     { IDC_AUTOHOME, offsetof(SolExtras, auto_home) },
     { IDC_CLICKSELECT, offsetof(SolExtras, click_select) },
+    { IDC_NOMOREMOVES, offsetof(SolExtras, no_more_moves) },
+    { IDC_NEXTGAMEOPTS, offsetof(SolExtras, next_game_options) },
+    { IDC_ENHANCEDANIM, offsetof(SolExtras, enhanced_anim) },
 };
 
 static int *extra_of(SolExtras *x, int k) { return (int *)((char *)x + extra_boxes[k].off); }
@@ -210,7 +215,7 @@ void dlg_options(App *a)
     int redeal;
     if (!dialogs_allowed(a))
         return;
-    op.o = a->s.opts;
+    op.o = *sol_dialog_options(&a->s);              /* 2c: the Options waiting for the next game, if any */
     op.x = a->s.extras;
     if (run_dialog(a, IDD_OPTIONS, options_proc, (LPARAM)&op) != 1) {
         solver_deliver(a);
@@ -221,10 +226,12 @@ void dlg_options(App *a)
     sol_set_extras(&a->s, &op.x);                     /* first: a redeal below may want WinnableOnly */
     sol_extras_save(&a->s.extras, &a->app_store);
     redeal = sol_apply_options(&a->s, &op.o);         /* writes Options; a new Draw / Timed / Scoring deals */
-    ce_log("options: 0x%02x%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, "
-           "select %d", (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "", a->s.extras.auto_turn,
-           a->s.extras.click_move, a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game,
-           a->s.extras.warn_unwinnable, a->s.extras.auto_home, a->s.extras.click_select);
+    ce_log("options: 0x%02x%s%s; extras: turn %d, click %d, finish %d, winnable %d, save %d, warn %d, home %d, "
+           "select %d, nomoves %d, nextgame %d, anim %d", (unsigned)sol_options_pack(&a->s.opts), redeal ? ", new deal" : "",
+           a->s.pending ? ", the new ones for the next game" : "", a->s.extras.auto_turn, a->s.extras.click_move,
+           a->s.extras.auto_finish, a->s.extras.winnable_only, a->s.extras.save_game, a->s.extras.warn_unwinnable,
+           a->s.extras.auto_home, a->s.extras.click_select, a->s.extras.no_more_moves, a->s.extras.next_game_options,
+           a->s.extras.enhanced_anim);
     if ((a->status != NULL) != (a->s.opts.status_bar != 0))
         status_show(a, a->s.opts.status_bar);         /* shows or hides it at once, the board re-laid out */
     status_update(a);
@@ -391,18 +398,51 @@ static void stats_save(App *a)
         ce_log("statistics: could not be written");
 }
 
+/* A YYYYMMDD date in the user's short date format ("" for none). */
+static void date_text(uint32_t date, WCHAR *out, int n)
+{
+    SYSTEMTIME st;
+    out[0] = 0;
+    if (!date || !sol_stats_date_ok(date))
+        return;
+    memset(&st, 0, sizeof st);
+    st.wYear = (WORD)(date / 10000u);
+    st.wMonth = (WORD)(date / 100u % 100u);
+    st.wDay = (WORD)(date % 100u);
+    if (!GetDateFormatW(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &st, NULL, out, n)) {
+        char t[16];
+        sol_stats_date_text(date, t, sizeof t);
+        ce_to_wide(t, out, n);
+    }
+}
+
 static void stats_show(HWND d, int mode)
 {
     App *a = &g_app;
-    char buf[256];
-    WCHAR w[256];
+    char buf[256], lab[512], val[512];
+    WCHAR w[512], dates[SOL_STATS_TOP_LINES * 24], one[24];
+    uint32_t dv[SOL_STATS_TOP_LINES];
+    int scoring, lines, i;
     if (mode < 0 || mode >= SOL_STATS_MODES)
         mode = 0;
-    sol_stats_format(&a->s.stats.m[mode], mode % 3 == 1 ? SOL_SCORING_VEGAS : mode % 3 == 2 ? SOL_SCORING_NONE
-                                                                                        : SOL_SCORING_STANDARD,
-                     a->s.currency, buf, sizeof buf);
-    ce_to_wide(buf, w, 256);
+    scoring = sol_stats_mode_scoring(mode);
+    sol_stats_format(&a->s.stats.m[mode], scoring, a->s.currency, buf, sizeof buf);
+    ce_to_wide(buf, w, 512);
     SetDlgItemTextW(d, IDC_STATS_VALUES, w);
+    /* 2c: the high scores, the money */
+    lines = sol_stats_format_top(&a->s.stats.m[mode], scoring, a->s.currency, lab, sizeof lab, val, sizeof val, dv);
+    ce_to_wide(lab, w, 512);
+    SetDlgItemTextW(d, IDC_STATS_TOP_LABELS, w);
+    ce_to_wide(val, w, 512);
+    SetDlgItemTextW(d, IDC_STATS_TOP_VALUES, w);
+    dates[0] = 0;
+    for (i = 0; i < lines; i++) {
+        date_text(dv[i], one, 24);
+        if (i)
+            lstrcatW(dates, L"\n");
+        lstrcatW(dates, one);
+    }
+    SetDlgItemTextW(d, IDC_STATS_TOP_DATES, dates);
 }
 
 static INT_PTR CALLBACK stats_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
@@ -491,10 +531,15 @@ static const WCHAR how_to_play[] =
     L"Keyboard: arrow keys, Tab, Home and End move between the piles and cards; Enter or Space picks "
     L"up and drops; Esc cancels. F2 Deal, Ctrl+Z Undo (hold it to undo more), Game > Undo All, Ctrl+Y "
     L"Redo, F11 or Alt+Enter Full Screen (Esc leaves it), H Hint, F6 Finish (once every card is face up "
-    L"and the deck is used up), F4 Statistics, C card back, D draw.\n\n"
+    L"and the deck is used up; the Finish button on the table does the same), F4 Statistics, C card "
+    L"back, D draw.\n\n"
     L"Options > Extras (all off by default): turn cards over automatically, single click moves a card, "
-    L"finish automatically, deal only winnable games, save the game on exit, warn when the game can't "
-    L"be won, move cards home automatically, click to select and click to move.";
+    L"finish automatically, deal only winnable games, save the game on exit (it then asks what to do with "
+    L"a game in progress at Deal, at Exit and when you start), warn when the game can't be won, move "
+    L"cards home automatically, click to select and click to move, tell me when there are no more moves, "
+    L"apply option changes to the next game, enhanced animations.\n\n"
+    L"Press H again to see the next possible move. Game > Statistics also keeps your five best scores "
+    L"with their dates and, for Vegas, the money won and lost.";
 
 static void builtin_help(App *a)
 {
@@ -641,6 +686,78 @@ static int cb_confirm(void *ctx, int id, const char *text)
 
 static void cb_stats_changed(void *ctx) { stats_save((App *)ctx); }
 
+/* 2c: the Windows 7-style questions (dialog id = SOL_ASK_*). Esc / the close box: the safe answer. */
+static int choice_cancel_answer(int id)
+{
+    switch (id) {
+    case SOL_ASK_NO_MOVES: return SOL_ANS_RETURN;
+    case SOL_ASK_NEW_GAME: return SOL_ANS_KEEP;
+    case SOL_ASK_EXIT:     return SOL_ANS_DONT_EXIT;
+    case SOL_ASK_RESUME:   return SOL_ANS_CONTINUE;
+    default:               return SOL_ANS_FINISH;          /* SOL_ASK_SETTINGS */
+    }
+}
+
+static INT_PTR CALLBACK choice_proc(HWND d, UINT m, WPARAM wp, LPARAM lp)
+{
+    switch (m) {
+    case WM_INITDIALOG:
+        SetWindowLongPtrW(d, DWLP_USER, lp);
+        SendDlgItemMessageW(d, IDC_CHOICE_ICON, STM_SETICON, (WPARAM)LoadIconW(NULL, (LPCWSTR)IDI_QUESTION), 0);
+        ce_dialog_center(d, g_app.hwnd);                   /* as a message box */
+        return TRUE;                                       /* the focus on the default button */
+    case WM_COMMAND: {
+        int id = LOWORD(wp);
+        if (id >= IDC_CHOICE0 && id <= IDC_CHOICE2) {
+            EndDialog(d, id - IDC_CHOICE0);
+            return TRUE;
+        }
+        if (id == IDCANCEL) {
+            EndDialog(d, choice_cancel_answer((int)GetWindowLongPtrW(d, DWLP_USER)));
+            return TRUE;
+        }
+        break;
+    }
+    }
+    return FALSE;
+}
+
+static int cb_choose(void *ctx, int id, const char *text)
+{
+    App *a = ctx;
+    INT_PTR r;
+    (void)text;
+    MessageBeep(MB_ICONQUESTION);                          /* as XP's questions */
+    r = run_dialog(a, id, choice_proc, (LPARAM)id);
+    if (r < 0)                                             /* (the template is missing: the session's default) */
+        return -1;
+    ce_log("choose %d: answer %d", id, (int)r);
+    return (int)r;
+}
+
+/* 2c: today's local date as YYYYMMDD (with SOLHD_TIME: that time's UTC date, for the e2e scripts). */
+static uint32_t cb_today(void *ctx)
+{
+    App *a = ctx;
+    SYSTEMTIME st;
+    if (a->have_fake_time) {
+        uint32_t days = a->fake_time / 86400u, y, mo, d, era, doe, yoe, doy, mp;
+        int64_t z = (int64_t)days + 719468;              /* civil_from_days (H. Hinnant) */
+        era = (uint32_t)(z / 146097);
+        doe = (uint32_t)(z - (int64_t)era * 146097);
+        yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        y = yoe + era * 400;
+        doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        mp = (5 * doy + 2) / 153;
+        d = doy - (153 * mp + 2) / 5 + 1;
+        mo = mp < 10 ? mp + 3 : mp - 9;
+        y += mo <= 2;
+        return y * 10000u + mo * 100u + d;
+    }
+    GetLocalTime(&st);
+    return (uint32_t)st.wYear * 10000u + (uint32_t)st.wMonth * 100u + st.wDay;
+}
+
 static void cb_solve_start(void *ctx, uint32_t id, const SolBoard *b, int draw, int left)
 {
     solver_request((App *)ctx, id, b, draw, left);
@@ -666,4 +783,6 @@ void ui_make(App *a, SolSessionUI *ui)
     ui->solve_start = cb_solve_start;
     ui->solve_cancel = cb_solve_cancel;
     ui->confirm = cb_confirm;
+    ui->choose = cb_choose;
+    ui->today = cb_today;
 }

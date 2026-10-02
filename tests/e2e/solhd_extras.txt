@@ -88,6 +88,8 @@ wait_pixel 600 60 008000 0 3000
 wait 300
 assert_pixel 929 381 FFFFFF                   # over: nothing moved
 assert_pixel 600 60 008000
+click 640 800                                 # (other input: the next Hint is the best move again, not
+                                              # the next one: hint cycling, 2c)
 key H                                         # again, then a click ends the flash at once
 wait_pixel 929 381 000000 40 3000
 dblclick 985 361                              # follow it (XP's double-click home): AC to foundation 1
@@ -304,18 +306,25 @@ drag 277 14 100 331 4
 settle 100
 assert_menu 1103 grayed                       # the waste still holds 8H
 capture 59_line_before_exit.bmp
-close                                         # the game is saved (%APPDATA%\xp-cards\Solitaire HD\game.bin)
+close "Exit and Save My Game"                  # (2c: asked, a game in progress) the game is saved
+                                              # (%APPDATA%\xp-cards\Solitaire HD\game.bin)
 
 # ---- resumed at start-up: the same board, the history kept; the last action; Finish (F6) by hand ------------
 launch ${REPO}/build/SolitaireHD.exe
 sync                                          # (in its message loop before the first command)
+wait_dialog "Saved Game Found"                # (2c)
+dialog_click "Continue Saved Game"
+assert_no_dialog
 capture 60_resumed.bmp
 assert_menu 1001 enabled                      # the undo history came back with the game
 assert_menu 1103 grayed
+assert_pixel 432 113 008000                   # 2d: no Finish button on the table
 drag 277 14 635 16 4
 assert_menu 1103 enabled                      # every card face up, the stock and the waste used up
+assert_pixel 432 113 FFFFFF 40                # 2d: the Finish button (428,92 121 x 43, between waste and
+                                              # foundations; Wine draws the classic button, white)
 capture 61_finish_ready.bmp
-vkey F6                                       # the cards fly home one by one, lowest first, then the cascade
+vkey F6                                       # the cards fly home, lowest first, overlapping, then the cascade
 wait 1500
 assert_window_text "Press Esc or a mouse button to stop..."
 capture 62_finish_cascade.bmp

@@ -1,0 +1,251 @@
+# Solitaire HD, the Windows 7-inspired batch (docs/ROADMAP.md 2c) end to end: hint cycling (H again shows
+# the next move), the Statistics dialog's High Scores box, the dead end of deal 147 (the No More Moves
+# question: Return to Game, then Hint's "There are no more useful moves.", then End Game: a loss and
+# "Deal Again?"), the Windows 7 questions of "Save game on exit" (Game in Progress: Keep Playing / Restart
+# This Game / Quit; Exit Game: Don't Exit / Exit and Save / Exit and Don't Save; Saved Game Found) and
+# "Apply option changes to the next game" (Changed Game Settings: Finish This Game).
+# Run by run_solhd_e2e.sh.
+#
+# Geometry as solhd_smoke.txt: client 1264 x 854 (cards 153 x 207; columns x = 24 201 378 555 732 909
+# 1086, tableau top y = 231, steps 6 / 32; stock 24,10, waste 201,10, foundations x = 555 732 909 1086,
+# y = 10). Deal 64: col 1 AH, col 2 #7H 4S, col 3 # # TD, col 4 # # # KC, col 5 # # # # 5D, col 6 # # # # # AC,
+# col 7 # # # # # # 2H. Deal 147 (Draw Three): no useful move anywhere, also with any card the stock shows.
+# Options 0x09: Draw Three, Standard, untimed. Ids: 1003 Options (340 NoMoreMoves, 341 NextGameOptions,
+# 325 SaveGame, 300 Draw One), 1104 Statistics (333 Reset, 335 / 336 / 337 the High Scores box),
+# 1001 Undo, 1102 Hint; the questions' buttons 350 351 352.
+
+timeout 60000
+regdel HKCU\Software\Microsoft\Solitaire
+regset HKCU\Software\Microsoft\Solitaire Back dword 1
+regset HKCU\Software\Microsoft\Solitaire Options dword 9
+regdel "HKCU\Software\xp-cards\Solitaire HD"
+setenv SOLHD_TIME 64
+launch ${REPO}/build/SolitaireHD.exe
+sync                                          # (in its message loop before the first command)
+move_window 0 120
+resize_client 1264 854
+assert_client_size 1264 854
+
+# ---- Options: the two new check boxes, off by default ---------------------------------------------------
+command 1003
+wait_dialog Options
+dialog_text
+assert_dialog_text "[340] Button \"Tell me when there are no mo&re moves\" [ ]"
+assert_dialog_text "[341] Button \"A&pply option changes to the next game\" [ ]"
+capture_dialog 80_options_2c.bmp
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" NoMoreMoves 0
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" NextGameOptions 0
+
+# ---- Hint cycling: AC home, AH home, AC onto 2H, 4S onto 5D, draw, then AC home again ----------------------
+assert_pixel 929 381 FFFFFF                   # AC (col 6), white
+key h
+wait_pixel 929 381 000000 40 3000             # AC flashes ...
+wait_pixel 600 60 FF7FFF 40 3000              # ... then the empty foundation 1
+key h                                         # again, during the flash: the next move
+wait_pixel 32 381 000000 40 3000              # AH (col 1)
+wait_pixel 600 60 FF7FFF 40 3000
+capture 81_hint_second.bmp
+key h
+wait_pixel 929 381 000000 40 3000             # AC again, now onto 2H (col 7)
+wait_pixel 1094 400 000000 40 3000
+key h
+wait_pixel 209 381 000000 40 3000             # 4S (col 2) ...
+wait_pixel 740 400 000000 40 3000             # ... onto 5D (col 5)
+key h
+wait_pixel 277 120 FF7FFF 40 4000             # the draw: the stock, then the empty waste
+key h
+wait_pixel 929 381 000000 40 3000             # wrapped: AC home
+wait_pixel 600 60 FF7FFF 40 3000
+key h
+wait_pixel 32 381 000000 40 3000              # AH
+click 640 800                                 # other input: the next Hint is the best again
+key h
+wait_pixel 929 381 000000 40 3000
+wait_pixel 600 60 FF7FFF 40 3000
+wait 1700                                     # the flash is over; nothing moved
+assert_pixel 929 381 FFFFFF
+assert_pixel 600 60 008000
+assert_menu 1001 grayed
+
+# ---- Statistics: the High Scores box (reset first: other scenarios played games) ---------------------------
+vkey F4
+wait_dialog "Solitaire Statistics"
+dialog_click 333
+wait_dialog Solitaire
+dialog_click Yes
+wait_dialog "Solitaire Statistics"
+dialog_text
+assert_dialog_text "[335] Static \"Timed games:\n1.\n2.\n3.\n4.\n5.\nNot timed:\n1.\n2.\n3.\n4.\n5.\""
+assert_dialog_text "[336] Static \"\n-\n-\n-\n-\n-\n\n-\n-\n-\n-\n-\""
+capture_dialog 82_statistics_high_scores.bmp
+dialog_click OK
+close                                         # nothing played: no question, nothing lost
+
+# ---- No More Moves (deal 147): Return to Game, Hint, Undo, then End Game -------------------------------------
+setenv SOLHD_TIME 147
+launch ${REPO}/build/SolitaireHD.exe
+sync
+assert_client_size 1264 854
+command 1003
+wait_dialog Options
+dialog_check 340 1                            # Tell me when there are no more moves
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" NoMoreMoves 1
+key dddddddd                                  # the whole stock, three at a time: nothing useful shows
+assert_no_dialog
+key d                                         # the recycle: back where the cycle began
+wait_dialog "No More Moves"
+dialog_text
+assert_dialog_text "There are no more moves. What do you want to do?"
+assert_dialog_text "[350] Button \"&End Game (counts as a loss)\" (default)"
+assert_dialog_text "[351] Button \"&Return to Game (use Undo)\""
+capture_dialog 83_no_more_moves.bmp
+dialog_click "Return to Game (use Undo)"
+assert_no_dialog
+assert_menu 1001 enabled
+key h                                         # Hint knows it too
+wait_dialog Solitaire
+assert_dialog_text "There are no more useful moves."
+capture_dialog 84_no_useful_moves.bmp
+dialog_click OK
+key d
+key d
+assert_no_dialog                              # asked once for this dead end
+vkey Z ctrl                                   # Undo: the tracking starts over ...
+vkey Z ctrl
+vkey Z ctrl
+key dddddddd
+assert_no_dialog
+key d                                         # ... and a whole cycle later the question again
+wait_dialog "No More Moves"
+dialog_click "End Game (counts as a loss)"
+wait_dialog Solitaire
+assert_dialog_text "Deal Again?"
+dialog_click No
+assert_no_dialog
+assert_menu 1001 grayed                       # the game is over: the table stays, frozen
+assert_menu 1102 grayed
+capture 85_end_game.bmp
+vkey F4
+wait_dialog "Solitaire Statistics"
+dialog_text
+assert_dialog_text "[330] ComboBox \"Draw Three, Standard\""
+assert_dialog_text "[332] Static \"1\n0\n0%\n1 loss\n0\n1\n-\n0\""
+assert_dialog_text "[336] Static \"\n-\n-\n-\n-\n-\n\n0\n-\n-\n-\n-\""
+assert_dialog_text "1970"                     # the date of the game (SOLHD_TIME 147: 1 Jan 1970)
+capture_dialog 86_statistics_loss.bmp
+dialog_click OK
+
+# ---- Save game on exit: the Windows 7 questions ----------------------------------------------------------------
+command 1003
+wait_dialog Options
+dialog_check 325 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" SaveGame 1
+vkey F2                                       # after the end: dealt at once (deal 148)
+assert_no_dialog
+assert_pixel 277 120 008000                   # the waste empty
+key d                                         # a game in progress
+assert_pixel 277 120 FFFFFF
+vkey F2
+wait_dialog "Game in Progress"
+dialog_text
+assert_dialog_text "A game is in progress. What do you want to do?"
+assert_dialog_text "[350] Button \"&Quit and Start a New Game (counts as a loss)\" (default)"
+assert_dialog_text "[351] Button \"&Restart This Game\""
+assert_dialog_text "[352] Button \"&Keep Playing\""
+capture_dialog 87_game_in_progress.bmp
+dialog_click "Keep Playing"
+assert_no_dialog
+assert_pixel 277 120 FFFFFF                   # nothing changed
+vkey F2
+wait_dialog "Game in Progress"
+dialog_click "Restart This Game"
+assert_no_dialog
+assert_pixel 277 120 008000                   # the same deal from its start
+assert_menu 1001 grayed
+key d
+close none                                    # Exit: asked
+wait_dialog "Exit Game"
+dialog_text
+assert_dialog_text "[350] Button \"Exit and &Save My Game\" (default)"
+assert_dialog_text "[351] Button \"Exit and &Don't Save (counts as a loss)\""
+assert_dialog_text "[352] Button \"Do&n't Exit\""
+capture_dialog 88_exit_game.bmp
+dialog_click "Don't Exit"
+assert_no_dialog
+assert_running
+close "Exit and Save My Game"
+
+launch ${REPO}/build/SolitaireHD.exe
+sync
+wait_dialog "Saved Game Found"
+dialog_text
+assert_dialog_text "You have a saved game. What do you want to do?"
+assert_dialog_text "[350] Button \"&Continue Saved Game\" (default)"
+assert_dialog_text "[351] Button \"&Play New Game (counts as a loss)\""
+capture_dialog 89_saved_game_found.bmp
+dialog_click "Continue Saved Game"
+assert_no_dialog
+assert_pixel 277 120 FFFFFF                   # the saved game: three cards drawn
+assert_menu 1001 enabled
+vkey F2
+wait_dialog "Game in Progress"
+dialog_click "Quit and Start a New Game (counts as a loss)"
+assert_no_dialog
+assert_pixel 277 120 008000                   # a new deal
+vkey F4
+wait_dialog "Solitaire Statistics"
+assert_dialog_text "[332] Static \"2\n0\n0%\n2 losses\n0\n2\n-\n0\""
+dialog_click OK
+
+# ---- Apply option changes to the next game: Draw One waits while this game goes on -----------------------------
+command 1003
+wait_dialog Options
+dialog_check 341 1
+dialog_click OK
+assert_reg "HKCU\Software\xp-cards\Solitaire HD" NextGameOptions 1
+key d                                         # a game in progress (three cards: the fan reaches x 400)
+assert_pixel 400 120 FFFFFF
+command 1003
+wait_dialog Options
+dialog_click 300                              # Draw One
+dialog_click OK
+wait_dialog "Changed Game Settings"
+dialog_text
+assert_dialog_text "The new settings apply to your next game. What do you want to do?"
+assert_dialog_text "[350] Button \"&Play New Game (counts as a loss)\" (default)"
+assert_dialog_text "[351] Button \"&Finish This Game\""
+capture_dialog 90_changed_settings.bmp
+dialog_click "Finish This Game"
+assert_no_dialog
+assert_reg HKCU\Software\Microsoft\Solitaire Options 1      # written at once (0x01: Draw One)
+key d                                         # still Draw Three
+assert_pixel 400 120 FFFFFF
+command 1003
+wait_dialog Options
+assert_dialog_text "[300] Button \"Draw &One\" [x]"   # the dialog shows the settings to come
+dialog_click Cancel
+vkey F2
+wait_dialog "Game in Progress"
+dialog_click "Quit and Start a New Game (counts as a loss)"
+key d                                         # the next game: Draw One (one card, the fan ends at x 354)
+assert_pixel 400 120 008000
+assert_pixel 277 120 FFFFFF
+capture 91_next_game_draw_one.bmp
+close "Exit and Don't Save (counts as a loss)"
+
+launch ${REPO}/build/SolitaireHD.exe
+sync
+wait 300
+assert_no_dialog                              # nothing saved: a new deal, no question
+assert_pixel 277 120 008000
+command 1003                                  # the extras off again (and no saved game left behind)
+wait_dialog Options
+dialog_check 325 0
+dialog_check 340 0
+dialog_check 341 0
+dialog_click OK
+close
+regdump "HKCU\Software\xp-cards\Solitaire HD"

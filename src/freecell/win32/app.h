@@ -35,6 +35,7 @@
 
 struct SolveJob;
 #define FC_TIMER_CLOCK  10               /* extra: once-a-second refresh of "Time: m:ss" in the menu bar */
+#define FC_TIMER_PULSE  11               /* 2d, Enhanced animations: frames of the hint's soft pulse */
 
 typedef struct App {
     HINSTANCE  inst;
@@ -58,10 +59,23 @@ typedef struct App {
     FcView     drawn_view;
     int        dirty, sync_posted;
 
-    /* animation: the card in flight is hidden (or, for a buried source, removed from a copy) */
-    int        hide_col, hide_pos;
-    int        use_anim_board;
+    /* animation (2d): the cards in the air (engine/win32/anim.h). The back buffer shows the board
+     * without them: a card not yet moved in the session's board is hidden at its source (a buried one
+     * removed from the copy anim_board), one already moved is hidden at its destination (FcView hide_*) */
+    CeFlights  fl;
+    unsigned   fl_gen;          /* layout_gen when the flights began (a new layout drops them) */
     FcBoard    anim_board;
+    unsigned   drawn_deals;     /* s.as.deals when the back buffer was last synced (a new deal: its animation) */
+    int        anim_slow;       /* test hook FCHD_ANIM_SLOW: every animation that many times slower (1) */
+
+    /* 2d: the Finish button on the table (shown while Game > Finish is enabled), its look as drawn */
+    CeTableButton fbtn;
+    int        finish_avail;
+    int        btn_drawn;       /* 0: not in the back buffer; 1 + hot + 2 pressed */
+
+    /* 2d, Enhanced animations: the hint's pulse (the cell / cards it fades in or out on) */
+    int        pulse_col, pulse_pos, pulse_from, pulse_to, pulse_timer;
+    DWORD      pulse_t0;
 
     /* cursors */
     HCURSOR    cur_arrow, cur_down, cur_up, cur_wait, cur_busy, cursor;   /* busy: IDC_APPSTARTING */
@@ -108,7 +122,11 @@ void   view_sync(App *a);                            /* render what changed, inv
 void   view_sync_now(App *a);                        /* view_sync + UpdateWindow */
 void   view_paint(App *a);                           /* WM_PAINT */
 void   view_animate_step(App *a, const FcStep *st, int forward);
-void   view_anim_idle(App *a);                      /* no more flights for now: timer back to normal */
+void   view_anim_idle(App *a);                      /* the cards in the air land; then the timer back to normal */
+void   view_anim_drop(App *a);                      /* forget the cards in the air (the window is going) */
+void   view_pulse_tick(App *a);                     /* FC_TIMER_PULSE */
+int    view_button_mouse(App *a, UINT m, LPARAM lp); /* the Finish button's mouse; 1 = it took the message */
+void   view_finish_avail(App *a, int on);           /* Game > Finish enabled or not (the button) */
 void   view_mouse_move(App *a, int x, int y);
 int    view_drag_begin(App *a, int col, int first, int px, int py);   /* lift the cards (v1.4) */
 void   view_drag_move(App *a, int x, int y);         /* the lifted cards follow the pointer */

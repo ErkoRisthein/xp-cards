@@ -43,7 +43,7 @@ static DWORD launched_pid[32];
 static int nlaunched;
 static HMODULE hookdll;
 static UINT msg_op, msg_sync;
-static int timeout_ms = 10000, settle_ms = 100, verbose, keep, cap_method;
+static int timeout_ms = 10000, settle_ms = 100, verbose, keep, cap_method, async_input;
 static WCHAR outdir[MAX_PATH];
 static WCHAR launch_dir[MAX_PATH];
 static WPARAM buttons;           /* MK_* flags currently held (for move) */
@@ -290,9 +290,11 @@ static int sync_target(int quiet)
     return err(L"target did not reach its message loop within %d ms", timeout_ms);
 }
 
+/* After an input: wait until the target has dispatched it (async on: only the settle delay, so a capture
+ * can catch what the input started, e.g. a card in flight; the target answers captures while it animates). */
 static void settle(void)
 {
-    sync_target(1);
+    if (!async_input) sync_target(1);
     if (settle_ms > 0) Sleep((DWORD)settle_ms);
 }
 
@@ -529,6 +531,14 @@ static int c_set_int(int argc, WCHAR **argv)
     return 0;
 }
 
+static int c_async(int argc, WCHAR **argv)
+{
+    if (!wcscmp(argv[1], L"on")) async_input = 1;
+    else if (!wcscmp(argv[1], L"off")) async_input = 0;
+    else return err(L"async: on or off");
+    return 0;
+}
+
 static int c_capture_method(int argc, WCHAR **argv)
 {
     if (!wcscmp(argv[1], L"dc")) cap_method = 0;
@@ -703,6 +713,7 @@ static int post_mouse(const WCHAR *what, int argc, WCHAR **argv)
 }
 static int c_click(int argc, WCHAR **argv) { return post_mouse(L"du", argc, argv); }
 static int c_dblclick(int argc, WCHAR **argv) { return post_mouse(L"duDu", argc, argv); }
+static int c_ldblclk(int argc, WCHAR **argv) { return post_mouse(L"Du", argc, argv); }
 static int c_ldown(int argc, WCHAR **argv) { return post_mouse(L"d", argc, argv); }
 static int c_lup(int argc, WCHAR **argv) { return post_mouse(L"u", argc, argv); }
 static int c_rdown(int argc, WCHAR **argv) { return post_mouse(L"r", argc, argv); }
@@ -837,7 +848,8 @@ static int c_vkey(int argc, WCHAR **argv)
     for (long r = 1; r < repeat; r++)               /* auto-repeat: the previous-state bit (30) set */
         PostMessageW(h, alt ? WM_SYSKEYDOWN : WM_KEYDOWN, (WPARAM)vk, down | 0x40000000);
     PostMessageW(h, alt ? WM_SYSKEYUP : WM_KEYUP, (WPARAM)vk, up);
-    int rc = sync_target(0);
+    if (async_input && (shift || ctrl || alt)) return err(L"vkey: modifiers need async off");
+    int rc = async_input ? 0 : sync_target(0);
     if (shift || ctrl || alt) {
         T.ipc->arg[0] = 0;
         HWND h2 = IsWindow(h) ? h : T.hwnd;
@@ -1279,6 +1291,7 @@ static const struct cmd {
     {L"sync", 0, 0, c_sync, L"wait until the target has processed all posted input"},
     {L"timeout", 1, 1, c_set_int, L"<ms>  timeout for waits (default 10000)"},
     {L"settle", 1, 1, c_set_int, L"<ms>  extra delay after each input (default 100)"},
+    {L"async", 1, 1, c_async, L"on|off  inputs return without waiting for the target (captures mid-animation; sync waits)"},
     {L"echo", 0, 30, c_echo, L"<text...>  print text"},
     {L"info", 0, 0, c_info, L"print window/client geometry, class, title, state"},
     {L"title", 0, 0, c_title, L"print the main window title"},
@@ -1292,6 +1305,7 @@ static const struct cmd {
     {L"command", 1, 1, c_command, L"<id>  post WM_COMMAND id (menu item / accelerator)"},
     {L"click", 2, 2, c_click, L"<x> <y>  left click at client coordinates"},
     {L"dblclick", 2, 2, c_dblclick, L"<x> <y>  left double click"},
+    {L"ldblclk", 2, 2, c_ldblclk, L"<x> <y>  a double click's second press alone (WM_LBUTTONDBLCLK, then up)"},
     {L"ldown", 2, 2, c_ldown, L"<x> <y>  left button down"},
     {L"lup", 2, 2, c_lup, L"<x> <y>  left button up"},
     {L"rclick", 2, 2, c_rclick, L"<x> <y>  right button down + up"},

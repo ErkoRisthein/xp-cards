@@ -215,7 +215,7 @@ static uint32_t st_hash(const uint8_t *st)          /* MurmurHash3-style, byte o
  * (they must move before it can go home), less for those resting on their natural parent (they can
  * move with it in one supermove); the cards covering the next card each home pile needs; occupied
  * free cells; minus empty columns. */
-static int heuristic(const FcSolver *sv, const uint8_t *st)
+static int heuristic(const int *w, const uint8_t *st)
 {
     int left = 52 - st[ST_HOME] - st[ST_HOME + 1] - st[ST_HOME + 2] - st[ST_HOME + 3];
     int occupied = (st[0] != ST_NONE) + (st[1] != ST_NONE) + (st[2] != ST_NONE) + (st[3] != ST_NONE);
@@ -240,7 +240,6 @@ static int heuristic(const FcSolver *sv, const uint8_t *st)
             cols++;
         }
     }
-    const int *w = sv->w;
     int h = w[W_LEFT] * left + w[W_BLOCK] * blockers + w[W_SEQ] * seq + w[W_DEPTH] * depth +
             w[W_FREE] * occupied - w[W_EMPTY] * (8 - cols);
     return h > 0 ? h : 0;
@@ -560,7 +559,7 @@ int fc_solve(FcSolver *sv, const FcBoard *start, int std, const volatile int *ca
     sv->nodes[root].parent = NIL;
     sv->nodes[root].move = 0;
     sv->nodes[root].g = 0;
-    push(sv, root, heuristic(sv, st));
+    push(sv, root, heuristic(sv->w, st));
     int root_autoplay = needs_autoplay(start);
 
     Cand cand[FC_SOLVE_MAX_MOVES];
@@ -594,7 +593,7 @@ int fc_solve(FcSolver *sv, const FcBoard *start, int std, const volatile int *ca
             nd->parent = idx;
             nd->move = c->pm;
             nd->g = (uint16_t)g;
-            push(sv, k, g * sv->w[W_G] + heuristic(sv, st));
+            push(sv, k, g * sv->w[W_G] + heuristic(sv->w, st));
         }
     }
 done:
@@ -611,6 +610,13 @@ int fc_solve_moves(const FcBoard *b, int std, FcSolveMove *out)
     int n = generate(b, std != 0, needs_autoplay(b), cand);
     for (int i = 0; i < n; i++) to_move(&cand[i], &out[i]);
     return n;
+}
+
+int fc_solve_estimate(const FcBoard *b)
+{
+    uint8_t st[ST_BYTES];
+    encode(b, st);
+    return heuristic(default_w, st);
 }
 
 int fc_solve_play(FcBoard *b, const FcSolveMove *m, int std)

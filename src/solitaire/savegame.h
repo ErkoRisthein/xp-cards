@@ -19,7 +19,9 @@
  *   Version 1 (Solitaire HD 1.1) is read too: no group, no nauto (none).
  * Rejected as a whole when damaged (magic, version, lengths, CRC, a board that is not a Klondike
  * position, values out of range), and ignored when it was saved with other Options than the current
- * ones (Draw, Scoring or Timed game changed meanwhile, e.g. by XP's sol.exe, which shares them).
+ * ones (Draw, Scoring or Timed game changed meanwhile, e.g. by XP's sol.exe, which shares them) -
+ * unless "Apply option changes to the next game" (2c) is on: then the game goes on with its own Draw,
+ * Scoring and Timed game, and the current ones wait for the next deal (SolSession.pend_opts).
  */
 #ifndef SOL_SAVEGAME_H
 #define SOL_SAVEGAME_H
@@ -37,8 +39,9 @@ enum { SOL_LOAD_NONE = 0, SOL_LOAD_OK = 1, SOL_LOAD_DAMAGED = -1, SOL_LOAD_OTHER
 /* The game in progress as a file image (malloc'ed, free it); 0 if there is none (nothing dealt, or the
  * game is won) or no memory. */
 int sol_game_serialize(const SolSession *s, uint8_t **out, size_t *len);
-/* Restore an image into s (sol_init'ed, a game dealt or not): SOL_LOAD_OK, SOL_LOAD_DAMAGED or
- * SOL_LOAD_OTHER_OPTIONS (s unchanged). A game in progress in s is replaced without a result. */
+/* Restore an image into s (sol_init'ed, a game dealt or not, its extras set): SOL_LOAD_OK,
+ * SOL_LOAD_DAMAGED or SOL_LOAD_OTHER_OPTIONS (s unchanged). A game in progress in s is replaced without
+ * a result. */
 int sol_game_restore(SolSession *s, const uint8_t *data, size_t len);
 
 /* Through io: save writes the game, or an empty file when there is none (so a stale game is never

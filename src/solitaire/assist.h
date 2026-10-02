@@ -22,14 +22,26 @@
  *    7. a run moved off a card that can then go to a foundation (the only use of a "sideways" move),
  *       never onto a card that could go to a foundation itself (no progress; it would move back)
  *    8. the waste's card to the tableau (a king to an empty column)
- *    9. a run that empties a column while a king is waiting for it (on the waste, or heading a run on
+ *    9. a foundation's top card taken down onto the tableau so that the waste's card, or a run lying on
+ *       face-down cards, can go onto it (2c; moving a run sideways for that never helps: a card of the
+ *       same rank and colour could go straight where the run would go)
+ *   10. a run that empties a column while a king is waiting for it (on the waste, or heading a run on
  *       face-down cards)
- *   10. any other tableau card to a foundation
- *   11. draw from the stock
- *   12. turn the waste back into the stock (the pass limit allowing)
- * Never suggested: a card from a foundation back down, a sideways run move that frees nothing, a king's
- * run that already heads its column moved to another empty column, emptying a column no visible king
- * can use. When nothing is left: none (the session says "No hint is available.").
+ *   11. any other tableau card to a foundation
+ *   12. draw from the stock
+ *   13. turn the waste back into the stock (the pass limit allowing)
+ * Never suggested: a card from a foundation back down (except as 9), a sideways run move that frees
+ * nothing, a king's run that already heads its column moved to another empty column, emptying a column
+ * no visible king can use. When nothing is left: none (the session says "No hint is available.").
+ * Classes 1 to 11 are the USEFUL moves (sol_useful_move): what the "No More Moves" extra and the
+ * hint's "There are no more useful moves." look for; draws and recycles are not.
+ *
+ * HINT CYCLING (2c, sol_hint_list): every candidate above, one per source card (its destination as the
+ * ranking picks it: the leftmost), best first: by class, then more face-down cards under the source,
+ * then XP's pile order (the order the candidates are found in: turns, cards home from the waste then the
+ * columns, column runs by column and card, the waste's card to the tableau, the foundations' cards of
+ * class 9, the stock). Pressing Hint again while the previous hint is current shows the next one; after the last
+ * (the draw or the recycle, when there is one) it wraps to the first. sol_hint_find is its first.
  *
  * CLICK-TO-MOVE (sol_click_dest), the destination of a click on a movable card (the cards from it to
  * the top of its pile):
@@ -64,8 +76,10 @@ enum { SOL_HINT_NONE = 0, SOL_HINT_TURN = 1, SOL_HINT_DRAW = 2, SOL_HINT_RECYCLE
 
 /* The hint's classes (1 = best; see the ranking above). */
 enum { SOL_HC_TURN = 1, SOL_HC_LOW_HOME = 2, SOL_HC_SAFE_HOME = 3, SOL_HC_HOME_REVEAL = 4, SOL_HC_REVEAL = 5,
-       SOL_HC_WASTE_HOME = 6, SOL_HC_FREE_HOME = 7, SOL_HC_WASTE_TAB = 8, SOL_HC_EMPTY_COL = 9,
-       SOL_HC_HOME = 10, SOL_HC_DRAW = 11, SOL_HC_RECYCLE = 12 };
+       SOL_HC_WASTE_HOME = 6, SOL_HC_FREE_HOME = 7, SOL_HC_WASTE_TAB = 8, SOL_HC_DOWN = 9,
+       SOL_HC_EMPTY_COL = 10, SOL_HC_HOME = 11, SOL_HC_DRAW = 12, SOL_HC_RECYCLE = 13 };
+#define SOL_HC_USEFUL SOL_HC_HOME        /* classes 1..SOL_HC_USEFUL are useful moves */
+#define SOL_HINT_MAX  256                /* sol_hint_list: more candidates than any position has */
 
 typedef struct SolHintMove {
     int kind;           /* SOL_HINT_* */
@@ -78,6 +92,11 @@ typedef struct SolHintMove {
 /* The best move on b by the ranking above. recycle_ok: the waste may be turned back now (the pass
  * limit; session.c recycle_allowed). Returns 1, or 0 with kind SOL_HINT_NONE. */
 int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out);
+/* Every candidate, best first (HINT CYCLING above); at most max (SOL_HINT_MAX holds them all). Returns
+ * the number; out[0] is sol_hint_find's move. */
+int sol_hint_list(const SolBoard *b, int recycle_ok, SolHintMove *out, int max);
+/* A useful move (classes 1..SOL_HC_USEFUL) exists on b: anything but a draw or a recycle. Fair. */
+int sol_useful_move(const SolBoard *b);
 
 /* Where a click on card index of pile sends the cards index..top (see above); -1: nowhere. */
 int sol_click_dest(const SolBoard *b, int pile, int index);

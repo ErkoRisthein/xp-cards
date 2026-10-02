@@ -1,6 +1,7 @@
 # FreeCell HD v1.2 extras end to end (the solver): Hint (key H) on game #1 - the source card flashes
 # inverted twice, then the destination (here an empty free cell) twice, captured mid-flash, with nothing
-# moved or selected afterwards; following the hint, the next one comes at once (the cached solution).
+# moved or selected afterwards; H again shows the next-best move (2c: hint cycling); following the hint,
+# the next one comes at once (the cached solution).
 # The unwinnable warning (Options > Extras): game #1 made unwinnable in three moves warns once, a fourth
 # move does not, Undo back to a winnable position and Redo warns again; the deal #11982 "cannot be
 # won"; Hint there says "There are no more winning moves.". Finish (F6) is grayed until the position is
@@ -66,6 +67,16 @@ assert_pixel 930 547 FFFFFF               # over: nothing selected, nothing move
 assert_pixel 71 96 007F00
 assert_menubar_text "Moves: 0    Time: 0:00    Cards Left: 52"
 capture 63_hint_over.bmp
+key h                                     # 2c: H again while the hint is current: the next-best move,
+wait_pixel 647 493 000000 40 3000         # 6C (column 5) -> free cell 1 ...
+wait_pixel 71 96 FF80FF 40 3000
+key h                                     # ... and the next: 8C (column 7) -> free cell 1
+wait_pixel 959 493 000000 40 3000
+capture 63b_hint_next.bmp
+wait_pixel 71 96 FF80FF 40 3000
+wait 1700
+assert_pixel 647 493 FFFFFF               # nothing moved
+assert_pixel 959 493 FFFFFF
 click 866 220                             # follow it: 3D -> free cell 1
 click 71 96
 assert_menubar_text "Moves: 1"

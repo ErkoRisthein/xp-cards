@@ -1517,8 +1517,9 @@ static void test_extras_store(void)
     SolExtras x;
     sol_extras_load(&x, &st);
     CHECK(!x.auto_turn && !x.click_move && !x.auto_finish && !x.winnable_only && !x.save_game && !x.warn_unwinnable &&
-          !x.auto_home && !x.click_select);
+          !x.auto_home && !x.click_select && !x.no_more_moves && !x.next_game_options && !x.enhanced_anim);
     x.auto_turn = 1;
+    x.next_game_options = 1;
     x.save_game = 5;
     x.click_select = 1;
     sol_extras_save(&x, &st);
@@ -1527,10 +1528,14 @@ static void test_extras_store(void)
     CHECK_EQ(r.val[reg_find(&r, "ClickToMove")].v, 0);
     CHECK_EQ(r.val[reg_find(&r, "AutoHome")].v, 0);
     CHECK_EQ(r.val[reg_find(&r, "ClickSelect")].v, 1);
-    CHECK_EQ(r.n, 8);
+    CHECK_EQ(r.val[reg_find(&r, "NoMoreMoves")].v, 0);         /* 2c */
+    CHECK_EQ(r.val[reg_find(&r, "NextGameOptions")].v, 1);
+    CHECK_EQ(r.val[reg_find(&r, "EnhancedAnimations")].v, 0);  /* 2d */
+    CHECK_EQ(r.n, 11);
     SolExtras y;
     sol_extras_load(&y, &st);
-    CHECK(y.auto_turn && y.save_game && !y.click_move && !y.warn_unwinnable && !y.auto_home && y.click_select);
+    CHECK(y.auto_turn && y.save_game && !y.click_move && !y.warn_unwinnable && !y.auto_home && y.click_select &&
+          !y.no_more_moves && y.next_game_options);
     /* the session never writes them into XP's key */
     SolSession s;
     Fake f;
@@ -1539,6 +1544,42 @@ static void test_extras_store(void)
     sol_set_extras(&s, &y);
     CHECK_EQ(xr.nset, 0);
     sol_free(&s);
+}
+
+/* 2d, "Enhanced animations": the double-click and the right button's autoplay fly their cards (the view's
+ * animate_move, before each move); off, as XP, nothing is flown; the result and the history are the same. */
+static void test_enhanced_flights(void)
+{
+    SolSession s, t;
+    Fake f, g;
+    Reg r, q;
+    for (int on = 0; on < 2; on++) {
+        start(&s, &f, &r, 0x01, 1);
+        board(&s, F(0), "AH", T(0), "#9C 2H", T(1), "3S", T(2), "#4C AD", T(3), "#5C AS", -1);
+        extra_set(&s, &s.extras.enhanced_anim, on);
+        CHECK_EQ(sol_dblclick(&s, T(0), 1, 0), SOL_PRESS_DONE);  /* 2H home */
+        CHECK(pile_is(&s.board, F(0), "AH 2H"));
+        CHECK_EQ(f.nanim, on);
+        if (on)
+            CHECK(f.anim[0][0] == T(0) && f.anim[0][1] == F(0));
+        CHECK(sol_autoplay(&s) == 2);                            /* AD, AS */
+        CHECK_EQ(f.nanim, 3 * on);
+        if (on)
+            CHECK(f.anim[1][0] == T(2) && f.anim[2][0] == T(3));
+        CHECK_EQ(s.nhist, 2);
+        CHECK(!s.busy);
+        if (on) {                                                /* the same game as without the option */
+            start(&t, &g, &q, 0x01, 1);
+            board(&t, F(0), "AH", T(0), "#9C 2H", T(1), "3S", T(2), "#4C AD", T(3), "#5C AS", -1);
+            sol_dblclick(&t, T(0), 1, 0);
+            sol_autoplay(&t);
+            CHECK(sol_board_equal(&s.board, &t.board));
+            CHECK_EQ(s.score, t.score);
+            CHECK_EQ(g.nanim, 0);
+            sol_free(&t);
+        }
+        sol_free(&s);
+    }
 }
 
 int main(void)
@@ -1560,5 +1601,6 @@ int main(void)
     test_click_select();
     test_undo_all();
     test_save_v1();
+    test_enhanced_flights();
     return test_summary("test_sol_extras");
 }

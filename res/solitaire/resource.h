@@ -37,7 +37,15 @@
  * window's client origin */
 #define IDD_DECK            101     /* "Select Card Back" */
 #define IDD_OPTIONS         103     /* "Options" */
-#define IDD_STATS           105     /* "Solitaire Statistics" (extra, v1.1) */
+#define IDD_STATS           105     /* "Solitaire Statistics" (extra, v1.1; v2c adds "High Scores") */
+/* The Windows 7-style questions (2c): id = the session's SOL_ASK_* (src/solitaire/session.h); XP-styled
+ * (MS Shell Dlg 8, the question icon, push buttons stacked under the text, the first the default);
+ * button k = IDC_CHOICE0 + k = answer k; Esc / the close box gives the safe answer */
+#define IDD_NOMOVES         1130    /* "No More Moves": End Game / Return to Game (use Undo) */
+#define IDD_NEWGAME         1131    /* "Game in Progress": Quit and Start a New Game / Restart / Keep Playing */
+#define IDD_EXITGAME        1132    /* "Exit Game": Exit and Save My Game / Exit and Don't Save / Don't Exit */
+#define IDD_SAVEDGAME       1133    /* "Saved Game Found": Continue Saved Game / Play New Game */
+#define IDD_SETTINGS        1134    /* "Changed Game Settings": Play New Game / Finish This Game */
 
 /* Select Card Back: the 12 owner-drawn buttons. A button's id is XP's cards.dll back id 54..65 = back
  * index + IDC_BACK0 (render.h SOL_NBACKS); rows 54 55 60 61 58 59 / 56 57 62 63 64 65 as XP's. */
@@ -65,11 +73,23 @@
 #define IDC_WARNUNWINNABLE  326     /* "&Warn when the game can't be won" (WarnUnwinnable) */
 #define IDC_AUTOHOME        327     /* "Move cards &home automatically" (AutoHome, v1.2) */
 #define IDC_CLICKSELECT     328     /* "Click to select, click to &move" (ClickSelect, v1.2) */
+#define IDC_NOMOREMOVES     340     /* "Tell me when there are no mo&re moves" (NoMoreMoves, 2c) */
+#define IDC_NEXTGAMEOPTS    341     /* "A&pply option changes to the next game" (NextGameOptions, 2c) */
+#define IDC_ENHANCEDANIM    342     /* "Enhanced animations" (EnhancedAnimations, 2d) */
 /* Statistics */
 #define IDC_STATS_MODE      330     /* the mode: a drop-down list, the current game's mode first selected */
 #define IDC_STATS_LABELS    331     /* the labels (IDS_STATS_LABELS) */
 #define IDC_STATS_VALUES    332     /* the values (src/solitaire/stats.h sol_stats_format) */
 #define IDC_STATS_RESET     333     /* "&Reset": all modes, after IDS_RESETSTATS */
+#define IDC_STATS_TOP_LABELS 335    /* 2c, "High Scores": the labels (stats.h sol_stats_format_top) */
+#define IDC_STATS_TOP_VALUES 336    /* the scores and the money */
+#define IDC_STATS_TOP_DATES  337    /* the dates (GetDateFormat, the user's short date) */
+/* The questions (IDD_NOMOVES ..): the answers' buttons and the icon */
+#define IDC_CHOICE0         350
+#define IDC_CHOICE1         351
+#define IDC_CHOICE2         352
+#define IDC_CHOICE_ICON     353
+#define IDC_CHOICE_TEXT     354
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif
@@ -92,9 +112,11 @@
 #define IDS_MSG_UNWINNABLE  1111    /* "This game can no longer be won. Use Undo to go back." */
 #define IDS_MSG_UNWINNABLE_DEAL 1112 /* "This game cannot be won." */
 #define IDS_MSG_UNDOALL     1113    /* "Do you want to undo all your moves ..." (v1.2) */
+#define IDS_MSG_NOUSEFUL    1114    /* "There are no more useful moves." (2c) */
 #define IDS_STATS_MODE0     1120    /* "Draw One, Standard" .. 1125 "Draw Three, None" (stats.h's modes) */
 #define IDS_STATS_LABELS    1126    /* the labels, one per line */
 #define IDS_RESETSTATS      1127    /* "Are you sure you want to delete all statistics?" */
+#define IDS_FINISHBTN       1128    /* "Finish": the push button on the table (2d) */
 
 #ifndef RC_INVOKED
 #define RES_ACCEL           L"HiddenAccel"   /* XP loads its accelerators by this name */

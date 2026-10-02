@@ -51,6 +51,8 @@
 /* Extra controls (v1.4) */
 #define IDC_SINGLECLICK     228     /* Options: "Single &click moves a card" */
 #define IDC_DRAGDROP        229     /* Options: "D&rag and drop cards" */
+/* Extra controls (2d) */
+#define IDC_ENHANCEDANIM    230     /* Options: "&Enhanced animations" */
 #ifndef IDC_STATIC
 #define IDC_STATIC          (-1)
 #endif
@@ -86,6 +88,7 @@
 #define IDS_TIME            402     /* "Time: %s" */
 #define IDS_WONBEFORE       403     /* "You have won this game before." */
 #define IDS_WONDEALS        404     /* "Different games won: %u" */
+#define IDS_FINISHBTN       405     /* "Finish": the push button on the table (2d) */
 
 /* RCDATA PNGs: card c (rank*4 + suit) = IDR_CARD0 + c; kings = FC_ASSET_KING_* in sprites.h */
 #define IDR_CARD0           1000

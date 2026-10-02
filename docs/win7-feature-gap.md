@@ -10,13 +10,13 @@ github.com/sun12yyds/Windows7Games_for_Windows_11_10_8; analysed 2026-10-01 by d
 | Win7 feature (quote) | XP | HD today | Verdict |
 |---|---|---|---|
 | Options: "Display animations", "Play sounds", "Show tips", "Always continue saved game", "Always save game on exit" | FreeCell "Quick play" only | FreeCell Quick play ✓; Solitaire save-on-exit ◐ | Save/continue ✓ planned. Sounds/tips: skip. |
-| Exit prompt: "Exit and Save My Game / Exit and Don't Save (counts as a loss) / Don't Exit"; "Saved Game Found: Continue Saved Game / Play New Game"; "You can turn off this prompt in Options" | resign Yes/No | – | Candidate (opt-in, with save-on-exit). |
-| New-game prompt: "Quit and Start a New Game / Restart This Game / Keep Playing" (FreeCell adds "Quit and Choose a Specific Game") | resign Yes/No | – | Candidate: richer prompt only when an extras option is on; XP Yes/No stays default. |
-| "Changed Game Settings: Play New Game / Finish This Game — the new settings apply to your next game" | XP Solitaire redeals immediately | – | Candidate (Solitaire): don't kill the game in progress when changing Draw/Scoring. |
-| "No More Moves: End Game / Return to Game (use UNDO)" — also Solitaire and Spider | FreeCell only | FreeCell ✓ (XP), warning extra ✓ | **Candidate:** Solitaire "no more moves" detection (cycle of the stock with no progress). |
+| Exit prompt: "Exit and Save My Game / Exit and Don't Save (counts as a loss) / Don't Exit"; "Saved Game Found: Continue Saved Game / Play New Game"; "You can turn off this prompt in Options" | resign Yes/No | Solitaire ✓ (2c, with save-on-exit) | Done (opt-in, with save-on-exit). |
+| New-game prompt: "Quit and Start a New Game / Restart This Game / Keep Playing" (FreeCell adds "Quit and Choose a Specific Game") | resign Yes/No | Solitaire ✓ (2c, with save-on-exit) | Done for Solitaire (FreeCell has no saved game: XP's resign question stays). |
+| "Changed Game Settings: Play New Game / Finish This Game — the new settings apply to your next game" | XP Solitaire redeals immediately | ✓ (2c, opt-in) | Done: "Apply option changes to the next game". |
+| "No More Moves: End Game / Return to Game (use UNDO)" — also Solitaire and Spider | FreeCell only | FreeCell ✓ (XP), warning extra ✓, Solitaire ✓ (2c, opt-in) | Done: a whole stock cycle (or the used-up stock) without a useful move; Hint says "There are no more useful moves." |
 | Game Won / Game Lost summary: Score, Time, Time Bonus, Total Score, High Score, Games played/won, Win %, Date | XP: "Deal again?" / win king | – | Candidate: optional stats summary in the win dialog. |
-| Statistics: Games played/won, Win %, Longest winning/losing streak, Current streak, **High Scores table (top 5 with dates)**; Solitaire per mode ("Standard Timed", "Standard Non-Timed", "Vegas") with "Most Money Won / Most Money Lost / Current Winnings"; Spider per difficulty; "Reset" | FreeCell streaks only | FreeCell XP stats ✓; Solitaire stats ◐ | **Candidate:** add the top-5 high-score table + Vegas money stats to Solitaire's Statistics. |
-| Hint (H / menu); debug menus reveal "Toggle Hint Rankings" — hints are ranked and repeated presses cycle | Spider only | FreeCell ✓, Solitaire ◐ | **Candidate:** pressing H again shows the next-best move. |
+| Statistics: Games played/won, Win %, Longest winning/losing streak, Current streak, **High Scores table (top 5 with dates)**; Solitaire per mode ("Standard Timed", "Standard Non-Timed", "Vegas") with "Most Money Won / Most Money Lost / Current Winnings"; Spider per difficulty; "Reset" | FreeCell streaks only | FreeCell XP stats ✓; Solitaire stats ✓ (2c: high scores, money) | Done for Solitaire. |
+| Hint (H / menu); debug menus reveal "Toggle Hint Rankings" — hints are ranked and repeated presses cycle | Spider only | FreeCell ✓, Solitaire ✓, cycling ✓ (2c) | Done: pressing H again shows the next-best move. |
 | Undo: Ctrl+Z, unlimited | single | ✓ | Ctrl+Z alias planned (UX batch). |
 | FreeCell "Select a game number from 1 to 1,000,000 … This will count as a loss" | ✓ | ✓ | — |
 | FreeCell empty-column dialog: "Move All (using available freecells and empty stacks) / Move Single Card / Do Nothing" | Move column (free cells only) | standard-supermove option ✓ | Already covered by the "Standard multi-card moves" option. |
@@ -26,7 +26,7 @@ github.com/sun12yyds/Windows7Games_for_Windows_11_10_8; analysed 2026-10-01 by d
 | Debug menus (not user features): Force Win/Lose, Autoplay, Toggle Allow Any Move | cheats | — | Our cheats follow XP. |
 | Direct3D rendering, "High Resolution Resources", Media Center editions, "Get More Games Online" | – | – | Skip. |
 
-## Suggested additions (all opt-in; defaults stay XP)
+## Suggested additions (all opt-in; defaults stay XP) — done in ROADMAP §2c except 4 (card-art branch)
 1. Solitaire: "no more moves" detection (Win7/MSC) — End Game / Return to Game.
 2. Hint cycling: pressing H again shows the next-best move (both games).
 3. Solitaire statistics: top-5 high scores with dates; Vegas most won/lost/current winnings.

@@ -175,6 +175,10 @@ typedef struct Fake {
     uint32_t solve_id;
     SolBoard solve_board;
     int solve_draw, solve_left;
+    /* 2c */
+    int answer;              /* ui.choose's answer (-1: the session's default) */
+    int nchoose, last_choose;
+    uint32_t today;          /* ui.today */
 } Fake;
 
 static inline void flog(Fake *f, const char *fmt, ...)
@@ -256,6 +260,16 @@ static inline void f_solve(void *ctx, uint32_t id, const SolBoard *b, int draw, 
     f->solve_left = left;
 }
 static inline void f_cancel(void *ctx) { ((Fake *)ctx)->ncancel++; }
+static inline int f_choose(void *ctx, int id, const char *text)
+{
+    Fake *f = ctx;
+    f->nchoose++;
+    f->last_choose = id;
+    flog(f, "choose(%d)->%d;", id, f->answer);
+    (void)text;
+    return f->answer;
+}
+static inline uint32_t f_today(void *ctx) { return ((Fake *)ctx)->today; }
 
 static inline SolSessionUI fake_ui(Fake *f, int with_post)
 {
@@ -275,6 +289,8 @@ static inline SolSessionUI fake_ui(Fake *f, int with_post)
     ui.stats_changed = f_stats;
     ui.solve_start = f_solve;
     ui.solve_cancel = f_cancel;
+    ui.choose = f_choose;
+    ui.today = f_today;
     return ui;
 }
 
@@ -285,6 +301,7 @@ static inline void start(SolSession *s, Fake *f, Reg *r, uint32_t opts, int seed
     memset(r, 0, sizeof *r);
     f->s = s;
     f->now = 1234567;
+    f->answer = -1;
     if (opts) reg_set(r, "Options", opts);
     r->nset = 0;
     SolSessionUI ui = fake_ui(f, 0);

@@ -73,40 +73,58 @@ static int king_waiting(const SolBoard *b)
     return 0;
 }
 
-typedef struct Best {
-    SolHintMove m;
+/* The candidates: the best one (the ranking's first: the lowest class, then the larger tie, then the
+ * first found), and optionally all of them in the order found (sol_hint_list sorts them). */
+typedef struct Acc {
+    SolHintMove m;      /* the best so far */
     int tie;            /* larger first: face-down cards under the move's source */
     int have;
-} Best;
+    SolHintMove *list;  /* NULL: the best only */
+    int *ties;
+    int n, cap;
+} Acc;
 
-static void offer(Best *best, int kind, int src, int index, int dst, int cls, int tie)
+static void offer(Acc *a, int kind, int src, int index, int dst, int cls, int tie)
 {
-    if (best->have && (cls > best->m.cls || (cls == best->m.cls && tie <= best->tie)))
+    if (a->list && a->n < a->cap) {
+        SolHintMove *m = &a->list[a->n];
+        m->kind = kind;
+        m->src = src;
+        m->index = index;
+        m->dst = dst;
+        m->cls = cls;
+        a->ties[a->n++] = tie;
+    }
+    if (a->have && (cls > a->m.cls || (cls == a->m.cls && tie <= a->tie)))
         return;
-    best->have = 1;
-    best->m.kind = kind;
-    best->m.src = src;
-    best->m.index = index;
-    best->m.dst = dst;
-    best->m.cls = cls;
-    best->tie = tie;
+    a->have = 1;
+    a->m.kind = kind;
+    a->m.src = src;
+    a->m.index = index;
+    a->m.dst = dst;
+    a->m.cls = cls;
+    a->tie = tie;
 }
 
-int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out)
+/* Could the face-up card c lie on the face-up tableau card under (one rank lower, the other colour)? */
+static int stacks_on(SolCard c, SolCard under)
 {
-    Best best;
+    return sol_rank(c) + 1 == sol_rank(under) && sol_opposite(c, under);
+}
+
+static void generate(const SolBoard *b, int recycle_ok, Acc *acc)
+{
     int home[4], t, i, d;
-    memset(&best, 0, sizeof best);
     home_counts(b, home);
 
     /* 1. face-down top cards */
     for (t = SOL_TAB0; t < SOL_NPILES; t++) {
         const SolPile *p = &b->p[t];
         if (p->n && !sol_is_up(p->c[p->n - 1]))
-            offer(&best, SOL_HINT_TURN, t, p->n - 1, t, SOL_HC_TURN, p->n);
+            offer(acc, SOL_HINT_TURN, t, p->n - 1, t, SOL_HC_TURN, p->n);
     }
 
-    /* 2-4, 6, 10. cards to the foundations: the waste's, then the columns' tops */
+    /* 2-4, 6, 11. cards to the foundations: the waste's, then the columns' tops */
     for (t = SOL_WASTE; t < SOL_NPILES; t++) {
         const SolPile *p = &b->p[t];
         int f, r, cls;
@@ -129,10 +147,10 @@ int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out)
             else
                 cls = SOL_HC_HOME;
         }
-        offer(&best, SOL_HINT_MOVE, t, p->n - 1, f, cls, sol_is_tab(t) ? first_up(b, t) : 0);
+        offer(acc, SOL_HINT_MOVE, t, p->n - 1, f, cls, sol_is_tab(t) ? first_up(b, t) : 0);
     }
 
-    /* 5, 7, 9. tableau runs onto other columns */
+    /* 5, 7, 10. tableau runs onto other columns */
     {
         int kw = king_waiting(b);
         for (t = SOL_TAB0; t < SOL_NPILES; t++) {
@@ -155,7 +173,7 @@ int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out)
                      * (and the next hint would move the run back) */
                     if (cls == SOL_HC_FREE_HOME && top_fits_home(b, d))
                         continue;
-                    offer(&best, SOL_HINT_MOVE, t, i, d, cls, cls == SOL_HC_REVEAL ? i : 0);
+                    offer(acc, SOL_HINT_MOVE, t, i, d, cls, cls == SOL_HC_REVEAL ? i : 0);
                     break;                                        /* the leftmost destination */
                 }
             }
@@ -168,25 +186,94 @@ int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out)
         if (w->n && sol_is_up(w->c[w->n - 1]))
             for (d = SOL_TAB0; d < SOL_NPILES; d++)
                 if (sol_can_drop(b, d, SOL_WASTE, w->n - 1)) {
-                    offer(&best, SOL_HINT_MOVE, SOL_WASTE, w->n - 1, d, SOL_HC_WASTE_TAB, 0);
+                    offer(acc, SOL_HINT_MOVE, SOL_WASTE, w->n - 1, d, SOL_HC_WASTE_TAB, 0);
                     break;
                 }
     }
 
-    /* 11, 12. the stock */
-    if (b->p[SOL_STOCK].n)
-        offer(&best, SOL_HINT_DRAW, SOL_STOCK, b->p[SOL_STOCK].n - 1, SOL_WASTE, SOL_HC_DRAW, 0);
-    else if (b->p[SOL_WASTE].n && recycle_ok)
-        offer(&best, SOL_HINT_RECYCLE, SOL_STOCK, -1, SOL_WASTE, SOL_HC_RECYCLE, 0);
+    /* 9. a foundation's top card taken down onto the tableau so that the waste's card, or a run lying on
+     * face-down cards, can go on it (moving a run sideways never helps: a card of the same rank and colour
+     * could go straight where the run would go) */
+    for (t = SOL_FOUND0; t < SOL_FOUND0 + 4; t++) {
+        const SolPile *p = &b->p[t], *w = &b->p[SOL_WASTE];
+        int helps = 0, k;
+        if (!p->n || sol_rank(p->c[p->n - 1]) <= 1)
+            continue;                                             /* (an ace or a two would go straight back) */
+        if (w->n && sol_is_up(w->c[w->n - 1]) && stacks_on(w->c[w->n - 1], p->c[p->n - 1]))
+            helps = 1;
+        for (k = SOL_TAB0; k < SOL_NPILES && !helps; k++) {
+            int lo = first_up(b, k);
+            helps = lo > 0 && lo < b->p[k].n && stacks_on(b->p[k].c[lo], p->c[p->n - 1]);
+        }
+        if (!helps)
+            continue;
+        for (d = SOL_TAB0; d < SOL_NPILES; d++)
+            if (sol_can_drop(b, d, t, p->n - 1)) {
+                offer(acc, SOL_HINT_MOVE, t, p->n - 1, d, SOL_HC_DOWN, 0);
+                break;
+            }
+    }
 
-    if (!best.have) {
+    /* 12, 13. the stock */
+    if (b->p[SOL_STOCK].n)
+        offer(acc, SOL_HINT_DRAW, SOL_STOCK, b->p[SOL_STOCK].n - 1, SOL_WASTE, SOL_HC_DRAW, 0);
+    else if (b->p[SOL_WASTE].n && recycle_ok)
+        offer(acc, SOL_HINT_RECYCLE, SOL_STOCK, -1, SOL_WASTE, SOL_HC_RECYCLE, 0);
+}
+
+int sol_hint_find(const SolBoard *b, int recycle_ok, SolHintMove *out)
+{
+    Acc acc;
+    memset(&acc, 0, sizeof acc);
+    generate(b, recycle_ok, &acc);
+    if (!acc.have) {
         memset(out, 0, sizeof *out);
         out->kind = SOL_HINT_NONE;
         out->src = out->dst = out->index = -1;
         return 0;
     }
-    *out = best.m;
+    *out = acc.m;
     return 1;
+}
+
+int sol_hint_list(const SolBoard *b, int recycle_ok, SolHintMove *out, int max)
+{
+    SolHintMove all[SOL_HINT_MAX];
+    int ties[SOL_HINT_MAX], i, j, n;
+    Acc acc;
+    memset(&acc, 0, sizeof acc);
+    acc.list = all;
+    acc.ties = ties;
+    acc.cap = SOL_HINT_MAX;
+    generate(b, recycle_ok, &acc);
+    n = acc.n;
+    /* stable insertion sort: class ascending, then tie descending, then the order found */
+    for (i = 1; i < n; i++) {
+        SolHintMove m = all[i];
+        int tie = ties[i];
+        for (j = i; j > 0 && (all[j - 1].cls > m.cls || (all[j - 1].cls == m.cls && ties[j - 1] < tie)); j--) {
+            all[j] = all[j - 1];
+            ties[j] = ties[j - 1];
+        }
+        all[j] = m;
+        ties[j] = tie;
+    }
+    /* the same move found for two reasons is listed once, at its better place */
+    for (i = 0, j = 0; i < n && j < max; i++) {
+        int k, dup = 0;
+        for (k = 0; k < j && !dup; k++)
+            dup = out[k].kind == all[i].kind && out[k].src == all[i].src && out[k].index == all[i].index &&
+                  out[k].dst == all[i].dst;
+        if (!dup)
+            out[j++] = all[i];
+    }
+    return j;
+}
+
+int sol_useful_move(const SolBoard *b)
+{
+    SolHintMove m;
+    return sol_hint_find(b, 0, &m) && m.cls <= SOL_HC_USEFUL;
 }
 
 int sol_click_dest(const SolBoard *b, int pile, int index)

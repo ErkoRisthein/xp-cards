@@ -33,7 +33,9 @@
 #define SOL_STATUS_CLASS L"Stat"                  /* XP's status bar class name */
 #define WM_APP_SYNC      (WM_APP + 1)             /* deferred "session state changed": render the difference */
 #define WM_APP_SOLVED    (WM_APP + 2)             /* a solver job finished (lParam = the job; 0 = retry delivery) */
+#define WM_APP_LAND      (WM_APP + 3)             /* 2d: cards still in the air land (safety net after a call) */
 #define SOL_ZIP_FRAME_MS 10                       /* the zip-back slide of a refused drop (layout.md §6.1) */
+#define SOL_TIMER_PULSE  668                      /* 2d, Enhanced animations: frames of the hint's soft pulse */
 
 typedef struct App {
     HINSTANCE  inst;
@@ -72,6 +74,27 @@ typedef struct App {
     int        in_modal;        /* > 0 while one of our dialogs / message boxes is up */
     int        cascade_abort;   /* stop the win cascade (layout change, close) */
     CeAnimClock anim;
+
+    /* 2d: the cards in the air (engine/win32/anim.h): Finish's and the auto-moves' flights, and with
+     * Enhanced animations a deal and the cards turning over. The back buffer shows `disp`: the session's
+     * board without them (a card not moved yet left off its pile, the others off their destination). */
+    CeFlights  fl;
+    unsigned   fl_gen;          /* layout_gen when they began (a new layout drops them) */
+    SolBoard   disp;
+    unsigned   drawn_deals;     /* s.deals when the back buffer was last synced */
+    int        land_posted;     /* WM_APP_LAND is in the queue */
+    int        anim_slow;       /* test hook SOLHD_ANIM_SLOW: animations that many times slower (1) */
+
+    /* 2d: the Finish button on the table (shown while Game > Finish is enabled), its look as drawn */
+    CeTableButton fbtn;
+    int        finish_avail;
+    int        btn_drawn;       /* 0: not in the back buffer; 1 + hot + 2 pressed */
+    int        btn_down;        /* the last left press was the button's (at btn_down_t): its double-click's */
+    DWORD      btn_down_t;      /* second press is the button's too, never the win cascade's "stop" */
+
+    /* 2d, Enhanced animations: the hint's pulse */
+    int        pulse_pile, pulse_card, pulse_from, pulse_to, pulse_timer;
+    DWORD      pulse_t0;
     CeFullScreen fs;
     CeStore    app_store;       /* HKCU\Software\xp-cards\Solitaire HD (extras) */
 
@@ -116,8 +139,12 @@ void   view_drag_to(App *a, int x, int y);           /* the pointer moved while 
 void   view_zip_back(App *a);                        /* animate the dragged cards back (refused drop) */
 void   view_kbd_cursor(App *a, int pile, int card, int dragging);
 void   view_cascade(App *a);                         /* the win animation, until done or input */
-void   view_animate_move(App *a, int src, int dst);  /* Finish: fly the top card of src to dst */
-void   view_anim_idle(App *a);
+void   view_animate_move(App *a, int src, int dst);  /* Finish, auto-moves: fly the top card of src to dst */
+void   view_anim_idle(App *a);                       /* the cards in the air land; the timer back to normal */
+void   view_anim_drop(App *a);                       /* forget them (the window is going) */
+void   view_pulse_tick(App *a);                      /* SOL_TIMER_PULSE */
+int    view_button_mouse(App *a, UINT m, LPARAM lp); /* the Finish button's mouse; 1 = it took the message */
+void   view_finish_avail(App *a, int on);            /* Game > Finish enabled or not (the button) */
 
 /* status.c */
 int    status_register(HINSTANCE inst);

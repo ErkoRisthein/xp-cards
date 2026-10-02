@@ -15,15 +15,19 @@ src/engine/            portable C99, no Windows headers, unit-tested natively (p
                        the card resampler, compositing, the card shape and frame, bevel rings
   cardset.{h,c}        CeCardSet: the 52 faces + optional backs at any size, lazy, two qualities,
                        memory policy, ring cache
-  draw.{h,c}           CeDraw: clipped drawing (fill, sprites, inversion, XP bevel, HD ring, R2_NOT frame)
+  draw.{h,c}           CeDraw: clipped drawing (fill, sprites, inversion (also partial), XP bevel, HD ring,
+                       R2_NOT frame)
+  ease.{h,c}           easing curves (cubic-bezier, fixed-point tables) and flight durations (2d)
   store.{h,c}          CeStore (32-bit values by name), CeBlobIO (whole-file I/O), CRC-32
 src/engine/win32/      Win32 shell pieces (XP SP2 APIs only); shell.h includes them all
   winutil.{h,c}        timing log, UTF-8 -> UTF-16, LoadString, RCDATA asset loader, time seed,
                        mouse-over test, message loop
   backbuf.{h,c}        CeBackBuf: DIB back buffer + scratch DIB, WM_PAINT, live-resize quality
-  anim.{h,c}           CeAnimClock: timeBeginPeriod(1), frame pacing, straight flights (ce_anim_fly)
-  drag.{h,c}           CeDrag: cards dragged with the mouse (the lifted stack's sprite over the back
-                       buffer, the zip-back of a refused drop, the drag threshold)
+  anim.{h,c}           CeAnimClock: timeBeginPeriod(1), frame pacing, eased flights (ce_anim_fly), the
+                       flight scheduler CeFlights (overlapping cascades, flips)
+  drag.{h,c}           CeDrag: cards dragged with the mouse (the lifted stack's sprite and its optional
+                       shadow over the back buffer, the zip-back of a refused drop, the drag threshold)
+  button.{h,c}         CeTableButton: a push button drawn on the table (the Finish button)
   menubar.{h,c}        CeMenuBarText: text at the right end of the menu bar ("Cards Left")
   window.{h,c}         window sizes, first-run rect, WindowPlacement load/fix/save, CeFullScreen
   regstore.{h,c}       registry CeStore (REG_BINARY or REG_DWORD, entpack.ini migration),
@@ -94,14 +98,32 @@ renders its board without the lifted cards and gives `ce_drag_begin` their sprit
 point; `ce_drag_move` follows the pointer (each move one flicker-free frame of the union of the old and
 new rect), `ce_drag_paint` in WM_PAINT, `ce_drag_zip_back` slides a refused drop home (`ce_anim_fly`),
 `ce_drag_end` invalidates the sprite's rect and frees it; `ce_drag_threshold_passed` (SM_CXDRAG /
-SM_CYDRAG) tells a drag from a click. Without a sprite only the position is kept (Solitaire's "Outline
+SM_CYDRAG) tells a drag from a click. `ce_drag_set_shadow` adds a shadow under the stack (`ce_image_shadow`:
+the sprite's alpha blurred), drawn and moved with it. Without a sprite only the position is kept (Solitaire's "Outline
 dragging" draws the drag as part of its board).
 
-**Animation.** `ce_anim_fly` moves one sprite in a straight line, XP's AnimateCard (frames of
-`px_per_frame`, paced at `frame_ms`, late frames dropped, never the landing frame), stopping when the
-abort callback says the layout changed. Other animations (Solitaire's win cascade, its deal) use
-`ce_anim_begin`, `ce_anim_frame_wait(t0, i, frame_ms)` and `ce_anim_idle` (call it once the whole
-replay is over, not per card: timeBeginPeriod is slow on XP).
+**Animation.** Timing first (`engine/ease.h`, portable): `ce_flight_ms(dist, scale_milli, px_per_frame,
+frame_ms)` is a flight's time, XP's straight-flight pace for that distance (`ce_flight_ms_xp`) capped at 60
++ 100 d / 640 ms (d in XP pixels), 160 at most; `ce_ease(curve, t, dur)` its progress (CE_EASE_STANDARD
+between piles, DECEL arriving, ACCEL leaving, LINEAR = XP's); `ce_cascade_ms` when a cascade's next card
+starts (60 %). `ce_anim_fly` moves one sprite (and an optional shadow) along a curve in that time,
+frame-timed (late frames dropped, never the landing frame; each frame shows the position due one frame
+later, as XP's AnimateCard), stopping when the abort callback says the layout changed. A game with
+cascades uses `CeFlights`: `ce_flights_add` (held until the game has moved the card:
+`ce_flights_release`), `ce_flights_run(fl, ce_flights_next(f))` before the next card,
+`ce_flights_settle(fl, pile)` before a card leaves a pile cards are still landing on, and
+`ce_flights_land_all` at the end; the game hides the cards in the air from its back buffer (it reads
+`fl.f[]`) and re-renders a landing card's region in the land callback (`ce_flights_dirty`). A flight can
+also be a flip (`CE_FLIGHT_FLIP`: `img` narrows, `img2` widens). Frames present only dirty rects
+(`ce_backbuf_present_layers`). Other animations (Solitaire's win cascade) use `ce_anim_begin`,
+`ce_anim_frame_wait(t0, i, frame_ms)` and `ce_anim_idle` (call it once the whole replay is over, not per
+card: timeBeginPeriod is slow on XP).
+
+**Table button.** `CeTableButton` (`engine/win32/button.h`): `ce_tbutton_place` per layout, the game sets
+`shown` and draws it into the back buffer after rendering a region that meets it (`ce_tbutton_draw`: the
+visual style's push button through uxtheme.dll loaded at run time, else DrawFrameControl), and routes the
+left button, the mouse moves, WM_MOUSELEAVE and WM_CAPTURECHANGED through `ce_tbutton_mouse` (USED,
+REDRAW, CLICK).
 
 **Settings.** A game's options and statistics models take a `CeStore`; the exe gives them
 `ce_reg_store(&key)` with a static `CeRegStore { key, binary, ini_file, ini_section }`: XP FreeCell's

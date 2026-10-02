@@ -80,15 +80,24 @@ docs/DESIGN.md "FreeCell HD extras (v1.4)" and "Solitaire HD extras (v1.2)".
 - Source of ideas: docs/msc-feature-gap.md.
 
 ## 2c. Windows 7-inspired batch (decided 2026-10-01; source docs/win7-feature-gap.md; behaviour changes opt-in)
-- Solitaire: "No More Moves" detection (End Game / Return to Game).
-- Hint cycling: pressing H again shows the next-best move (FreeCell + Solitaire).
-- Solitaire statistics: top-5 high scores with dates; Vegas most won / most lost / current winnings.
-- "Large Print" card style (big indices, from the RevK generator's Large index option) — opt-in.
-- Richer New Game / Exit / saved-game prompts when save-on-exit is enabled (XP Yes/No stays default).
-- Solitaire: changing Draw/Scoring can apply to the next game instead of redealing (opt-in).
+docs/DESIGN.md "Windows 7-inspired extras (2c)".
+- [x] Solitaire: "No More Moves" detection (End Game / Return to Game): option "Tell me when there are
+  no more moves" (off); the fair dead-end tracking (a whole stock cycle, or the used-up stock, with no
+  useful move) also makes Hint say "There are no more useful moves." instead of suggesting draws forever.
+- [x] Hint cycling: pressing H again shows the next-best move (FreeCell + Solitaire; always on; the
+  rankings are documented in assist.h / session.h).
+- [x] Solitaire statistics: top-5 high scores with dates (Standard timed / not timed, Vegas); Vegas most
+  won / most lost / current winnings; statistics.bin version 2 (version 1 migrated).
+- "Large Print" card style (big indices, from the RevK generator's Large index option) — opt-in. (Card
+  art: the cards-xplike branch.)
+- [x] Richer New Game / Exit / saved-game prompts when save-on-exit is enabled (XP's plain behaviour stays
+  the default); Restart This Game.
+- [x] Solitaire: changing Draw/Scoring/Timed can apply to the next game instead of redealing: option
+  "Apply option changes to the next game" (off).
 
-## 2d. Motion polish (decided 2026-10-01)
-- Replace linear card flights with Material-style easing: standard easing cubic-bezier(0.2, 0, 0, 1)
+## 2d. Motion polish (decided 2026-10-01) — done
+docs/DESIGN.md "Motion (2d)".
+- [x] Replace linear card flights with Material-style easing: standard easing cubic-bezier(0.2, 0, 0, 1)
   for moves between piles, decelerate (0, 0, 0.2, 1) for cards arriving (deal, autoplay home),
   accelerate (0.3, 0, 1, 1) for cards leaving the table; durations SNAPPY — never slower than the
   current (XP-paced) flight for the same move: ~60 ms short hops to ≤ 160 ms longest flights, scaled by
@@ -96,14 +105,19 @@ docs/DESIGN.md "FreeCell HD extras (v1.4)" and "Solitaire HD extras (v1.2)".
   (next starts at ~60% of the previous) so long cascades finish faster than XP's, frame-timed (engine animation driver), Quick play = none.
   Applies to every existing motion (FreeCell moves/autoplay/undo/redo/finish, Solitaire auto-moves,
   double-click, finish, hint). Default ON: it only changes the timing curve, not what happens.
-- New effects XP never had — behind one Options checkbox "Enhanced animations" (default off):
+  (Done: engine/ease.h + the flight scheduler; at 1080p a FreeCell Finish of 52 cards 5.3 -> 3.2 s,
+  Solitaire's 2.8 -> 1.7 s, no single flight longer than before.)
+- [x] New effects XP never had — behind one Options checkbox "Enhanced animations" (default off):
   drag lift + soft shadow, slide-back of an illegal drop (eased), card turn-over flip, deal animation,
-  hint pulse instead of hard inversion blinks; anything MSC animates that fits the XP look.
-- Win animations stay exactly as XP (bouncing cards physics, FreeCell big king).
+  hint pulse instead of hard inversion blinks; anything MSC animates that fits the XP look. (Done: the
+  shadow, the Solitaire flip, the deal flying in (both games), the hint pulse, Solitaire's double-click and
+  right-button autoplay flown (XP moves them at once); the slide-back is eased for everyone, with the
+  shadow under Enhanced.)
+- [x] Win animations stay exactly as XP (bouncing cards physics, FreeCell big king).
 - MSC reference (game_animation.tuningdata, MSC 4.27): auto-solve plays 0.3 s/card, speeding up to
   0.1 s/card after 3 moves; card-move durations are hard-coded in its exe. Ours stays snappier
   (≤160 ms flights, overlapping cascades).
-- Finish button (both games, always on — no toggle, it can simply be ignored): when the rest is a
+- [x] Finish button (both games, always on — no toggle, it can simply be ignored): when the rest is a
   sure win, a small XP-style push button appears on the table (MSC's "Solve"); clicking it = Game > Finish (F6). Players
   who prefer can ignore it and play the cards one by one.
 

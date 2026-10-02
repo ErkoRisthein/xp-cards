@@ -211,6 +211,7 @@ void sol_view_init(SolView *v)
     v->drag_mode = SOL_DRAG_FULL;
     v->target = -1;
     v->sel_pile = v->sel_card = -1;
+    v->sel_level = 256;
 }
 
 static int pile_n(const SolBoard *b, int pile)
@@ -230,7 +231,18 @@ static const CeImage *sprite(SolGfx *g, const SolBoard *b, int back, int pile, i
 /* Is card i of the pile drawn inverted (keyboard selection)? */
 static int selected(const SolView *v, int pile, int i)
 {
-    return v->sel_pile == pile && v->sel_card >= 0 && i >= v->sel_card;
+    return v->sel_level > 0 && v->sel_pile == pile && v->sel_card >= 0 && i >= v->sel_card;
+}
+
+/* A card, inverted when selected; a selection at a partial level (the hint's pulse) partly inverted. */
+static void sel_sprite(CeDraw *c, const SolView *v, const CeImage *s, int x, int y, int sel)
+{
+    if (!sel || v->sel_level >= 256) {
+        ce_draw_sprite(c, s, x, y, sel);
+        return;
+    }
+    ce_draw_sprite(c, s, x, y, 0);
+    ce_draw_invert_mask_level(c, s, x, y, v->sel_level);
 }
 
 static int lifted(const SolView *v, int pile)
@@ -242,6 +254,11 @@ static int lifted(const SolView *v, int pile)
 static void invert_slot(CeDraw *c, SolGfx *g, int x, int y)
 {
     ce_draw_invert_mask(c, ce_cardset_card(g->cards, 0), x, y);
+}
+
+static void invert_slot_level(CeDraw *c, SolGfx *g, int x, int y, int level)
+{
+    ce_draw_invert_mask_level(c, ce_cardset_card(g->cards, 0), x, y, level);
 }
 
 static void draw_pile(CeDraw *c, const SolLayout *l, const SolBoard *b, const SolView *v, SolGfx *g, int pile)
@@ -258,7 +275,7 @@ static void draw_pile(CeDraw *c, const SolLayout *l, const SolBoard *b, const So
         else if (pile >= SOL_FOUND0 && pile < SOL_TAB0)
             ce_draw_sprite(c, ghost(g), pr.x, pr.y, 0);
         if (n == 0 && selected(v, pile, 0))
-            invert_slot(c, g, pr.x, pr.y);
+            invert_slot_level(c, g, pr.x, pr.y, v->sel_level);
         return;
     }
     {
@@ -276,7 +293,7 @@ static void draw_pile(CeDraw *c, const SolLayout *l, const SolBoard *b, const So
             if (nx == x && ny == y)
                 continue;                                /* exactly covered by the next card */
         }
-        ce_draw_sprite(c, sprite(g, b, v->back, pile, i), x, y, selected(v, pile, i));
+        sel_sprite(c, v, sprite(g, b, v->back, pile, i), x, y, selected(v, pile, i));
     }
 }
 

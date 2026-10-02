@@ -46,6 +46,8 @@ void ce_draw_sprite(CeDraw *d, const CeImage *s, int x, int y, int inverted);
 
 /* Invert the opaque framebuffer where mask covers it (e.g. any card sprite: a card-shaped area). */
 void ce_draw_invert_mask(CeDraw *d, const CeImage *mask, int x, int y);
+/* The same, partly: level 0 (nothing) .. 256 (= ce_draw_invert_mask): a soft hint pulse. */
+void ce_draw_invert_mask_level(CeDraw *d, const CeImage *mask, int x, int y, int level);
 
 /* Invert a frame of thickness t (>= 1) along the inside of r: XP's R2_NOT outline (Solitaire's
  * "Outline dragging"). Drawing it twice restores the pixels. */

@@ -10,7 +10,9 @@
  * automatically, click-to-move, Hint and its flash, Finish, statistics; v1.2: cards home automatically,
  * click to select, Undo All and its Redo, the D key): the same invariants, plus no face-down card left
  * on top of a column after an action, no card safe to go home left after one (with auto-home), Undo
- * All returning to the deal and its Redo to the position before it, and the statistics' sums.
+ * All returning to the deal and its Redo to the position before it, and the statistics' sums. 2c: the No
+ * More Moves question, the New Game question of "Save game on exit" and "Apply option changes to the
+ * next game" answered at random (Options changes among the inputs); a dead end never has a useful move.
  */
 #include "sol_test.h"
 
@@ -88,7 +90,7 @@ static int x_click(const SolSession *s) { return s->extras.click_select; }
 static long long steps_total, undos_checked, games_restored, wins, forced_wins, max_home;
 
 static long long extra_finishes, extra_hints, extra_clicks, extra_selects, extra_undo_alls, extra_group_redos,
-    extra_auto_home;
+    extra_auto_home, extra_ended, extra_dead, extra_pending;
 
 static void play(unsigned game, uint32_t opts, int smart, int extras)
 {
@@ -106,6 +108,9 @@ static void play(unsigned game, uint32_t opts, int smart, int extras)
         x.click_move = (game % 3) != 1;
         x.auto_home = (game % 3) != 2;
         x.click_select = (game & 1) != 0;
+        x.no_more_moves = (game % 5) != 0;      /* 2c */
+        x.save_game = (game & 2) != 0;
+        x.next_game_options = (game & 4) != 0;
         sol_set_extras(&s, &x);
         sol_attach_stats(&s, NULL);
     }
@@ -123,9 +128,10 @@ static void play(unsigned game, uint32_t opts, int smart, int extras)
         int what = trand() % 100, nanim = f.nanim, undo_all = 0;
         if (smart && trand() % 100 < 90) what = -1;
         int mods = trand() % 8 == 0 ? (trand() & 7) : 0;
+        if (extras) f.answer = trand() % 4 - 1;     /* 2c: ui.choose's answer (-1: the default) */
         if (extras && what >= 0 && trand() % 6 == 0) {
             /* the extras' own inputs */
-            int k = trand() % 8;
+            int k = trand() % 9;
             if (k == 0) {
                 sol_command(&s, SOL_CMD_HINT);
                 if (s.hint) extra_hints++;
@@ -134,6 +140,15 @@ static void play(unsigned game, uint32_t opts, int smart, int extras)
                 sol_command(&s, SOL_CMD_FINISH);
             } else if (k == 2) {
                 sol_command(&s, SOL_CMD_DRAW);
+            } else if (k == 8) {                    /* 2c: an Options change (the question, maybe pending) */
+                SolOptions o = *sol_dialog_options(&s);
+                switch (trand() % 3) {
+                case 0: o.draw = o.draw == 1 ? 3 : 1; break;
+                case 1: o.scoring = trand() % 3; break;
+                default: o.timed = !o.timed; break;
+                }
+                if (!sol_dragging(&s)) sol_apply_options(&s, &o);
+                if (s.pending) extra_pending++;
             } else if (k == 3 && trand() % 4 == 0) {   /* Undo All (no confirm callback: Yes) */
                 if (sol_undo_enabled(&s)) {
                     take(&s, &group_end);
@@ -222,7 +237,12 @@ static void play(unsigned game, uint32_t opts, int smart, int extras)
         int ended = prev_dealt && !s.dealt;
         if (ended) {
             if (s.forced_win) forced_wins++;
-            else wins++;
+            else if (s.won) wins++;
+            else extra_ended++;                 /* 2c: End Game (No More Moves) */
+        }
+        if (extras && s.dealt && sol_no_more_moves(&s)) {
+            extra_dead++;
+            INV(!sol_useful_move(&s.board), "game %u step %d: a dead end with a useful move", game, step);
         }
         if (s.dealt && total_found(&s) > max_home) max_home = total_found(&s);
         if (!s.dealt && !sol_dragging(&s)) sol_command(&s, SOL_CMD_DEAL);
@@ -343,8 +363,10 @@ int main(void)
     for (unsigned g = 2001; g <= 2300; g++) play(g, modes[g % (sizeof modes / sizeof modes[0])], (g >> 1) & 1, 1), n++;
     printf("extras on: %d games, %lld inputs, %lld wins (+%lld forced), %lld finishes, %lld hints, %lld "
            "click moves, %lld click selections, %lld actions with cards home automatically, %lld Undo Alls "
-           "(%lld redone whole), %lld undos checked, %lld games undone to the deal and redone\n", n, steps_total,
+           "(%lld redone whole), %lld undos checked, %lld games undone to the deal and redone; 2c: %lld "
+           "positions in a dead end, %lld games ended there, %lld Options changes left pending\n", n, steps_total,
            wins, forced_wins, extra_finishes, extra_hints, extra_clicks, extra_selects, extra_auto_home,
-           extra_undo_alls, extra_group_redos, undos_checked, games_restored);
+           extra_undo_alls, extra_group_redos, undos_checked, games_restored, extra_dead, extra_ended,
+           extra_pending);
     return test_summary("test_sol_playout");
 }
